@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model WaitTimeRecord {
+  id         String   @id @default(uuid())
+  rideId     Int
+  rideName   String
+  landName   String
+  waitTime   Int
+  isOpen     Boolean
+  windowedAt DateTime
+  recordedAt DateTime @default(now())
+
+  @@unique([rideId, windowedAt])
+  @@index([rideId, recordedAt])
+  @@index([recordedAt])
+}
+
+model DailyForecast {
+  id            String   @id @default(uuid())
+  rideId        Int
+  rideName      String
+  landName      String
+  forecastFor   DateTime
+  predictedWait Int
+  crowdScore    Int
+  mlConfidence  Float
+  createdAt     DateTime @default(now())
+
+  @@index([rideId, forecastFor])
+  @@index([forecastFor])
+}
+
+model Prediction {
+  id            String   @id @default(uuid())
+  rideId        Int
+  rideName      String
+  predictedFor  DateTime
+  predictedWait Int
+  mlWait        Int
+  createdAt     DateTime @default(now())
+
+  @@index([rideId, predictedFor])
+}
+
+model CollectRun {
+  id           String   @id @default(uuid())
+  ranAt        DateTime @default(now())
+  rowsUpserted Int
+  success      Boolean
+  errorMessage String?
+}

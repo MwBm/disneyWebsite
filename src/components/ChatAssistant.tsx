@@ -1,0 +1,120 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+
+type Message = { role: "user" | "assistant"; content: string };
+
+export default function ChatAssistant() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    if (!input.trim() || streaming) return;
+
+    const userMsg: Message = { role: "user", content: input.trim() };
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
+    setInput("");
+    setStreaming(true);
+
+    const assistantMsg: Message = { role: "assistant", content: "" };
+    setMessages([...nextMessages, assistantMsg]);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: nextMessages }),
+      });
+
+      if (!res.ok || !res.body) {
+        throw new Error("Request failed");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: "assistant", content: buffer };
+          return updated;
+        });
+      }
+    } catch {
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          role: "assistant",
+          content: "Sorry, something went wrong. Please try again.",
+        };
+        return updated;
+      });
+    } finally {
+      setStreaming(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-[600px] bg-white border border-cream-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+        {messages.length === 0 && (
+          <p className="text-warm-700 text-sm text-center mt-16">
+            Ask me anything about Disneyland — wait times, ride tips, itinerary advice.
+          </p>
+        )}
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                msg.role === "user"
+                  ? "bg-orange-500 text-white rounded-br-sm"
+                  : "bg-cream-100 text-warm-900 rounded-bl-sm"
+              }`}
+            >
+              {msg.content}
+              {streaming && i === messages.length - 1 && msg.role === "assistant" && (
+                <span className="inline-block w-1 h-3.5 bg-warm-700 ml-0.5 animate-pulse" />
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      <form
+        onSubmit={send}
+        className="border-t border-cream-200 p-4 flex gap-3 bg-cream-100"
+      >
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ask about wait times, best times to visit, rides…"
+          disabled={streaming}
+          className="flex-1 bg-white border border-cream-200 rounded-xl px-4 py-2.5 text-sm text-warm-900 placeholder-warm-500 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={streaming || !input.trim()}
+          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-40"
+        >
+          Send
+        </button>
+      </form>
+    </div>
+  );
+}
