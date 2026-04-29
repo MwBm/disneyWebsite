@@ -5,7 +5,15 @@ import { fetchLiveRides } from "@/lib/queue-times";
 import { getCrowdScoreForDate } from "@/lib/forecast";
 import { buildChatSystemPrompt } from "@/lib/claude";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+function getGroqClient() {
+  const apiKey = process.env.GROQ_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY is required");
+  }
+
+  return new Groq({ apiKey });
+}
 
 const BodySchema = z.object({
   messages: z.array(
@@ -35,6 +43,7 @@ export async function POST(req: NextRequest) {
   const rides = liveRides.status === "fulfilled" ? liveRides.value : [];
   const score = crowdScore.status === "fulfilled" ? crowdScore.value : null;
   const systemPrompt = buildChatSystemPrompt(rides, score, new Date());
+  const groq = getGroqClient();
 
   const stream = await groq.chat.completions.create({
     model: "llama3-8b-8192",

@@ -2,7 +2,15 @@ import Groq from "groq-sdk";
 import { crowdLabel } from "./forecast";
 import { format } from "date-fns";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+function getGroqClient() {
+  const apiKey = process.env.GROQ_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY is required");
+  }
+
+  return new Groq({ apiKey });
+}
 
 type RideForecast = {
   rideName: string;
@@ -15,6 +23,7 @@ export async function narrateForecast(
   forecasts: RideForecast[],
   date: Date
 ): Promise<string> {
+  const groq = getGroqClient();
   const { label } = crowdLabel(crowdScore);
   const dateStr = format(date, "MMMM d, yyyy");
   const top5 = [...forecasts]
@@ -74,6 +83,7 @@ export async function buildItinerary(
   priorities: string[],
   forecasts: RideForecast[]
 ): Promise<string> {
+  const groq = getGroqClient();
   const forecastList = forecasts
     .sort((a, b) => a.predictedWait - b.predictedWait)
     .map((f) => `${f.rideName} (${f.landName}): ~${f.predictedWait} min wait`)
