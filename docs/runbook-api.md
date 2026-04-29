@@ -6,26 +6,9 @@ All routes are Next.js App Router Route Handlers. No shared state between reques
 
 ---
 
-## `/api/collect` — Data Collection
+## Data collection
 
-**Trigger:** GitHub Actions cron every 30 min (also callable manually).
-
-**Auth:** `Authorization: Bearer $COLLECT_SECRET` header required. Returns 401 otherwise.
-
-**Flow:**
-1. Fetch live rides from queue-times.com via `fetchLiveRides()`
-2. Round each `last_updated` to nearest 30 min → `windowedAt`
-3. Upsert into `WaitTimeRecord` with `skipDuplicates: true`
-4. Write `CollectRun` row (success, rowsUpserted)
-5. Fetch last 90 days from DB → POST to Python ML service
-6. Write returned `DailyForecast` rows (next 24 hours per ride)
-7. On ML failure: skip step 6, log error in `CollectRun.errorMessage`
-
-**Manual test:**
-```bash
-curl -X POST http://localhost:3000/api/collect \
-  -H "Authorization: Bearer $(grep COLLECT_SECRET .env.local | cut -d= -f2 | tr -d '"')"
-```
+The cron pipeline lives in `ml-service/collect.py` and runs in GitHub Actions, not Next.js. See [runbook-cron.md](runbook-cron.md) and [runbook-ml-service.md](runbook-ml-service.md).
 
 ---
 

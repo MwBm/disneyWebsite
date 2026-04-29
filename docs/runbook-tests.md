@@ -8,13 +8,6 @@
 npm test
 ```
 
-### `tests/api/collect.test.ts`
-- Upsert count matches fetched ride count
-- `CollectRun` written on success
-- `CollectRun.errorMessage` set when ML service fails
-- No `DailyForecast` rows written when ML returns null
-- Idempotency: calling collect twice doesn't duplicate rows
-
 ### `tests/api/accuracy.test.ts`
 - MAE calculated correctly
 - Empty result when no matching `WaitTimeRecord` for predictions

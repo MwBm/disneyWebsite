@@ -1,6 +1,6 @@
-# Runbook: Python ML Service (`ml-service/`)
+# Runbook: Python ML Pipeline (`ml-service/`)
 
-Stateless FastAPI service. Receives historical ride data, returns wait time predictions. Deployed on Railway.
+Single-shot Python script. Runs from GitHub Actions every 30 min. Fetches live waits, upserts records, trains per-ride regression, writes forecasts. No HTTP server.
 
 ---
 
@@ -11,64 +11,48 @@ cd ml-service
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+DATABASE_URL="$DIRECT_URL" python collect.py
 ```
 
-Health check:
-```bash
-curl http://localhost:8000/health
-# {"status": "ok"}
-```
+Uses Supabase `DIRECT_URL` (port 5432) — pgbouncer query param is stripped automatically if present.
 
 ---
 
-## Endpoints
+## Files
 
-### `GET /health`
-Returns `{"status": "ok"}`. Used by Railway health checks.
-
-### `POST /predict`
-
-**Request:**
-```json
-{
-  "rides": [
-    {
-      "ride_id": 1,
-      "ride_name": "Space Mountain",
-      "wait_time": 45,
-      "is_open": true,
-      "windowed_at": "2025-06-01T14:00:00Z"
-    }
-  ],
-  "target_date": "2025-07-04T00:00:00Z",
-  "full_retrain": false
-}
-```
-
-`rides` = last 90 days of `WaitTimeRecord` rows from DB.
-
-**Response:**
-```json
-{
-  "forecasts": [
-    { "ride_id": 1, "predicted_wait": 62, "confidence": 0.78 }
-  ],
-  "crowd_score": 84
-}
-```
+| File | Purpose |
+|---|---|
+| `collect.py` | End-to-end cron pipeline: queue-times → DB upsert → ML → DB insert |
+| `model.py` | `predict_for_date(records, target_date)` — Ridge regression per ride |
+| `schemas.py` | Pydantic models (`RideHistory`, `RideForecast`) |
+| `requirements.txt` | scikit-learn, numpy, pydantic, httpx, psycopg, pytest |
 
 ---
 
-## Model
+## Pipeline (`collect.py`)
 
-`model.py` — `predict_for_date(records, target_date)`:
+1. `GET https://queue-times.com/en-US/parks/16/queue_times.json`
+2. `INSERT ... ON CONFLICT (rideId, windowedAt) DO UPDATE` per ride into `WaitTimeRecord`
+3. `SELECT` last 90 days of `WaitTimeRecord` rows
+4. Loop 48 × 30-min slots through end of day. For each slot:
+   - `predict_for_date(history, slot)` → list of `(ride_id, predicted_wait, confidence)` + crowd score
+5. Bulk `INSERT` all rows into `DailyForecast`
+6. `INSERT` `CollectRun` row with success/error
 
-- Groups records by `ride_id`
+Errors caught at top level → logged to `CollectRun` with `success=false`, then exit 1 so GitHub fails the job.
+
+---
+
+## Model (`model.py`)
+
+`predict_for_date(records, target_date)`:
+
+- Filters to `is_open=True`
+- Groups by `ride_id`
 - Trains scikit-learn `Ridge` regression per ride
 - Features: `hour`, `day_of_week`, `month`, `is_weekend`
 - Falls back to historical mean if ride has < 30 training samples
-- `crowd_score` = weighted average of predicted waits, clipped to 0–100
+- `crowd_score` = mean of predicted waits (each ride capped at 120) scaled to 0–100
 
 ---
 
@@ -79,19 +63,10 @@ cd ml-service
 pytest tests/ -v
 ```
 
-Tests cover: valid prediction range, fallback on <30 samples, closed ride exclusion, crowd score 0–100 range, API shape validation.
+Tests cover: valid prediction range, fallback on <30 samples, closed ride exclusion, crowd score 0–100 range.
 
 ---
 
-## Railway Deploy
+## Deploy
 
-1. Push `ml-service/` code to repo
-2. In Railway: New Project → Deploy from GitHub → set root directory to `ml-service`
-3. Set start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-4. Copy the Railway URL → set `ML_SERVICE_URL` in Vercel env vars and `.env.local`
-
----
-
-## Fallback Behavior
-
-If this service is unreachable, `ml-client.ts` returns `null`. The Next.js app serves existing `DailyForecast` rows from the DB instead. No user-facing error.
+No deploy step. The script lives in the repo and runs inside `ubuntu-latest` GitHub Actions runners. Update behavior by pushing a new commit — next scheduled run picks it up.

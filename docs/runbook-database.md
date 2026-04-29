@@ -23,7 +23,7 @@ Raw data collected every 30 min from queue-times.com.
 Unique constraint: `(rideId, windowedAt)` — deduplication key. Upsert uses `skipDuplicates`.
 
 ### `DailyForecast`
-Pre-computed predictions written by `/api/collect` after each ML run.
+Pre-computed predictions written by `ml-service/collect.py` after each ML run.
 
 | Column | Type | Notes |
 |---|---|---|

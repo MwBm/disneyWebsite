@@ -21,7 +21,7 @@ const rows = await db.waitTimeRecord.findMany();
 
 **`roundToWindow(date: Date)`** — rounds to nearest 30-min boundary. Used for deduplication key `windowedAt`.
 
-Throws `QueueTimesError` on network failure or invalid response shape. Callers (`/api/collect`, `/api/live`) catch and handle gracefully.
+Throws `QueueTimesError` on network failure or invalid response shape. Callers (`/api/live`) catch and handle gracefully. The Python `collect.py` cron has its own queue-times fetcher.
 
 ---
 
@@ -39,14 +39,6 @@ Throws `QueueTimesError` on network failure or invalid response shape. Callers (
 - 26–50 → "Moderate" (yellow)
 - 51–75 → "Busy" (orange)
 - 76–100 → "Very Busy" (red)
-
----
-
-## `ml-client.ts` — Python Service Client
-
-**`requestMLForecast(rides, targetDate)`** — POSTs last-90-days ride history to the Python ML service. Returns `DailyForecast[]` on success, `null` on any failure (network error, timeout, bad response shape). Callers treat `null` as "skip writing forecasts, use existing DB rows."
-
-Zod-validates the Python service response before returning.
 
 ---
 

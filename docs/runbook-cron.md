@@ -6,7 +6,7 @@
 
 Runs every 30 minutes: `*/30 * * * *`
 
-Calls `POST /api/collect` on the deployed Vercel app.
+Executes `python ml-service/collect.py` directly inside the GitHub Actions runner. No external HTTP service required.
 
 ---
 
@@ -16,20 +16,29 @@ Set in repo Settings → Secrets and variables → Actions:
 
 | Secret | Value |
 |---|---|
-| `COLLECT_SECRET` | Same value as `COLLECT_SECRET` in Vercel env vars |
-| `NEXT_PUBLIC_APP_URL` | Deployed Vercel URL e.g. `https://disney-planner.vercel.app` |
+| `DATABASE_URL` | Supabase `DIRECT_URL` (port 5432, with `?sslmode=require`) |
+
+The script also accepts `DIRECT_URL` as an alternative variable name. Use the direct connection — `psycopg` does not need pgbouncer.
 
 ---
 
 ## What the Workflow Does
 
-```yaml
-curl -X POST "$NEXT_PUBLIC_APP_URL/api/collect" \
-  -H "Authorization: Bearer $COLLECT_SECRET" \
-  --fail
-```
+1. Checkout repo
+2. Setup Python 3.11 with pip cache keyed on `ml-service/requirements.txt`
+3. `pip install -r ml-service/requirements.txt`
+4. `python collect.py`
 
-Fails the job (non-zero exit) if response is not 2xx. GitHub sends email on failure.
+`collect.py` pipeline:
+
+1. `GET https://queue-times.com/en-US/parks/16/queue_times.json`
+2. `INSERT ... ON CONFLICT` upsert each ride into `WaitTimeRecord`
+3. Pull last 90 days of `WaitTimeRecord` rows
+4. Train Ridge regression per ride, predict each 30-min slot through end of day
+5. Bulk insert `DailyForecast` rows
+6. Log result to `CollectRun`
+
+Job times out after 10 minutes. Errors get logged to `CollectRun` with `success=false` and `errorMessage`.
 
 ---
 
@@ -41,7 +50,9 @@ Check `CollectRun` table in Supabase for run history:
 SELECT * FROM "CollectRun" ORDER BY "ranAt" DESC LIMIT 10;
 ```
 
-The `/accuracy` page shows a data-quality indicator if the last 3 runs failed.
+The `/accuracy` page shows a data-quality indicator if recent runs failed.
+
+GitHub also emails on workflow failure.
 
 ---
 
@@ -51,8 +62,10 @@ In GitHub: Actions tab → "Collect Wait Times" → Run workflow.
 
 Or locally:
 ```bash
-curl -X POST http://localhost:3000/api/collect \
-  -H "Authorization: Bearer YOUR_COLLECT_SECRET"
+cd ml-service
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+DATABASE_URL="$DIRECT_URL" python collect.py
 ```
 
 ---
