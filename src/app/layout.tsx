@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Nav from "@/components/Nav";
+import SpaceBackground from "@/components/SpaceBackground";
+import CustomCursor from "@/components/CustomCursor";
 
 export const metadata: Metadata = {
   title: "Disneyland Planner",
@@ -11,8 +13,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen bg-cream-100">
-        <Nav />
-        <main className="max-w-5xl mx-auto px-4 py-10">{children}</main>
+        <SpaceBackground />
+        <CustomCursor />
+        <div className="relative z-10">
+          <Nav />
+          <main className="max-w-5xl mx-auto px-4 py-10">{children}</main>
+        </div>
       </body>
     </html>
   );

@@ -20,17 +20,11 @@ type Row = {
   absError: number;
 };
 
-export default function AccuracyChart({
-  rows,
-  rideName,
-}: {
-  rows: Row[];
-  rideName: string;
-}) {
+export default function AccuracyChart({ rows, rideName }: { rows: Row[]; rideName: string }) {
   const rideRows = rows
     .filter((r) => r.rideName === rideName)
     .sort((a, b) => a.predictedFor.localeCompare(b.predictedFor))
-    .slice(-48); // last 48 data points
+    .slice(-48);
 
   const data = rideRows.map((r) => ({
     date: format(parseISO(r.predictedFor), "MM/dd HH:mm"),
@@ -43,13 +37,13 @@ export default function AccuracyChart({
       <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 11, fill: "#6b5f57" }}
+          tick={{ fontSize: 11, fill: "#7b90b8" }}
           tickLine={false}
-          axisLine={{ stroke: "#f0ebe3" }}
+          axisLine={{ stroke: "#0e2040" }}
           interval="preserveStartEnd"
         />
         <YAxis
-          tick={{ fontSize: 11, fill: "#6b5f57" }}
+          tick={{ fontSize: 11, fill: "#7b90b8" }}
           tickLine={false}
           axisLine={false}
           unit=" min"
@@ -57,17 +51,18 @@ export default function AccuracyChart({
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: "#fff",
-            border: "1px solid #f0ebe3",
+            backgroundColor: "#0d1b35",
+            border: "1px solid #0e2040",
             borderRadius: 12,
             fontSize: 12,
+            color: "#e0eaff",
           }}
         />
-        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Legend wrapperStyle={{ fontSize: 12, color: "#7b90b8" }} />
         <Line
           type="monotone"
           dataKey="Predicted"
-          stroke="#c94a1f"
+          stroke="#3b82f6"
           strokeWidth={2}
           dot={false}
           strokeDasharray="4 2"
@@ -75,7 +70,7 @@ export default function AccuracyChart({
         <Line
           type="monotone"
           dataKey="Actual"
-          stroke="#1a1410"
+          stroke="#e0eaff"
           strokeWidth={2}
           dot={false}
         />
