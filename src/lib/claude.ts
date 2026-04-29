@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 import { crowdLabel } from "./forecast";
 import { format } from "date-fns";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 type RideForecast = {
   rideName: string;
@@ -23,8 +23,8 @@ export async function narrateForecast(
     .map((f) => `${f.rideName} (~${f.predictedWait} min)`)
     .join(", ");
 
-  const msg = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+  const msg = await groq.chat.completions.create({
+    model: "llama3-8b-8192",
     max_tokens: 200,
     messages: [
       {
@@ -39,8 +39,7 @@ Be specific and actionable. Mention the crowd score label and give one timing ti
     ],
   });
 
-  const block = msg.content[0];
-  return block.type === "text" ? block.text : "";
+  return msg.choices[0]?.message?.content ?? "";
 }
 
 export function buildChatSystemPrompt(
@@ -80,8 +79,8 @@ export async function buildItinerary(
     .map((f) => `${f.rideName} (${f.landName}): ~${f.predictedWait} min wait`)
     .join("\n");
 
-  const msg = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+  const msg = await groq.chat.completions.create({
+    model: "llama3-8b-8192",
     max_tokens: 800,
     messages: [
       {
@@ -100,6 +99,5 @@ Group rides by land to minimize walking. Include estimated times. Keep it practi
     ],
   });
 
-  const block = msg.content[0];
-  return block.type === "text" ? block.text : "";
+  return msg.choices[0]?.message?.content ?? "";
 }

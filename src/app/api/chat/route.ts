@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 import { fetchLiveRides } from "@/lib/queue-times";
-import { getCrowdScoreForDate, crowdLabel } from "@/lib/forecast";
+import { getCrowdScoreForDate } from "@/lib/forecast";
 import { buildChatSystemPrompt } from "@/lib/claude";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const BodySchema = z.object({
   messages: z.array(
@@ -36,24 +36,23 @@ export async function POST(req: NextRequest) {
   const score = crowdScore.status === "fulfilled" ? crowdScore.value : null;
   const systemPrompt = buildChatSystemPrompt(rides, score, new Date());
 
-  const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-6",
+  const stream = await groq.chat.completions.create({
+    model: "llama3-8b-8192",
     max_tokens: 600,
-    system: systemPrompt,
-    messages: parsed.data.messages,
+    stream: true,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...parsed.data.messages,
+    ],
   });
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            controller.enqueue(encoder.encode(event.delta.text));
-          }
+        for await (const chunk of stream) {
+          const text = chunk.choices[0]?.delta?.content ?? "";
+          if (text) controller.enqueue(encoder.encode(text));
         }
       } finally {
         controller.close();

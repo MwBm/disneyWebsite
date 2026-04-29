@@ -1,4 +1,5 @@
 .env.local
+.claude/
 .env
 node_modules/
 .next/
