@@ -2,7 +2,7 @@
 
 import { motion, useSpring, useTransform } from "framer-motion";
 import { useEffect } from "react";
-import { crowdLabel } from "@/lib/forecast";
+import { crowdLabel } from "@/lib/crowd";
 
 type Props = { score: number };
 

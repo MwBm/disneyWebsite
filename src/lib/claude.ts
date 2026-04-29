@@ -1,5 +1,5 @@
 import Groq from "groq-sdk";
-import { crowdLabel } from "./forecast";
+import { crowdLabel } from "./crowd";
 import { format } from "date-fns";
 
 function getGroqClient() {
