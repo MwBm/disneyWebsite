@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { Prisma } from "@prisma/client";
 import { startOfDay, endOfDay } from "date-fns";
+import { deriveCrowdScore } from "./crowd";
 
 export async function getForecastForDate(date: Date) {
   return prisma.dailyForecast.findMany({
@@ -47,7 +48,7 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
   const end = new Date(year, month, 0); // last day of month
   const endOfLastDay = endOfDay(end);
 
-  const [forecasts, histRows] = await Promise.all([
+  const [forecasts, histRows, dateContexts] = await Promise.all([
     prisma.dailyForecast.findMany({
       where: { forecastFor: { gte: start, lte: endOfLastDay } },
       select: { forecastFor: true, crowdScore: true },
@@ -58,8 +59,13 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
         ROUND(AVG("waitTime"))::int AS "meanWait"
       FROM "WaitTimeRecord"
       WHERE "isOpen" = true
+        AND "recordedAt" > NOW() - INTERVAL '90 days'
       GROUP BY dow
     `),
+    prisma.dateContext.findMany({
+      where: { date: { gte: start, lte: endOfLastDay } },
+      select: { date: true, tier: true },
+    }),
   ]);
 
   const mlByDate = new Map<string, number[]>();
@@ -69,11 +75,15 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     mlByDate.get(key)!.push(f.crowdScore);
   }
 
-  const histByDow = new Map<number, number>(
-    histRows.map((r) => [
-      Number(r.dow),
-      Math.round(Math.min((Number(r.meanWait) / 120) * 100, 100)),
-    ])
+  // Mean wait per DOW — kept raw so we can apply per-date tier multiplier
+  const meanWaitByDow = new Map<number, number>(
+    histRows.map((r) => [Number(r.dow), Number(r.meanWait)])
+  );
+
+  const tierByDate = new Map<string, number>(
+    dateContexts
+      .filter((c) => c.tier !== null)
+      .map((c) => [c.date.toISOString().slice(0, 10), c.tier!])
   );
 
   const daysInMonth = end.getDate();
@@ -88,8 +98,10 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
         crowdScore: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
         source: "ml",
       });
-    } else if (histByDow.has(date.getDay())) {
-      results.push({ date: key, crowdScore: histByDow.get(date.getDay())!, source: "historical" });
+    } else if (meanWaitByDow.has(date.getDay())) {
+      const meanWait = meanWaitByDow.get(date.getDay())!;
+      const tier = tierByDate.get(key);
+      results.push({ date: key, crowdScore: deriveCrowdScore(meanWait, tier), source: "historical" });
     } else {
       results.push({ date: key, crowdScore: null, source: null });
     }

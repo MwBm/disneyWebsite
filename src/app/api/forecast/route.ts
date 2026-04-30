@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getForecastForDate, getCrowdScoreForDate, getRecentCollectRuns, getHistoricalMeansForDate } from "@/lib/forecast";
+import { getForecastForDate, getRecentCollectRuns, getHistoricalMeansForDate } from "@/lib/forecast";
 import { narrateForecast, narrateForecastNoData } from "@/lib/groq";
+import { deriveCrowdScore, HISTORICAL_FALLBACK_CONFIDENCE } from "@/lib/crowd";
 import { parseISO, isValid, startOfDay } from "date-fns";
 
 export const revalidate = 1800;
@@ -22,11 +23,15 @@ export async function GET(req: NextRequest) {
   }
 
   const date = parseISO(parsed.data.date);
-  const [forecasts, crowdScore, recentRuns] = await Promise.all([
+  const [forecasts, recentRuns] = await Promise.all([
     getForecastForDate(date),
-    getCrowdScoreForDate(date),
     getRecentCollectRuns(3),
   ]);
+
+  const crowdScore =
+    forecasts.length > 0
+      ? Math.round(forecasts.reduce((a, b) => a + b.crowdScore, 0) / forecasts.length)
+      : null;
 
   const dataQualityOk = recentRuns.length > 0 && recentRuns.some((r) => r.success);
 
@@ -42,12 +47,12 @@ export async function GET(req: NextRequest) {
         forecastFor: new Date(dayStart.getTime() + m.hour * 3_600_000).toISOString(),
         predictedWait: m.meanWait,
         crowdScore: 0,
-        mlConfidence: 0.25,
+        mlConfidence: HISTORICAL_FALLBACK_CONFIDENCE,
       }));
 
       const avgWait =
         syntheticForecasts.reduce((s, f) => s + f.predictedWait, 0) / syntheticForecasts.length;
-      const syntheticCrowdScore = Math.round(Math.min((avgWait / 120) * 100, 100));
+      const syntheticCrowdScore = deriveCrowdScore(avgWait);
       syntheticForecasts.forEach((f) => (f.crowdScore = syntheticCrowdScore));
 
       let crowdNarration: string | null = null;

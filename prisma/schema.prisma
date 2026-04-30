@@ -36,16 +36,38 @@ model DailyForecast {
   @@index([forecastFor])
 }
 
+// Stores per-date signals used to improve crowd score accuracy:
+// Disney ticket tier, holiday/school-break flags, and cached Groq DOW estimates.
+model DateContext {
+  id              String    @id @default(uuid())
+  date            DateTime  @unique // midnight UTC for the local park date
+  tier            Int?      // Disney ticket tier 0–5 (higher = pricier/busier)
+  isHoliday       Boolean   @default(false)
+  isSchoolBreak   Boolean   @default(false)
+  specialEvent    String?
+  tierFetchedAt   DateTime? // when tier was last fetched; re-fetch after 24h
+  tierSource      String?   // e.g. "disney-ticketing"
+  groqDowEstimate Json?     // cached Map<dow, score> from estimateDowCrowdScores
+
+  predictions     Prediction[]
+
+  @@index([date])
+}
+
+// Accuracy join table: maps a historical prediction to actual wait for a given date.
 model Prediction {
-  id            String   @id @default(uuid())
-  rideId        Int
-  rideName      String
-  predictedFor  DateTime
-  predictedWait Int
-  mlWait        Int
-  createdAt     DateTime @default(now())
+  id              String      @id @default(uuid())
+  rideId          Int
+  rideName        String
+  predictedFor    DateTime
+  predictedWait   Int
+  actualWait      Int?        // filled in after the day passes
+  dateContextId   String?
+  dateContext     DateContext? @relation(fields: [dateContextId], references: [id])
+  createdAt       DateTime    @default(now())
 
   @@index([rideId, predictedFor])
+  @@index([dateContextId])
 }
 
 model CollectRun {
