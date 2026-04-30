@@ -33,7 +33,7 @@ export async function narrateForecast(
     .join(", ");
 
   const msg = await groq.chat.completions.create({
-    model: "llama3-8b-8192",
+    model: "llama-3.1-8b-instant",
     max_tokens: 200,
     messages: [
       {
@@ -90,7 +90,7 @@ export async function buildItinerary(
     .join("\n");
 
   const msg = await groq.chat.completions.create({
-    model: "llama3-8b-8192",
+    model: "llama-3.1-8b-instant",
     max_tokens: 800,
     messages: [
       {
