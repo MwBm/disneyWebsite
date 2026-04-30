@@ -61,7 +61,7 @@ export default function RidePredictionTable({ rides }: { rides: Ride[] }) {
         </thead>
         <tbody>
           {sorted.map((ride, i) => (
-            <tr key={ride.rideId} className={i % 2 === 0 ? "bg-space-card" : "bg-cream-100"}>
+            <tr key={`${ride.rideId}-${i}`} className={i % 2 === 0 ? "bg-space-card" : "bg-cream-100"}>
               <td className="px-4 py-3 font-medium text-warm-900">{ride.rideName}</td>
               <td className="px-4 py-3 text-warm-700">{ride.landName}</td>
               <td className="px-4 py-3">

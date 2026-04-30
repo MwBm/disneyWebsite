@@ -77,6 +77,48 @@ ${openRides}
 Answer questions about wait times, ride recommendations, itinerary planning, and park tips. Be concise and specific. Always ground advice in the current data when relevant.`;
 }
 
+export async function narrateForecastNoData(date: Date): Promise<string> {
+  const groq = getGroqClient();
+  const dateStr = format(date, "EEEE, MMMM d, yyyy");
+  const msg = await groq.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    max_tokens: 200,
+    messages: [
+      {
+        role: "user",
+        content: `You are a Disneyland analytics expert. Write a 2–3 sentence crowd forecast for visiting Disneyland on ${dateStr}. No historical data exists for this specific date yet. Base your estimate on general crowd patterns for this day of week and time of year. Be upfront that this is a general estimate. Give one actionable timing tip.`,
+      },
+    ],
+  });
+  return msg.choices[0]?.message?.content ?? "";
+}
+
+export async function estimateDowCrowdScores(): Promise<Map<number, number>> {
+  const groq = getGroqClient();
+  const msg = await groq.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    max_tokens: 120,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "user",
+        content: `You are a Disneyland crowd expert. Estimate typical Disneyland crowd scores for each day of the week on a 0–100 scale (0=empty, 100=maximum capacity). Return ONLY a JSON object with integer keys 0–6 (0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday) and integer values. Example: {"0":70,"1":45,"2":45,"3":50,"4":55,"5":75,"6":85}`,
+      },
+    ],
+  });
+
+  const content = msg.choices[0]?.message?.content ?? "{}";
+  const parsed = JSON.parse(content);
+  const map = new Map<number, number>();
+  for (let d = 0; d <= 6; d++) {
+    const val = parsed[String(d)];
+    if (typeof val === "number") {
+      map.set(d, Math.round(Math.max(0, Math.min(100, val))));
+    }
+  }
+  return map;
+}
+
 export async function buildItinerary(
   arrival: string,
   departure: string,

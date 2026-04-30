@@ -55,16 +55,18 @@ export default function WaitTimesPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Request failed");
 
-      const filtered: Ride[] = (data.forecasts ?? [])
-        .filter((f: Ride) => new Date(f.forecastFor).getHours() === Number(hour))
-        .map((f: Ride) => ({
-          rideId: f.rideId,
-          rideName: f.rideName,
-          landName: f.landName,
-          predictedWait: f.predictedWait,
-          mlConfidence: f.mlConfidence,
-          forecastFor: f.forecastFor,
-        }));
+      const hourFiltered: Ride[] = (data.forecasts ?? []).filter(
+        (f: Ride) => new Date(f.forecastFor).getHours() === Number(hour)
+      );
+      // Deduplicate by rideId — keep highest mlConfidence per ride
+      const byRideId = new Map<number, Ride>();
+      for (const f of hourFiltered) {
+        const existing = byRideId.get(f.rideId);
+        if (!existing || f.mlConfidence > existing.mlConfidence) {
+          byRideId.set(f.rideId, f);
+        }
+      }
+      const filtered: Ride[] = Array.from(byRideId.values());
 
       setRides(filtered);
     } catch (err) {
@@ -78,7 +80,7 @@ export default function WaitTimesPage() {
     <div className="flex flex-col gap-8">
       <div className="flex items-start gap-4">
         <div className="w-11 h-11 rounded-xl border border-space-600 flex items-center justify-center text-orange-400 shrink-0"
-          style={{ background: "rgba(59,130,246,0.08)" }}>
+          style={{ background: "rgba(240,192,96,0.07)", border: "1px solid rgba(240,192,96,0.14)" }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
             <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>
           </svg>

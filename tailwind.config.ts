@@ -9,33 +9,40 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Remapped to space palette — existing class names preserved
+        // Dark warm backgrounds (class names preserved for compat)
         cream: {
-          50:  "#020b18",
-          100: "#060f20",  // body bg
-          200: "#0e2040",  // borders / dividers / table headers
+          50:  "#050810",
+          100: "#080c18",  // body bg
+          200: "#13192a",  // borders / dividers / table headers
         },
         warm: {
-          900: "#e0eaff",  // primary text
-          700: "#7b90b8",  // secondary text
-          500: "#4a5f80",  // muted / placeholder
+          900: "#e8e4d8",  // primary text — warm cream
+          700: "#9b8f7e",  // secondary text
+          500: "#5a5048",  // muted / placeholder
         },
+        // Primary accent — warm gold (class names kept for compat)
         orange: {
-          400: "#60a5fa",  // blue-light
-          500: "#3b82f6",  // blue main (CTA)
-          600: "#2563eb",  // blue dark
+          400: "#f0c060",  // gold light
+          500: "#d4a438",  // gold main CTA
+          600: "#b8882a",  // gold dark
         },
-        // Card bg for bg-white replacements
+        // Card / surface tokens
         space: {
-          card: "#0d1b35",
-          900:  "#060f20",
-          800:  "#0d1b35",
-          700:  "#0e2040",
-          600:  "#162550",
+          card: "#0d1422",
+          900:  "#050810",
+          800:  "#080c18",
+          700:  "#13192a",
+          600:  "#1c2640",
+        },
+        // Burnt amber secondary
+        amber: {
+          400: "#fb923c",
+          500: "#ea6c1e",
         },
       },
       fontFamily: {
-        sans: ["DM Sans", "system-ui", "sans-serif"],
+        sans: ["Outfit", "system-ui", "sans-serif"],
+        display: ["Fraunces", "Georgia", "serif"],
       },
     },
   },

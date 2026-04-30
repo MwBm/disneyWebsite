@@ -80,8 +80,8 @@ export default function ChatAssistant() {
       <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center gap-6 mt-8">
-            <div className="w-14 h-14 rounded-full border border-space-600 flex items-center justify-center text-orange-400"
-              style={{ background: "rgba(59,130,246,0.08)" }}>
+            <div className="w-14 h-14 rounded-full flex items-center justify-center text-orange-400"
+              style={{ background: "rgba(240,192,96,0.07)", border: "1px solid rgba(240,192,96,0.18)" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>

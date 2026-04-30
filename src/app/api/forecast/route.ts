@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getForecastForDate, getCrowdScoreForDate, getRecentCollectRuns } from "@/lib/forecast";
-import { narrateForecast } from "@/lib/claude";
-import { parseISO, isValid } from "date-fns";
+import { getForecastForDate, getCrowdScoreForDate, getRecentCollectRuns, getHistoricalMeansForDate } from "@/lib/forecast";
+import { narrateForecast, narrateForecastNoData } from "@/lib/groq";
+import { parseISO, isValid, startOfDay } from "date-fns";
 
 export const revalidate = 1800;
 
@@ -30,14 +30,53 @@ export async function GET(req: NextRequest) {
 
   const dataQualityOk = recentRuns.length > 0 && recentRuns.some((r) => r.success);
 
-  // If no ML forecasts exist yet, return cached empty state
   if (forecasts.length === 0) {
+    const historicalMeans = await getHistoricalMeansForDate(date);
+
+    if (historicalMeans.length > 0) {
+      const dayStart = startOfDay(date);
+      const syntheticForecasts = historicalMeans.map((m) => ({
+        rideId: m.rideId,
+        rideName: m.rideName,
+        landName: m.landName,
+        forecastFor: new Date(dayStart.getTime() + m.hour * 3_600_000).toISOString(),
+        predictedWait: m.meanWait,
+        crowdScore: 0,
+        mlConfidence: 0.25,
+      }));
+
+      const avgWait =
+        syntheticForecasts.reduce((s, f) => s + f.predictedWait, 0) / syntheticForecasts.length;
+      const syntheticCrowdScore = Math.round(Math.min((avgWait / 120) * 100, 100));
+      syntheticForecasts.forEach((f) => (f.crowdScore = syntheticCrowdScore));
+
+      let crowdNarration: string | null = null;
+      try {
+        crowdNarration = await narrateForecast(syntheticCrowdScore, syntheticForecasts, date);
+      } catch { /* non-fatal */ }
+
+      return NextResponse.json({
+        date: parsed.data.date,
+        crowdScore: syntheticCrowdScore,
+        crowdNarration,
+        forecasts: syntheticForecasts,
+        source: "historical",
+        dataQualityOk,
+      });
+    }
+
+    // No data at all — Groq general estimate
+    let crowdNarration: string | null = null;
+    try {
+      crowdNarration = await narrateForecastNoData(date);
+    } catch { /* non-fatal */ }
+
     return NextResponse.json({
       date: parsed.data.date,
       crowdScore: null,
-      crowdNarration: null,
+      crowdNarration,
       forecasts: [],
-      source: "none",
+      source: "groq",
       dataQualityOk,
     });
   }

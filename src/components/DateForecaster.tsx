@@ -88,6 +88,12 @@ export default function DateForecaster() {
               </div>
             )}
 
+            {result.source === "historical" && (
+              <p className="text-xs text-warm-500 bg-space-card border border-space-700 rounded-lg px-3 py-1.5">
+                Based on typical {format(parseISO(result.date), "EEEE")} patterns — no ML data for this date yet.
+              </p>
+            )}
+
             {result.crowdScore !== null ? (
               <>
                 <CrowdMeter score={result.crowdScore} />
@@ -106,6 +112,15 @@ export default function DateForecaster() {
                   </svg>
                 </a>
               </>
+            ) : result.source === "groq" && result.crowdNarration ? (
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-xs text-warm-500">
+                  No historical data for this date — AI general estimate only.
+                </p>
+                <div className="max-w-lg bg-space-card border border-space-700 rounded-2xl px-6 py-4 neon neon-purple text-sm text-warm-900 leading-relaxed">
+                  {result.crowdNarration}
+                </div>
+              </div>
             ) : (
               <p className="text-warm-700 text-sm">
                 No forecast data yet for {format(parseISO(date), "MMMM d, yyyy")}. Check back

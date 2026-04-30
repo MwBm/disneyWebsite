@@ -3,7 +3,7 @@ import { z } from "zod";
 import Groq from "groq-sdk";
 import { fetchLiveRides } from "@/lib/queue-times";
 import { getCrowdScoreForDate } from "@/lib/forecast";
-import { buildChatSystemPrompt } from "@/lib/claude";
+import { buildChatSystemPrompt } from "@/lib/groq";
 
 function getGroqClient() {
   const apiKey = process.env.GROQ_API_KEY;

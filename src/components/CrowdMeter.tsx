@@ -21,7 +21,7 @@ export default function CrowdMeter({ score }: Props) {
     <div className="flex flex-col items-center gap-4">
       <div className="relative w-48 h-48">
         <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-          <circle cx="50" cy="50" r="44" fill="none" stroke="#0e2040" strokeWidth="8" />
+          <circle cx="50" cy="50" r="44" fill="none" stroke="#13192a" strokeWidth="8" />
           <motion.circle
             cx="50"
             cy="50"
