@@ -41,6 +41,9 @@ export type DayCrowdScore = {
   date: string;
   crowdScore: number | null;
   source: "ml" | "historical" | "groq" | null;
+  tier: number | null;
+  specialEvent: string | null;
+  isHoliday: boolean;
 };
 
 export async function getCrowdScoresForMonth(year: number, month: number): Promise<DayCrowdScore[]> {
@@ -64,7 +67,7 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     `),
     prisma.dateContext.findMany({
       where: { date: { gte: start, lte: endOfLastDay } },
-      select: { date: true, tier: true },
+      select: { date: true, tier: true, specialEvent: true, isHoliday: true },
     }),
   ]);
 
@@ -86,24 +89,41 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
       .map((c) => [c.date.toISOString().slice(0, 10), c.tier!])
   );
 
+  const specialEventByDate = new Map<string, string>(
+    dateContexts
+      .filter((c) => c.specialEvent !== null)
+      .map((c) => [c.date.toISOString().slice(0, 10), c.specialEvent!])
+  );
+
+  const isHolidayByDate = new Set<string>(
+    dateContexts
+      .filter((c) => c.isHoliday)
+      .map((c) => c.date.toISOString().slice(0, 10))
+  );
+
   const daysInMonth = end.getDate();
   const results: DayCrowdScore[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const date = new Date(year, month - 1, d);
     const key = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const tier = tierByDate.get(key) ?? null;
+    const specialEvent = specialEventByDate.get(key) ?? null;
+    const isHoliday = isHolidayByDate.has(key);
     if (mlByDate.has(key)) {
       const scores = mlByDate.get(key)!;
       results.push({
         date: key,
         crowdScore: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
         source: "ml",
+        tier,
+        specialEvent,
+        isHoliday,
       });
     } else if (meanWaitByDow.has(date.getDay())) {
       const meanWait = meanWaitByDow.get(date.getDay())!;
-      const tier = tierByDate.get(key);
-      results.push({ date: key, crowdScore: deriveCrowdScore(meanWait, tier), source: "historical" });
+      results.push({ date: key, crowdScore: deriveCrowdScore(meanWait, tier ?? undefined), source: "historical", tier, specialEvent, isHoliday });
     } else {
-      results.push({ date: key, crowdScore: null, source: null });
+      results.push({ date: key, crowdScore: null, source: null, tier, specialEvent, isHoliday });
     }
   }
   return results;

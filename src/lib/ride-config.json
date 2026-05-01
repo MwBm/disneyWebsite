@@ -1,0 +1,54 @@
+{
+  "parks": [
+    {
+      "id": 16,
+      "name": "Disneyland",
+      "queueTimesUrl": "https://queue-times.com/en-US/parks/16/queue_times.json",
+      "excludedRideIds": [
+        12428,
+        288,
+        687,
+        6711,
+        679,
+        456,
+        328,
+        331,
+        674,
+        690,
+        686,
+        691,
+        14915,
+        695,
+        14923,
+        13814,
+        11980,
+        709,
+        327,
+        684,
+        274,
+        16254,
+        10903,
+        14326
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Disney California Adventure",
+      "queueTimesUrl": "https://queue-times.com/en-US/parks/17/queue_times.json",
+      "excludedRideIds": [
+        321,
+        6440,
+        868,
+        294,
+        293,
+        13959,
+        13960,
+        14742,
+        10907,
+        10904,
+        10905,
+        10906
+      ]
+    }
+  ]
+}

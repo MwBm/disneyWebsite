@@ -1,20 +1,25 @@
 import numpy as np
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
-from typing import List, Dict, Tuple
-from schemas import RideHistory, RideForecast
+from typing import List, Dict, Tuple, Optional
+from schemas import RideHistory, RideForecast, DateContext
 from datetime import datetime
 
 MIN_SAMPLES = 30
 
 
-def _extract_features(dt: datetime) -> List[float]:
-    return [
-        dt.hour,
-        dt.weekday(),
-        dt.month,
-        1.0 if dt.weekday() >= 5 else 0.0,
-    ]
+def _extract_features(dt: datetime, context: Optional[DateContext] = None) -> List[float]:
+    hour = float(dt.hour)
+    weekday = float(dt.weekday())
+    month = float(dt.month)
+    is_weekend = 1.0 if dt.weekday() >= 5 else 0.0
+    tier = float(context.tier) if context else 0.0
+    has_special_event = 1.0 if context and context.has_special_event else 0.0
+    is_holiday = 1.0 if context and context.is_holiday else 0.0
+    is_school_break = 1.0 if context and context.is_school_break else 0.0
+    hour_x_weekday = hour * weekday
+    hour_x_weekend = hour * is_weekend
+    return [hour, weekday, month, is_weekend, tier, has_special_event, is_holiday, is_school_break, hour_x_weekday, hour_x_weekend]
 
 
 def _train_ride_model(
@@ -39,7 +44,7 @@ def _train_ride_model(
 
 
 def predict_for_date(
-    rides: List[RideHistory], target_date: datetime
+    rides: List[RideHistory], target_date: datetime, context: Optional[DateContext] = None
 ) -> Tuple[List[RideForecast], int]:
     # Group records by ride_id, filtering to open rides only
     ride_groups: Dict[int, List[RideHistory]] = {}
@@ -47,7 +52,7 @@ def predict_for_date(
         if r.is_open:
             ride_groups.setdefault(r.ride_id, []).append(r)
 
-    features = _extract_features(target_date)
+    features = _extract_features(target_date, context)
     forecasts: List[RideForecast] = []
 
     for ride_id, records in ride_groups.items():

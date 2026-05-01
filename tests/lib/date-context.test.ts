@@ -1,4 +1,4 @@
-import { fetchDateSchedule, syncDateContext } from "@/lib/date-context";
+import { fetchDateSchedule, syncDateContext, isHolidayDate, isSchoolBreakDate } from "@/lib/date-context";
 import { prisma } from "@/lib/db";
 
 const mockDateContextFindMany = prisma.dateContext.findMany as jest.Mock;
@@ -166,6 +166,54 @@ describe("fetchDateSchedule", () => {
   });
 });
 
+describe("isHolidayDate", () => {
+  it("flags fixed holidays", () => {
+    expect(isHolidayDate(new Date("2026-01-01"))).toBe(true);  // New Year's Day
+    expect(isHolidayDate(new Date("2026-07-04"))).toBe(true);  // Independence Day
+    expect(isHolidayDate(new Date("2026-12-25"))).toBe(true);  // Christmas Day
+    expect(isHolidayDate(new Date("2026-12-24"))).toBe(true);  // Christmas Eve
+  });
+
+  it("flags floating holidays", () => {
+    // Memorial Day 2026 = May 25
+    expect(isHolidayDate(new Date("2026-05-25"))).toBe(true);
+    // Labor Day 2026 = Sep 7
+    expect(isHolidayDate(new Date("2026-09-07"))).toBe(true);
+    // Thanksgiving 2026 = Nov 26
+    expect(isHolidayDate(new Date("2026-11-26"))).toBe(true);
+  });
+
+  it("does not flag ordinary days", () => {
+    expect(isHolidayDate(new Date("2026-06-15"))).toBe(false);
+    expect(isHolidayDate(new Date("2026-03-10"))).toBe(false);
+  });
+});
+
+describe("isSchoolBreakDate", () => {
+  it("flags winter break", () => {
+    expect(isSchoolBreakDate(new Date("2026-12-22"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2027-01-01"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2027-01-05"))).toBe(true);
+  });
+
+  it("flags summer break", () => {
+    expect(isSchoolBreakDate(new Date("2026-07-15"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2026-06-15"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2026-08-20"))).toBe(true);
+  });
+
+  it("flags spring break", () => {
+    expect(isSchoolBreakDate(new Date("2026-03-25"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2026-04-01"))).toBe(true);
+  });
+
+  it("does not flag ordinary school days", () => {
+    expect(isSchoolBreakDate(new Date("2026-02-15"))).toBe(false);
+    expect(isSchoolBreakDate(new Date("2026-10-01"))).toBe(false);
+    expect(isSchoolBreakDate(new Date("2026-11-01"))).toBe(false);
+  });
+});
+
 describe("syncDateContext", () => {
   beforeEach(() => jest.clearAllMocks());
 
@@ -203,7 +251,21 @@ describe("syncDateContext", () => {
     await syncDateContext(1);
     expect(mockDateContextUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        update: expect.objectContaining({ tierSource: "themeparks-wiki" }),
+        update: expect.objectContaining({ tierSource: "themeparks-wiki", isHoliday: false, isSchoolBreak: false }),
+      })
+    );
+  });
+
+  it("persists isHoliday=true on Jul 4", async () => {
+    mockDateContextFindMany.mockResolvedValue([]);
+    mockFetch(makeScheduleResponse([
+      { date: "2026-07-04", type: "OPERATING", openingTime: "2026-07-04T08:00:00-07:00", closingTime: "2026-07-04T23:00:00-07:00", purchases: [] },
+    ]));
+    mockDateContextUpsert.mockResolvedValue({});
+    await syncDateContext(1);
+    expect(mockDateContextUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ isHoliday: true, isSchoolBreak: true }),
       })
     );
   });

@@ -9,6 +9,7 @@ const links = [
   { href: "/wait-times", label: "Wait Times" },
   { href: "/accuracy", label: "Accuracy" },
   { href: "/chat", label: "Chat" },
+  { href: "/admin", label: "Data" },
 ];
 
 // 4-pointed Disney-style sparkle
@@ -23,7 +24,7 @@ export default function Nav() {
   return (
     <nav
       className="sticky top-0 z-10"
-      style={{ background: "rgba(8,12,24,0.9)", backdropFilter: "blur(20px)" }}
+      style={{ background: "rgba(13,11,9,0.92)", backdropFilter: "blur(20px)" }}
     >
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 group">

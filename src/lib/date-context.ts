@@ -3,6 +3,73 @@ import { prisma } from "./db";
 const DISNEYLAND_PARK_ID = "7340550b-c14d-4def-80bb-acdb51d49a66";
 const THEMEPARKS_API_BASE = "https://api.themeparks.wiki/v1";
 
+// All date arithmetic uses UTC so results are timezone-independent.
+// DateContext dates are stored as midnight UTC; getDate()/getMonth() would
+// return the previous calendar day in negative-offset timezones.
+function nthWeekday(year: number, month: number, dow: number, n: number): Date {
+  // month: 1-indexed, dow: 0=Sun..6=Sat
+  // n > 0: nth from start; -1 = last occurrence
+  if (n > 0) {
+    let day = 1, count = 0;
+    while (day <= 50) {
+      const d = new Date(Date.UTC(year, month - 1, day));
+      if (d.getUTCMonth() !== month - 1) break;
+      if (d.getUTCDay() === dow) { count++; if (count === n) return d; }
+      day++;
+    }
+    throw new Error(`nthWeekday: no result year=${year} month=${month} dow=${dow} n=${n}`);
+  } else {
+    for (let day = 31; day >= 1; day--) {
+      const d = new Date(Date.UTC(year, month - 1, day));
+      if (d.getUTCMonth() !== month - 1) continue;
+      if (d.getUTCDay() === dow) return d;
+    }
+    throw new Error(`nthWeekday: no last ${dow} in month ${month}/${year}`);
+  }
+}
+
+export function isHolidayDate(date: Date): boolean {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate();
+  if (m === 1 && d === 1) return true;   // New Year's Day
+  if (m === 7 && d === 4) return true;   // Independence Day
+  if (m === 12 && d === 24) return true; // Christmas Eve
+  if (m === 12 && d === 25) return true; // Christmas Day
+  if (m === 12 && d === 31) return true; // New Year's Eve
+  const mlk = nthWeekday(y, 1, 1, 3);
+  if (m === 1 && d === mlk.getUTCDate()) return true;
+  const presidents = nthWeekday(y, 2, 1, 3);
+  if (m === 2 && d === presidents.getUTCDate()) return true;
+  const memorial = nthWeekday(y, 5, 1, -1);
+  if (m === 5 && d === memorial.getUTCDate()) return true;
+  const labor = nthWeekday(y, 9, 1, 1);
+  if (m === 9 && d === labor.getUTCDate()) return true;
+  const thanksgiving = nthWeekday(y, 11, 4, 4);
+  if (m === 11 && d === thanksgiving.getUTCDate()) return true;
+  return false;
+}
+
+export function isSchoolBreakDate(date: Date): boolean {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate();
+  if (m === 12 && d >= 22) return true; // winter break
+  if (m === 1 && d <= 5) return true;
+  if (m === 3 && d >= 22) return true;  // spring break
+  if (m === 4 && d <= 6) return true;
+  if (m === 6 && d >= 15) return true;  // summer
+  if (m === 7) return true;
+  if (m === 8 && d <= 20) return true;
+  // Thanksgiving week: Wed before through Sun after
+  const tg = nthWeekday(y, 11, 4, 4);
+  const wed = new Date(Date.UTC(tg.getUTCFullYear(), tg.getUTCMonth(), tg.getUTCDate() - 1));
+  const sun = new Date(Date.UTC(tg.getUTCFullYear(), tg.getUTCMonth(), tg.getUTCDate() + 3));
+  const cur = new Date(Date.UTC(y, m - 1, d));
+  if (cur >= wed && cur <= sun) return true;
+  return false;
+}
+
 // LLMP (Lightning Lane Multi Pass) price ranges reflect Disney's demand tiers.
 // Historically $22–$40+; calibrated from observed range.
 function llmpCentsToTier(cents: number): number {
@@ -110,13 +177,16 @@ export async function syncDateContext(
 
   const fetchedAt = new Date();
   await Promise.all(
-    toSync.map((s) =>
-      prisma.dateContext.upsert({
-        where: { date: new Date(s.date) },
-        update: { tier: s.tier, specialEvent: s.specialEvent, tierFetchedAt: fetchedAt, tierSource: "themeparks-wiki" },
-        create: { date: new Date(s.date), tier: s.tier, specialEvent: s.specialEvent, tierFetchedAt: fetchedAt, tierSource: "themeparks-wiki" },
-      })
-    )
+    toSync.map((s) => {
+      const d = new Date(s.date);
+      const isHoliday = isHolidayDate(d);
+      const isSchoolBreak = isSchoolBreakDate(d);
+      return prisma.dateContext.upsert({
+        where: { date: d },
+        update: { tier: s.tier, specialEvent: s.specialEvent, isHoliday, isSchoolBreak, tierFetchedAt: fetchedAt, tierSource: "themeparks-wiki" },
+        create: { date: d, tier: s.tier, specialEvent: s.specialEvent, isHoliday, isSchoolBreak, tierFetchedAt: fetchedAt, tierSource: "themeparks-wiki" },
+      });
+    })
   );
 
   return { synced: toSync.length, skipped: freshDates.size };

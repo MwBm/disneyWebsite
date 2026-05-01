@@ -24,6 +24,9 @@ const allMlDays = Array.from({ length: 31 }, (_, i) => ({
   date: `2026-05-${String(i + 1).padStart(2, "0")}`,
   crowdScore: 50 + (i % 10),
   source: "ml" as const,
+  tier: null as number | null,
+  specialEvent: null as string | null,
+  isHoliday: false,
 }));
 
 // Mix: some ML, some null
@@ -70,7 +73,7 @@ describe("calendar route — cached Groq DOW", () => {
 
   it("fills null days with correct DOW-based score from cache", async () => {
     (forecastLib.getCrowdScoresForMonth as jest.Mock).mockResolvedValue([
-      { date: "2026-05-03", crowdScore: null, source: null }, // Sunday (DOW=0)
+      { date: "2026-05-03", crowdScore: null, source: null, tier: null, specialEvent: null, isHoliday: false }, // Sunday (DOW=0)
     ]);
     mockDateContextFindFirst.mockResolvedValue({
       groqDowEstimate: { "0": 72 },
@@ -110,7 +113,7 @@ describe("calendar route — live Groq call and cache save", () => {
 
   it("leaves null days when Groq throws and no cache", async () => {
     (forecastLib.getCrowdScoresForMonth as jest.Mock).mockResolvedValue([
-      { date: "2026-05-03", crowdScore: null, source: null },
+      { date: "2026-05-03", crowdScore: null, source: null, tier: null, specialEvent: null, isHoliday: false },
     ]);
     mockDateContextFindFirst.mockResolvedValue(null);
     (groqLib.estimateDowCrowdScores as jest.Mock).mockRejectedValue(new Error("Groq down"));

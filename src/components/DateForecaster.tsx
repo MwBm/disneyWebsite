@@ -12,7 +12,16 @@ type Forecast = {
   forecasts: { rideId: number; rideName: string; landName: string; predictedWait: number }[];
   source: string;
   dataQualityOk: boolean;
+  lastCollectedAt: string | null;
 };
+
+function timeAgo(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
 export default function DateForecaster() {
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -82,6 +91,11 @@ export default function DateForecaster() {
             exit={{ opacity: 0 }}
             className="flex flex-col items-center gap-6 w-full"
           >
+            {result.lastCollectedAt && (
+              <p className="text-xs text-warm-500">
+                Data updated {timeAgo(result.lastCollectedAt)}
+              </p>
+            )}
             {!result.dataQualityOk && (
               <div className="text-xs text-warm-700 bg-space-card border border-space-700 rounded-lg px-3 py-2">
                 Data collection has had recent issues — forecasts may be stale.

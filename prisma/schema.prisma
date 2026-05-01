@@ -77,3 +77,23 @@ model CollectRun {
   success      Boolean
   errorMessage String?
 }
+
+// Hourly aggregates of WaitTimeRecord after the 30-day raw retention window.
+// Each row = one hour of data for one ride on one day.
+// Used as training data for the ML model alongside the raw 30-day window.
+model HourlyWaitSummary {
+  id          String   @id @default(uuid())
+  rideId      Int
+  rideName    String
+  landName    String
+  date        DateTime // midnight UTC of the park date
+  hour        Int      // 0–23
+  avgWait     Float
+  peakWait    Int
+  sampleCount Int
+  isOpen      Boolean
+
+  @@unique([rideId, date, hour])
+  @@index([rideId, date])
+  @@index([date])
+}

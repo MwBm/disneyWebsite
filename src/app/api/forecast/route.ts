@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
       : null;
 
   const dataQualityOk = recentRuns.length > 0 && recentRuns.some((r) => r.success);
+  const lastCollectedAt = recentRuns[0]?.ranAt ?? null;
 
   if (forecasts.length === 0) {
     const historicalMeans = await getHistoricalMeansForDate(date);
@@ -67,6 +68,7 @@ export async function GET(req: NextRequest) {
         forecasts: syntheticForecasts,
         source: "historical",
         dataQualityOk,
+        lastCollectedAt,
       });
     }
 
@@ -83,6 +85,7 @@ export async function GET(req: NextRequest) {
       forecasts: [],
       source: "groq",
       dataQualityOk,
+      lastCollectedAt,
     });
   }
 
@@ -113,5 +116,6 @@ export async function GET(req: NextRequest) {
     forecasts: mappedForecasts,
     source: "ml",
     dataQualityOk,
+    lastCollectedAt,
   });
 }

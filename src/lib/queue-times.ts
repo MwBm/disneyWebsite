@@ -1,4 +1,5 @@
 import { z } from "zod";
+import rideConfig from "./ride-config.json";
 
 const RideSchema = z.object({
   id: z.number(),
@@ -35,29 +36,26 @@ export class QueueTimesError extends Error {
   }
 }
 
-export async function fetchLiveRides(): Promise<RideData[]> {
-  const res = await fetch(
-    "https://queue-times.com/en-US/parks/16/queue_times.json",
-    { next: { revalidate: 0 } }
-  );
-
+async function fetchParkRides(parkConfig: typeof rideConfig.parks[number]): Promise<RideData[]> {
+  const res = await fetch(parkConfig.queueTimesUrl, { next: { revalidate: 0 } });
   if (!res.ok) {
-    throw new QueueTimesError(`queue-times.com returned ${res.status}`);
+    throw new QueueTimesError(`queue-times.com returned ${res.status} for park ${parkConfig.id}`);
   }
 
   const json = await res.json();
   const parsed = QueueTimesResponseSchema.safeParse(json);
-
   if (!parsed.success) {
     throw new QueueTimesError(
-      `Unexpected queue-times.com schema: ${parsed.error.message}`
+      `Unexpected queue-times.com schema for park ${parkConfig.id}: ${parsed.error.message}`
     );
   }
 
+  const excluded = new Set(parkConfig.excludedRideIds);
   const rides: RideData[] = [];
 
   for (const land of parsed.data.lands) {
     for (const ride of land.rides) {
+      if (excluded.has(ride.id)) continue;
       rides.push({
         id: ride.id,
         name: ride.name,
@@ -70,6 +68,7 @@ export async function fetchLiveRides(): Promise<RideData[]> {
   }
 
   for (const ride of parsed.data.rides) {
+    if (excluded.has(ride.id)) continue;
     rides.push({
       id: ride.id,
       name: ride.name,
@@ -81,6 +80,13 @@ export async function fetchLiveRides(): Promise<RideData[]> {
   }
 
   return rides;
+}
+
+export async function fetchLiveRides(): Promise<RideData[]> {
+  const results = await Promise.all(
+    rideConfig.parks.map((park) => fetchParkRides(park))
+  );
+  return results.flat();
 }
 
 export function roundToWindow(date: Date): Date {

@@ -3,6 +3,7 @@ import "./globals.css";
 import Nav from "@/components/Nav";
 import SpaceBackground from "@/components/SpaceBackground";
 import CustomCursor from "@/components/CustomCursor";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export const metadata: Metadata = {
   title: "Disneyland Planner",
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen bg-cream-100">
+        <LoadingScreen />
         <SpaceBackground />
         <CustomCursor />
         <div className="relative z-10">

@@ -1,16 +1,13 @@
-name: Collect Wait Times
+name: Archive Wait Times
 
 on:
   schedule:
-    # Every 30 min during Disneyland operational hours (8am–midnight Pacific).
-    # 0-8 UTC = 5pm–1am PDT / 4pm–midnight PST
-    # 15-23 UTC = 8am–4pm PDT / 7am–3pm PST
-    # Gap 9-14 UTC = 2am–7am PDT (overnight, park closed).
-    - cron: "*/30 0-8,15-23 * * *"
+    # Every Sunday at 09:00 UTC (1–2am Pacific, well outside park hours).
+    - cron: "0 9 * * 0"
   workflow_dispatch:
 
 jobs:
-  collect:
+  archive:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,8 +23,8 @@ jobs:
         working-directory: ml-service
         run: pip install -r requirements.txt
 
-      - name: Run collect pipeline
+      - name: Run archive pipeline
         working-directory: ml-service
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python collect.py
+        run: python archive.py

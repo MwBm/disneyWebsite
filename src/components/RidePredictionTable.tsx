@@ -47,7 +47,7 @@ export default function RidePredictionTable({ rides }: { rides: Ride[] }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-space-700 shadow-sm">
+    <div className="overflow-x-auto rounded-2xl border border-space-700 shadow-sm neon">
       <table className="w-full text-sm">
         <thead className="bg-cream-200">
           <tr>

@@ -108,7 +108,7 @@ export default function SpaceBackground() {
       const my = mouse.current.y;
 
       // Background
-      ctx.fillStyle = "#070810";
+      ctx.fillStyle = "#0d0b09";
       ctx.fillRect(0, 0, w, h);
 
       // Warm ambient glows

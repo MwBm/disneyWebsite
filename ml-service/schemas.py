@@ -3,6 +3,13 @@ from datetime import datetime
 from typing import List, Optional
 
 
+class DateContext(BaseModel):
+    tier: int = 0
+    has_special_event: bool = False
+    is_holiday: bool = False
+    is_school_break: bool = False
+
+
 class RideHistory(BaseModel):
     ride_id: int
     ride_name: str

@@ -7,6 +7,17 @@ type DayScore = {
   date: string;
   crowdScore: number | null;
   source: "ml" | "historical" | "groq" | null;
+  tier: number | null;
+  specialEvent: string | null;
+  isHoliday: boolean;
+};
+
+type WeatherDay = {
+  date: string;
+  weatherCode: number;
+  tempMax: number;
+  tempMin: number;
+  precipProb: number;
 };
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -33,6 +44,30 @@ function crowdBgOpacity(score: number | null): number {
   if (score <= 55) return 0.15;
   if (score <= 75) return 0.18;
   return 0.22;
+}
+
+function weatherEmoji(code: number): string {
+  if (code === 0) return "☀️";
+  if (code <= 2) return "🌤️";
+  if (code === 3) return "☁️";
+  if (code <= 48) return "🌫️";
+  if (code <= 55) return "🌦️";
+  if (code <= 67) return "🌧️";
+  if (code <= 77) return "❄️";
+  if (code <= 82) return "🌦️";
+  return "⛈️";
+}
+
+function weatherLabel(code: number): string {
+  if (code === 0) return "Clear";
+  if (code <= 2) return "Partly cloudy";
+  if (code === 3) return "Overcast";
+  if (code <= 48) return "Foggy";
+  if (code <= 55) return "Drizzle";
+  if (code <= 67) return "Rainy";
+  if (code <= 77) return "Snow";
+  if (code <= 82) return "Showers";
+  return "Thunderstorm";
 }
 
 const CalendarIcon = () => (
@@ -80,6 +115,21 @@ function SourceBadge({ source }: { source: DayScore["source"] }) {
   );
 }
 
+const TIER_COLORS = ["#94a3b8", "#86efac", "#fde68a", "#fb923c", "#f87171", "#ef4444"];
+
+function TierBadge({ tier }: { tier: number | null }) {
+  if (tier === null) return null;
+  const color = TIER_COLORS[Math.min(tier, 5)];
+  return (
+    <span
+      className="text-[0.5rem] font-bold uppercase tracking-wider px-1 py-0.5 rounded"
+      style={{ color, background: `${color}18`, border: `1px solid ${color}30` }}
+    >
+      T{tier}
+    </span>
+  );
+}
+
 function ScoreBar({ score }: { score: number }) {
   const color = crowdColor(score);
   return (
@@ -109,6 +159,31 @@ export default function CalendarPage() {
   const [days, setDays] = useState<DayScore[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<DayScore | null>(null);
+  const [weather, setWeather] = useState<Map<string, WeatherDay>>(new Map());
+
+  useEffect(() => {
+    fetch(
+      "https://api.open-meteo.com/v1/forecast?latitude=33.8121&longitude=-117.9190" +
+      "&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+      "&temperature_unit=fahrenheit&timezone=America%2FLos_Angeles&forecast_days=16"
+    )
+      .then(r => r.json())
+      .then(data => {
+        const map = new Map<string, WeatherDay>();
+        const dates: string[] = data.daily?.time ?? [];
+        dates.forEach((date: string, i: number) => {
+          map.set(date, {
+            date,
+            weatherCode: data.daily.weathercode[i],
+            tempMax: Math.round(data.daily.temperature_2m_max[i]),
+            tempMin: Math.round(data.daily.temperature_2m_min[i]),
+            precipProb: data.daily.precipitation_probability_max[i],
+          });
+        });
+        setWeather(map);
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async (y: number, m: number) => {
     setLoading(true);
@@ -149,7 +224,7 @@ export default function CalendarPage() {
       cells.push(null);
     } else {
       const key = `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-      cells.push(days.find((d) => d.date === key) ?? { date: key, crowdScore: null, source: null });
+      cells.push(days.find((d) => d.date === key) ?? { date: key, crowdScore: null, source: null, tier: null, specialEvent: null, isHoliday: false });
     }
   }
 
@@ -195,7 +270,7 @@ export default function CalendarPage() {
           ].map(({ label, value, sub, color }) => (
             <div
               key={label}
-              className="bg-space-card border border-space-700 rounded-xl p-4"
+              className="bg-space-card border border-space-700 rounded-xl p-4 neon"
               style={{ borderColor: `${color}22` }}
             >
               <p className="text-warm-500 text-xs uppercase tracking-widest mb-1">{label}</p>
@@ -261,6 +336,8 @@ export default function CalendarPage() {
               const row = Math.floor(i / 7);
               const totalRows = cells.length / 7;
               const isLastRow = row === totalRows - 1;
+
+              const wx = cell ? weather.get(cell.date) : undefined;
 
               return (
                 <div
@@ -329,6 +406,41 @@ export default function CalendarPage() {
                           <span className="text-[0.6rem] text-warm-500/40 uppercase tracking-wide">—</span>
                         </div>
                       )}
+
+                      {/* Bottom row: tier badge + weather + indicators */}
+                      {(cell.tier !== null || cell.specialEvent || cell.isHoliday || wx) && (
+                        <div className="flex items-end justify-between gap-1 mt-0.5">
+                          <TierBadge tier={cell.tier} />
+                          <div className="flex items-center gap-0.5">
+                            {wx && (
+                              <span
+                                className="text-[0.65rem] leading-none"
+                                title={`${weatherLabel(wx.weatherCode)} · ${wx.tempMax}°/${wx.tempMin}°F`}
+                              >
+                                {weatherEmoji(wx.weatherCode)}
+                              </span>
+                            )}
+                            {cell.isHoliday && (
+                              <span
+                                className="text-[0.45rem] font-bold leading-none"
+                                style={{ color: "#60a5fa" }}
+                                title="US Holiday"
+                              >
+                                ★
+                              </span>
+                            )}
+                            {cell.specialEvent && (
+                              <span
+                                className="text-[0.45rem] font-medium leading-none"
+                                style={{ color: "#f0c060", opacity: 0.8 }}
+                                title={`Disney Event: ${cell.specialEvent}`}
+                              >
+                                ♦
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -370,7 +482,38 @@ export default function CalendarPage() {
                     {selected.source === "historical" && `Based on typical ${format(parseISO(selected.date), "EEEE")} patterns`}
                     {selected.source === "groq" && "AI estimate — limited historical data"}
                     {!selected.source && "No data available"}
+                    {selected.tier !== null && <TierBadge tier={selected.tier} />}
                   </p>
+                  {selected.isHoliday && (
+                    <p className="text-xs mt-1 flex items-center gap-1" style={{ color: "#60a5fa" }}>
+                      <span>★</span>
+                      <span>US Holiday</span>
+                    </p>
+                  )}
+                  {selected.specialEvent && (
+                    <p className="text-xs mt-1 flex items-center gap-1" style={{ color: "#f0c060" }}>
+                      <span>♦</span>
+                      <span>Disney Event: {selected.specialEvent}</span>
+                    </p>
+                  )}
+                  {(() => {
+                    const wx = weather.get(selected.date);
+                    if (!wx) return null;
+                    return (
+                      <p className="text-xs mt-1 flex items-center gap-1.5 text-warm-600">
+                        <span>{weatherEmoji(wx.weatherCode)}</span>
+                        <span>{weatherLabel(wx.weatherCode)}</span>
+                        <span className="text-warm-700">·</span>
+                        <span>{wx.tempMax}°<span className="text-warm-500">/{wx.tempMin}°F</span></span>
+                        {wx.precipProb > 0 && (
+                          <>
+                            <span className="text-warm-700">·</span>
+                            <span style={{ color: "#60a5fa" }}>{wx.precipProb}% rain</span>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -444,6 +587,14 @@ export default function CalendarPage() {
             AI
           </span>
           <span className="text-xs text-warm-500 italic">AI estimate</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-bold" style={{ color: "#60a5fa" }}>★</span>
+          <span className="text-xs text-warm-500">US Holiday</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm" style={{ color: "#f0c060" }}>♦</span>
+          <span className="text-xs text-warm-500">Disney Ticketed Event (after-hours paid event)</span>
         </div>
       </div>
     </div>

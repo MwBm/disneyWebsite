@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timezone
-from schemas import RideHistory
+from schemas import RideHistory, DateContext
 from model import predict_for_date, MIN_SAMPLES
 
 
@@ -60,3 +60,25 @@ def test_crowd_score_in_range():
 def test_empty_rides_returns_zero_crowd():
     _, crowd_score = predict_for_date([], datetime(2026, 6, 15, 10, 0, tzinfo=timezone.utc))
     assert crowd_score == 0
+
+
+def test_predict_with_date_context_stays_in_range():
+    records = _make_records(1, 50, base_wait=40)
+    target = datetime(2026, 7, 4, 14, 0, tzinfo=timezone.utc)
+    ctx = DateContext(tier=5, has_special_event=True, is_holiday=True, is_school_break=True)
+    forecasts, crowd_score = predict_for_date(records, target, ctx)
+
+    assert len(forecasts) == 1
+    assert 0 <= forecasts[0].predicted_wait <= 300
+    assert 0.0 <= forecasts[0].confidence <= 1.0
+    assert 0 <= crowd_score <= 100
+
+
+def test_predict_without_context_backward_compatible():
+    records = _make_records(1, 50, base_wait=40)
+    target = datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)
+    forecasts, crowd_score = predict_for_date(records, target)  # no context arg
+
+    assert len(forecasts) == 1
+    assert 0 <= forecasts[0].predicted_wait <= 300
+    assert 0 <= crowd_score <= 100

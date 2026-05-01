@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 :root {
-  --background: #080c18;
+  --background: #0d0b09;
   --foreground: #e8e4d8;
 }
 
@@ -21,9 +21,9 @@ body {
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #080c18; }
-::-webkit-scrollbar-thumb { background: #1c2640; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #2a3a58; }
+::-webkit-scrollbar-track { background: #0d0b09; }
+::-webkit-scrollbar-thumb { background: #2a1e0a; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #3a2a10; }
 
 .shadow-sm {
   box-shadow: 0 1px 3px rgba(0,0,0,0.6), 0 0 0 1px rgba(240,192,96,0.05);
@@ -44,21 +44,21 @@ body {
   /* Neon glow system — gold/amber palette */
   .neon {
     --neon: 240, 192, 96;
-    border-color: rgba(var(--neon), 0.25) !important;
+    border-color: rgba(var(--neon), 0.45) !important;
     box-shadow:
-      0 0 0 1px rgba(var(--neon), 0.1),
-      0 0 14px rgba(var(--neon), 0.1),
-      0 0 36px rgba(var(--neon), 0.04),
-      inset 0 0 20px rgba(var(--neon), 0.03);
+      0 0 0 1px rgba(var(--neon), 0.2),
+      0 0 18px rgba(var(--neon), 0.2),
+      0 0 45px rgba(var(--neon), 0.08),
+      inset 0 0 24px rgba(var(--neon), 0.05);
     transition: box-shadow 0.35s ease, border-color 0.35s ease;
   }
-  .neon:hover {
-    border-color: rgba(var(--neon), 0.5) !important;
+  .neon:hover, .neon:focus-within, .neon:focus {
+    border-color: rgba(var(--neon), 0.75) !important;
     box-shadow:
-      0 0 0 1px rgba(var(--neon), 0.28),
-      0 0 22px rgba(var(--neon), 0.32),
-      0 0 55px rgba(var(--neon), 0.14),
-      inset 0 0 28px rgba(var(--neon), 0.06);
+      0 0 0 1px rgba(var(--neon), 0.45),
+      0 0 32px rgba(var(--neon), 0.5),
+      0 0 80px rgba(var(--neon), 0.22),
+      inset 0 0 36px rgba(var(--neon), 0.1);
   }
 
   .neon-gold   { --neon: 240, 192, 96; }

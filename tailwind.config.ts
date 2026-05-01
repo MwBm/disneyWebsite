@@ -11,9 +11,9 @@ const config: Config = {
       colors: {
         // Dark warm backgrounds (class names preserved for compat)
         cream: {
-          50:  "#050810",
-          100: "#080c18",  // body bg
-          200: "#13192a",  // borders / dividers / table headers
+          50:  "#080703",
+          100: "#0d0b09",  // body bg
+          200: "#221a0f",  // borders / dividers / table headers
         },
         warm: {
           900: "#e8e4d8",  // primary text — warm cream
@@ -28,11 +28,11 @@ const config: Config = {
         },
         // Card / surface tokens
         space: {
-          card: "#0d1422",
-          900:  "#050810",
-          800:  "#080c18",
-          700:  "#13192a",
-          600:  "#1c2640",
+          card: "#141009",
+          900:  "#080703",
+          800:  "#0d0b09",
+          700:  "#221a0f",
+          600:  "#2a1e0a",
         },
         // Burnt amber secondary
         amber: {
