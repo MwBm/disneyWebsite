@@ -1,12 +1,6 @@
 name: Collect Wait Times
 
 on:
-  schedule:
-    # Every 30 min during Disneyland operational hours (8am–midnight Pacific).
-    # 0-8 UTC = 5pm–1am PDT / 4pm–midnight PST
-    # 15-23 UTC = 8am–4pm PDT / 7am–3pm PST
-    # Gap 9-14 UTC = 2am–7am PDT (overnight, park closed).
-    - cron: "*/30 0-8,15-23 * * *"
   workflow_dispatch:
 
 jobs:
