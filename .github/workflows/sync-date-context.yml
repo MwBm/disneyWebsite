@@ -2,17 +2,14 @@ name: Sync Date Context
 
 on:
   schedule:
-    # Every 30 min during Disneyland operational hours (8am–midnight Pacific).
-    # 0-8 UTC = 5pm–1am PDT / 4pm–midnight PST
-    # 15-23 UTC = 8am–4pm PDT / 7am–3pm PST
-    # Gap 9-14 UTC = 2am–7am PDT (overnight, park closed).
-    - cron: "*/30 0-8,15-23 * * *"
+    # 1st of each month at 10:00 UTC
+    - cron: "0 10 1 * *"
   workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Call sync-date-context endpoint
         run: |

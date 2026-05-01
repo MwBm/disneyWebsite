@@ -33,7 +33,7 @@ export async function narrateForecast(
     .join(", ");
 
   const msg = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
+    model: "llama-3.3-70b-versatile",
     max_tokens: 200,
     messages: [
       {
@@ -81,7 +81,7 @@ export async function narrateForecastNoData(date: Date): Promise<string> {
   const groq = getGroqClient();
   const dateStr = format(date, "EEEE, MMMM d, yyyy");
   const msg = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
+    model: "llama-3.3-70b-versatile",
     max_tokens: 200,
     messages: [
       {
@@ -96,7 +96,7 @@ export async function narrateForecastNoData(date: Date): Promise<string> {
 export async function estimateDowCrowdScores(): Promise<Map<number, number>> {
   const groq = getGroqClient();
   const msg = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
+    model: "llama-3.3-70b-versatile",
     max_tokens: 120,
     response_format: { type: "json_object" },
     messages: [
@@ -132,7 +132,7 @@ export async function buildItinerary(
     .join("\n");
 
   const msg = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
+    model: "llama-3.3-70b-versatile",
     max_tokens: 800,
     messages: [
       {

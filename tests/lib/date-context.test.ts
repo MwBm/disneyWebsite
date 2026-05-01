@@ -170,45 +170,74 @@ describe("isHolidayDate", () => {
   it("flags fixed holidays", () => {
     expect(isHolidayDate(new Date("2026-01-01"))).toBe(true);  // New Year's Day
     expect(isHolidayDate(new Date("2026-07-04"))).toBe(true);  // Independence Day
-    expect(isHolidayDate(new Date("2026-12-25"))).toBe(true);  // Christmas Day
+    expect(isHolidayDate(new Date("2026-11-11"))).toBe(true);  // Veterans Day
     expect(isHolidayDate(new Date("2026-12-24"))).toBe(true);  // Christmas Eve
+    expect(isHolidayDate(new Date("2026-12-25"))).toBe(true);  // Christmas Day
+    expect(isHolidayDate(new Date("2026-12-31"))).toBe(true);  // New Year's Eve
   });
 
-  it("flags floating holidays", () => {
+  it("flags floating federal holidays", () => {
     // Memorial Day 2026 = May 25
     expect(isHolidayDate(new Date("2026-05-25"))).toBe(true);
     // Labor Day 2026 = Sep 7
     expect(isHolidayDate(new Date("2026-09-07"))).toBe(true);
+    // Columbus Day 2026 = Oct 12
+    expect(isHolidayDate(new Date("2026-10-12"))).toBe(true);
     // Thanksgiving 2026 = Nov 26
     expect(isHolidayDate(new Date("2026-11-26"))).toBe(true);
+  });
+
+  it("flags Easter weekend (Good Friday through Easter Monday)", () => {
+    // Easter 2026 = Apr 5; Good Friday = Apr 3, Easter Monday = Apr 6
+    expect(isHolidayDate(new Date("2026-04-03"))).toBe(true);  // Good Friday
+    expect(isHolidayDate(new Date("2026-04-04"))).toBe(true);  // Holy Saturday
+    expect(isHolidayDate(new Date("2026-04-05"))).toBe(true);  // Easter Sunday
+    expect(isHolidayDate(new Date("2026-04-06"))).toBe(true);  // Easter Monday
+    // Day outside Easter weekend should not be flagged
+    expect(isHolidayDate(new Date("2026-04-02"))).toBe(false); // Maundy Thursday
+    // Easter 2027 = Mar 28; Good Friday = Mar 26
+    expect(isHolidayDate(new Date("2027-03-26"))).toBe(true);  // Good Friday 2027
+    expect(isHolidayDate(new Date("2027-03-28"))).toBe(true);  // Easter 2027
   });
 
   it("does not flag ordinary days", () => {
     expect(isHolidayDate(new Date("2026-06-15"))).toBe(false);
     expect(isHolidayDate(new Date("2026-03-10"))).toBe(false);
+    expect(isHolidayDate(new Date("2026-10-01"))).toBe(false);
   });
 });
 
 describe("isSchoolBreakDate", () => {
-  it("flags winter break", () => {
+  it("flags winter break (CA: Dec 19 – Jan 7)", () => {
+    expect(isSchoolBreakDate(new Date("2026-12-19"))).toBe(true); // CA start
     expect(isSchoolBreakDate(new Date("2026-12-22"))).toBe(true);
     expect(isSchoolBreakDate(new Date("2027-01-01"))).toBe(true);
     expect(isSchoolBreakDate(new Date("2027-01-05"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2027-01-07"))).toBe(true); // CA end
+    expect(isSchoolBreakDate(new Date("2027-01-08"))).toBe(false); // back to school
   });
 
-  it("flags summer break", () => {
-    expect(isSchoolBreakDate(new Date("2026-07-15"))).toBe(true);
+  it("flags summer break (CA: Jun 12 – Aug 25)", () => {
+    expect(isSchoolBreakDate(new Date("2026-06-12"))).toBe(true); // CA start
     expect(isSchoolBreakDate(new Date("2026-06-15"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2026-07-15"))).toBe(true);
     expect(isSchoolBreakDate(new Date("2026-08-20"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2026-08-25"))).toBe(true); // CA end
+    expect(isSchoolBreakDate(new Date("2026-08-26"))).toBe(false); // back to school
   });
 
-  it("flags spring break", () => {
+  it("flags spring break (CA: Mar 21 – Apr 18)", () => {
+    expect(isSchoolBreakDate(new Date("2026-03-21"))).toBe(true); // CA start
     expect(isSchoolBreakDate(new Date("2026-03-25"))).toBe(true);
     expect(isSchoolBreakDate(new Date("2026-04-01"))).toBe(true);
+    expect(isSchoolBreakDate(new Date("2026-04-15"))).toBe(true); // late CA districts
+    expect(isSchoolBreakDate(new Date("2026-04-18"))).toBe(true); // CA end
+    expect(isSchoolBreakDate(new Date("2026-04-19"))).toBe(false); // back to school
   });
 
   it("does not flag ordinary school days", () => {
     expect(isSchoolBreakDate(new Date("2026-02-15"))).toBe(false);
+    expect(isSchoolBreakDate(new Date("2026-03-20"))).toBe(false); // day before spring break
     expect(isSchoolBreakDate(new Date("2026-10-01"))).toBe(false);
     expect(isSchoolBreakDate(new Date("2026-11-01"))).toBe(false);
   });
