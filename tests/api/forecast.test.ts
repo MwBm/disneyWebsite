@@ -9,7 +9,7 @@ const mockQueryRaw = prisma.$queryRaw as jest.Mock;
 
 jest.mock("@/lib/groq", () => ({
   narrateForecast: jest.fn().mockResolvedValue("Test narration"),
-  narrateForecastNoData: jest.fn().mockResolvedValue("No data narration"),
+  narrateForecastNoDataWithScore: jest.fn().mockResolvedValue({ score: 55, narration: "No data narration" }),
 }));
 
 function makeReq(date: string) {
@@ -146,7 +146,7 @@ describe("forecast route — Groq fallback path", () => {
     expect(res.status).toBe(200);
     expect(body.source).toBe("groq");
     expect(body.forecasts).toEqual([]);
-    expect(body.crowdScore).toBeNull();
+    expect(body.crowdScore).toBe(55);
     expect(body.crowdNarration).toBe("No data narration");
   });
 
@@ -154,7 +154,7 @@ describe("forecast route — Groq fallback path", () => {
     mockForecastFindMany.mockResolvedValue([]);
     mockCollectRunFindMany.mockResolvedValue([recentRun]);
     mockQueryRaw.mockResolvedValue([]);
-    (groqLib.narrateForecastNoData as jest.Mock).mockRejectedValueOnce(new Error("down"));
+    (groqLib.narrateForecastNoDataWithScore as jest.Mock).mockRejectedValueOnce(new Error("down"));
 
     const res = await GET(makeReq("2026-06-01"));
     const body = await res.json();

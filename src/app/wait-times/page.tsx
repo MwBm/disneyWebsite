@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import RidePredictionTable from "@/components/RidePredictionTable";
+import DisneyDatePicker from "@/components/DisneyDatePicker";
 
 type Ride = {
   rideId: number;
@@ -40,8 +42,11 @@ const TIPS = [
   },
 ];
 
-export default function WaitTimesPage() {
-  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
+function WaitTimesContent() {
+  const searchParams = useSearchParams();
+  const urlDate = searchParams.get("date");
+
+  const [date, setDate] = useState(urlDate ?? format(new Date(), "yyyy-MM-dd"));
   const [hour, setHour] = useState(String(new Date().getHours()).padStart(2, "0"));
   const [loading, setLoading] = useState(false);
   const [rides, setRides] = useState<Ride[] | null>(null);
@@ -66,9 +71,7 @@ export default function WaitTimesPage() {
           byRideId.set(f.rideId, f);
         }
       }
-      const filtered: Ride[] = Array.from(byRideId.values());
-
-      setRides(filtered);
+      setRides(Array.from(byRideId.values()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -93,15 +96,7 @@ export default function WaitTimesPage() {
 
       <div className="bg-space-card border border-space-700 rounded-2xl p-5 neon neon-blue">
         <div className="flex gap-3 flex-wrap items-end">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-warm-700 font-medium uppercase tracking-wide">Date</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="border border-cream-200 rounded-xl px-4 py-2 text-warm-900 bg-cream-50 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            />
-          </div>
+          <DisneyDatePicker value={date} onChange={setDate} label="Date" />
           <div className="flex flex-col gap-1">
             <label className="text-xs text-warm-700 font-medium uppercase tracking-wide">Hour</label>
             <select
@@ -157,5 +152,13 @@ export default function WaitTimesPage() {
 
       {rides !== null && rides.length > 0 && <RidePredictionTable rides={rides} />}
     </div>
+  );
+}
+
+export default function WaitTimesPage() {
+  return (
+    <Suspense fallback={null}>
+      <WaitTimesContent />
+    </Suspense>
   );
 }

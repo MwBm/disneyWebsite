@@ -21,6 +21,12 @@ WINDOW_MINUTES = 30
 RAW_RETENTION_DAYS = 30  # raw rows kept before archival to HourlyWaitSummary
 FORECAST_SLOTS = 48  # 48 × 30min = 24h
 
+# Disneyland is Pacific time (UTC-7 PDT / UTC-8 PST).
+# Exclude UTC hours 7–14 inclusive: that's roughly midnight–7:59 AM Pacific,
+# when the park is always closed. Generating predictions for those hours
+# produces garbage extrapolations that pollute the daily crowd score.
+PARK_CLOSED_UTC_HOURS = frozenset(range(7, 15))
+
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../src/lib/ride-config.json")
 
 def _load_park_configs() -> list[dict]:
@@ -206,6 +212,20 @@ def fetch_date_contexts(conn, dates: list[datetime]) -> dict[str, DateContext]:
     return result
 
 
+def delete_stale_forecasts(conn, slots: list[datetime]) -> int:
+    """Delete existing DailyForecast rows for these exact slots before inserting fresh ones.
+
+    Without this, each collect run appends new rows. The daily crowd score then averages
+    stale old predictions with fresh ones, producing drift even when nothing changed.
+    """
+    if not slots:
+        return 0
+    sql = 'DELETE FROM "DailyForecast" WHERE "forecastFor" = ANY(%s)'
+    with conn.cursor() as cur:
+        cur.execute(sql, (slots,))
+        return cur.rowcount
+
+
 def log_collect_run(conn, rows_upserted: int, success: bool, error_message: str | None = None) -> None:
     sql = """
         INSERT INTO "CollectRun" (id, "ranAt", "rowsUpserted", success, "errorMessage")
@@ -250,12 +270,17 @@ def main() -> int:
                 history = raw_history + archived_history
                 print(f"Loaded {len(raw_history)} raw + {len(archived_history)} archived records ({len(history)} total)")
 
-                # Predict for each 30-min slot in next 24h
+                # Predict for each 30-min slot in next 24h, skipping park-closed UTC hours.
+                # Park-closed slots (midnight–8 AM Pacific ≈ UTC 07:00–14:59) have no
+                # training signal; Ridge extrapolates garbage that pollutes crowd scores.
                 start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
                 slots = [
                     start_of_day + timedelta(minutes=i * 30)
                     for i in range(FORECAST_SLOTS)
-                    if start_of_day + timedelta(minutes=i * 30) >= now
+                    if (
+                        start_of_day + timedelta(minutes=i * 30) >= now
+                        and (start_of_day + timedelta(minutes=i * 30)).hour not in PARK_CLOSED_UTC_HOURS
+                    )
                 ]
                 date_contexts = fetch_date_contexts(conn, slots)
                 forecasts_per_slot = []
@@ -264,6 +289,8 @@ def main() -> int:
                     ride_forecasts, crowd_score = predict_for_date(history, slot, ctx)
                     forecasts_per_slot.append((slot, ride_forecasts, crowd_score))
 
+                stale_deleted = delete_stale_forecasts(conn, [s for s, _, _ in forecasts_per_slot])
+                print(f"Deleted {stale_deleted} stale DailyForecast rows")
                 forecast_count = insert_forecasts(conn, forecasts_per_slot, ride_meta)
                 conn.commit()
                 print(f"Inserted {forecast_count} DailyForecast rows across {len(forecasts_per_slot)} slots")

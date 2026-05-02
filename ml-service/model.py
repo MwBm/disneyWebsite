@@ -1,11 +1,23 @@
 import numpy as np
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, NamedTuple
 from schemas import RideHistory, RideForecast, DateContext
 from datetime import datetime
 
 MIN_SAMPLES = 30
+
+# Must stay in sync with src/lib/crowd.ts
+CROWD_MAX_WAIT = 120       # wait minutes where crowd score = 100
+CROWD_EXPECTED_RIDES = 24  # nominal full ride complement for count adjustment
+
+
+class TrainedModel(NamedTuple):
+    model: Optional[Ridge]            # None → use fallback
+    scaler: Optional[StandardScaler]  # None → use fallback
+    confidence: float
+    hour_means: Dict[int, int]        # UTC hour → mean wait (fallback lookup)
+    global_mean: int                  # fallback when hour has no history
 
 
 def _extract_features(dt: datetime, context: Optional[DateContext] = None) -> List[float]:
@@ -43,43 +55,61 @@ def _train_ride_model(
     return model, scaler, confidence
 
 
-def predict_for_date(
-    rides: List[RideHistory], target_date: datetime, context: Optional[DateContext] = None
-) -> Tuple[List[RideForecast], int]:
-    # Group records by ride_id, filtering to open rides only
+def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
+    """Train one Ridge per ride from history. Call once; predict for many slots."""
     ride_groups: Dict[int, List[RideHistory]] = {}
     for r in rides:
         if r.is_open:
             ride_groups.setdefault(r.ride_id, []).append(r)
 
-    features = _extract_features(target_date, context)
-    forecasts: List[RideForecast] = []
-
+    result: Dict[int, TrainedModel] = {}
     for ride_id, records in ride_groups.items():
+        global_mean = int(np.mean([r.wait_time for r in records])) if records else 0
+        by_hour: Dict[int, List[float]] = {}
+        for r in records:
+            by_hour.setdefault(r.recorded_at.hour, []).append(r.wait_time)
+        hour_means = {h: int(np.mean(v)) for h, v in by_hour.items()}
+
         if len(records) < MIN_SAMPLES:
-            # Fall back to historical mean for this time-of-day
-            same_hour = [
-                r.wait_time
-                for r in records
-                if r.recorded_at.hour == target_date.hour
-            ]
-            mean_wait = int(np.mean(same_hour)) if same_hour else int(np.mean([r.wait_time for r in records]))
-            forecasts.append(
-                RideForecast(ride_id=ride_id, predicted_wait=max(0, mean_wait), confidence=0.3)
-            )
+            result[ride_id] = TrainedModel(None, None, 0.3, hour_means, global_mean)
         else:
             model, scaler, confidence = _train_ride_model(records)
-            X = np.array([features], dtype=float)
-            X_scaled = scaler.transform(X)
-            predicted = int(np.clip(model.predict(X_scaled)[0], 0, 300))
+            result[ride_id] = TrainedModel(model, scaler, confidence, hour_means, global_mean)
+
+    return result
+
+
+def predict_for_slot(
+    trained_models: Dict[int, TrainedModel],
+    slot: datetime,
+    context: Optional[DateContext] = None,
+) -> Tuple[List[RideForecast], int]:
+    """Predict wait times for a single time slot using pre-trained models."""
+    features = _extract_features(slot, context)
+    forecasts: List[RideForecast] = []
+
+    for ride_id, tm in trained_models.items():
+        if tm.model is None:
+            mean_wait = tm.hour_means.get(slot.hour, tm.global_mean)
             forecasts.append(
-                RideForecast(ride_id=ride_id, predicted_wait=predicted, confidence=confidence)
+                RideForecast(ride_id=ride_id, predicted_wait=max(0, mean_wait), confidence=tm.confidence)
+            )
+        else:
+            X = np.array([features], dtype=float)
+            X_scaled = tm.scaler.transform(X)
+            predicted = int(np.clip(tm.model.predict(X_scaled)[0], 0, 300))
+            forecasts.append(
+                RideForecast(ride_id=ride_id, predicted_wait=predicted, confidence=tm.confidence)
             )
 
-    # Crowd score: weighted average of predicted waits (cap each ride at 120 for normalization)
     if forecasts:
-        raw_waits = [min(f.predicted_wait, 120) for f in forecasts]
-        crowd_score = int(np.clip(np.mean(raw_waits) / 120 * 100, 0, 100))
+        raw_waits = [min(f.predicted_wait, CROWD_MAX_WAIT) for f in forecasts]
+        avg_wait = float(np.mean(raw_waits))
+        ride_ratio = min(len(forecasts) / CROWD_EXPECTED_RIDES, 1.0)
+        effective_wait = avg_wait * ride_ratio
+        base = min(effective_wait / CROWD_MAX_WAIT * 100, 100)
+        tier_multiplier = 1.0 + (context.tier * 0.08 if context else 0.0)
+        crowd_score = int(min(base * tier_multiplier, 100))
     else:
         crowd_score = 0
 

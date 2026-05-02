@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getForecastForDate, getRecentCollectRuns, getHistoricalMeansForDate } from "@/lib/forecast";
-import { narrateForecast, narrateForecastNoData } from "@/lib/groq";
+import { narrateForecast, narrateForecastNoDataWithScore } from "@/lib/groq";
 import { deriveCrowdScore, HISTORICAL_FALLBACK_CONFIDENCE } from "@/lib/crowd";
 import { parseISO, isValid, startOfDay } from "date-fns";
 
@@ -72,15 +72,18 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // No data at all — Groq general estimate
+    // No data at all — Groq general estimate (score + narration in one call)
     let crowdNarration: string | null = null;
+    let crowdScore: number | null = null;
     try {
-      crowdNarration = await narrateForecastNoData(date);
+      const groqResult = await narrateForecastNoDataWithScore(date);
+      crowdScore = groqResult.score;
+      crowdNarration = groqResult.narration;
     } catch { /* non-fatal */ }
 
     return NextResponse.json({
       date: parsed.data.date,
-      crowdScore: null,
+      crowdScore,
       crowdNarration,
       forecasts: [],
       source: "groq",

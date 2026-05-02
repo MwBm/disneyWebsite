@@ -77,20 +77,38 @@ ${openRides}
 Answer questions about wait times, ride recommendations, itinerary planning, and park tips. Be concise and specific. Always ground advice in the current data when relevant.`;
 }
 
-export async function narrateForecastNoData(date: Date): Promise<string> {
+export async function narrateForecastNoDataWithScore(
+  date: Date
+): Promise<{ score: number; narration: string }> {
   const groq = getGroqClient();
   const dateStr = format(date, "EEEE, MMMM d, yyyy");
   const msg = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
-    max_tokens: 200,
+    max_tokens: 300,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "user",
-        content: `You are a Disneyland analytics expert. Write a 2–3 sentence crowd forecast for visiting Disneyland on ${dateStr}. No historical data exists for this specific date yet. Base your estimate on general crowd patterns for this day of week and time of year. Be upfront that this is a general estimate. Give one actionable timing tip.`,
+        content: `You are a Disneyland crowd analytics expert. For visiting Disneyland on ${dateStr}, provide:
+1. A crowd score estimate (0–100 integer, where 0=empty, 100=maximum capacity)
+2. A 2–3 sentence crowd forecast
+
+No historical data exists for this specific date. Base your estimate on general crowd patterns for this day of week and time of year. Be upfront that this is a general estimate. Give one actionable timing tip.
+
+Return ONLY valid JSON: {"score": <integer 0-100>, "narration": "<2-3 sentences>"}`,
       },
     ],
   });
-  return msg.choices[0]?.message?.content ?? "";
+  const content = msg.choices[0]?.message?.content ?? '{"score":50,"narration":""}';
+  try {
+    const parsed = JSON.parse(content);
+    return {
+      score: Math.round(Math.max(0, Math.min(100, Number(parsed.score) || 50))),
+      narration: String(parsed.narration || ""),
+    };
+  } catch {
+    return { score: 50, narration: "" };
+  }
 }
 
 export async function estimateDowCrowdScores(): Promise<Map<number, number>> {
