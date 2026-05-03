@@ -18,22 +18,33 @@ RAW_RETENTION_DAYS = 30
 def fetch_buckets_to_archive(cur, cutoff: datetime) -> list[tuple]:
     cur.execute(
         """
+        WITH localized AS (
+            SELECT
+                "rideId",
+                "rideName",
+                "landName",
+                "waitTime",
+                "isOpen",
+                "windowedAt",
+                ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') AS park_time
+            FROM "WaitTimeRecord"
+            WHERE "windowedAt" < %s
+        )
         SELECT
             "rideId",
             "rideName",
             "landName",
-            DATE_TRUNC('day', "windowedAt") AS date,
-            EXTRACT(HOUR FROM "windowedAt")::int AS hour,
+            DATE_TRUNC('day', park_time) AS date,
+            EXTRACT(HOUR FROM park_time)::int AS hour,
             AVG("waitTime")::float            AS avg_wait,
             MAX("waitTime")                   AS peak_wait,
             COUNT(*)                          AS sample_count,
             BOOL_OR("isOpen")                 AS is_open
-        FROM "WaitTimeRecord"
-        WHERE "windowedAt" < %s
+        FROM localized
         GROUP BY
             "rideId", "rideName", "landName",
-            DATE_TRUNC('day', "windowedAt"),
-            EXTRACT(HOUR FROM "windowedAt")
+            DATE_TRUNC('day', park_time),
+            EXTRACT(HOUR FROM park_time)
         ORDER BY date, "rideId", hour
         """,
         (cutoff,),
@@ -58,8 +69,8 @@ def insert_summaries(cur, buckets: list[tuple]) -> int:
                 b[0],  # rideId
                 b[1],  # rideName
                 b[2],  # landName
-                b[3],  # date (midnight UTC datetime)
-                b[4],  # hour
+                b[3],  # park date as midnight timestamp
+                b[4],  # Pacific-local hour
                 b[5],  # avgWait
                 b[6],  # peakWait
                 b[7],  # sampleCount

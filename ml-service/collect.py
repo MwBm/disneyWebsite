@@ -9,23 +9,24 @@ import os
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import httpx
 import psycopg
 
-from model import predict_for_date
+from model import predict_for_slot, train_ride_models
 from schemas import RideHistory, DateContext
 
 
 WINDOW_MINUTES = 30
 RAW_RETENTION_DAYS = 30  # raw rows kept before archival to HourlyWaitSummary
-FORECAST_SLOTS = 48  # 48 × 30min = 24h
+FORECAST_DAYS = 30
+FORECAST_SLOTS_PER_DAY = 48  # 48 × 30min = 24h
+PARK_TZ = ZoneInfo("America/Los_Angeles")
 
-# Disneyland is Pacific time (UTC-7 PDT / UTC-8 PST).
-# Exclude UTC hours 7–14 inclusive: that's roughly midnight–7:59 AM Pacific,
-# when the park is always closed. Generating predictions for those hours
-# produces garbage extrapolations that pollute the daily crowd score.
-PARK_CLOSED_UTC_HOURS = frozenset(range(7, 15))
+# Midnight–7:59 AM Pacific has little useful training signal and can pollute
+# daily crowd scores with extrapolated closed-park predictions.
+PARK_CLOSED_LOCAL_HOURS = frozenset(range(0, 8))
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../src/lib/ride-config.json")
 
@@ -40,6 +41,31 @@ def round_to_window(dt: datetime) -> datetime:
     window_ms = WINDOW_MINUTES * 60 * 1000
     rounded = round(epoch_ms / window_ms) * window_ms
     return datetime.fromtimestamp(rounded / 1000, tz=timezone.utc)
+
+
+def park_date_key(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(PARK_TZ).strftime("%Y-%m-%d")
+
+
+def build_forecast_slots(now: datetime, days: int = FORECAST_DAYS) -> list[datetime]:
+    """Build future 30-minute slots anchored to Disneyland's local calendar days."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    park_midnight = now.astimezone(PARK_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    slots: list[datetime] = []
+    for day_offset in range(days):
+        local_day = park_midnight + timedelta(days=day_offset)
+        for i in range(FORECAST_SLOTS_PER_DAY):
+            local_slot = local_day + timedelta(minutes=i * WINDOW_MINUTES)
+            if local_slot.hour in PARK_CLOSED_LOCAL_HOURS:
+                continue
+            slot = local_slot.astimezone(timezone.utc)
+            if slot >= now:
+                slots.append(slot)
+    return slots
 
 
 def fetch_live_rides() -> list[dict]:
@@ -129,8 +155,8 @@ def fetch_history(conn, since: datetime) -> list[RideHistory]:
 def fetch_hourly_archive(conn) -> list[RideHistory]:
     """Pull all HourlyWaitSummary rows as RideHistory for ML training.
 
-    Each archived row represents one hour of data; recorded_at is set to
-    midnight-UTC + hour so the model's hour/weekday/month features work correctly.
+    Each archived row represents one Pacific-local hour of data; recorded_at is
+    rebuilt as that park-local hour converted to UTC for model feature extraction.
     """
     sql = """
         SELECT "rideId", "rideName", "landName", "avgWait", "isOpen", date, hour
@@ -138,17 +164,26 @@ def fetch_hourly_archive(conn) -> list[RideHistory]:
     """
     with conn.cursor() as cur:
         cur.execute(sql)
-        return [
-            RideHistory(
-                ride_id=row[0],
-                ride_name=row[1],
-                land_name=row[2],
-                wait_time=round(row[3]),
-                is_open=row[4],
-                recorded_at=row[5].replace(hour=row[6], minute=0, second=0, tzinfo=timezone.utc),
+        rows = []
+        for row in cur.fetchall():
+            local_recorded_at = row[5].replace(
+                hour=row[6],
+                minute=0,
+                second=0,
+                microsecond=0,
+                tzinfo=PARK_TZ,
             )
-            for row in cur.fetchall()
-        ]
+            rows.append(
+                RideHistory(
+                    ride_id=row[0],
+                    ride_name=row[1],
+                    land_name=row[2],
+                    wait_time=round(row[3]),
+                    is_open=row[4],
+                    recorded_at=local_recorded_at.astimezone(timezone.utc),
+                )
+            )
+        return rows
 
 
 def insert_forecasts(
@@ -190,7 +225,7 @@ def insert_forecasts(
 
 def fetch_date_contexts(conn, dates: list[datetime]) -> dict[str, DateContext]:
     """Fetch DateContext rows for a set of dates. Missing dates return default context."""
-    unique_strs = list({d.strftime("%Y-%m-%d") for d in dates})
+    unique_strs = list({park_date_key(d) for d in dates})
     if not unique_strs:
         return {}
     sql = """
@@ -270,23 +305,17 @@ def main() -> int:
                 history = raw_history + archived_history
                 print(f"Loaded {len(raw_history)} raw + {len(archived_history)} archived records ({len(history)} total)")
 
-                # Predict for each 30-min slot in next 24h, skipping park-closed UTC hours.
-                # Park-closed slots (midnight–8 AM Pacific ≈ UTC 07:00–14:59) have no
-                # training signal; Ridge extrapolates garbage that pollutes crowd scores.
-                start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                slots = [
-                    start_of_day + timedelta(minutes=i * 30)
-                    for i in range(FORECAST_SLOTS)
-                    if (
-                        start_of_day + timedelta(minutes=i * 30) >= now
-                        and (start_of_day + timedelta(minutes=i * 30)).hour not in PARK_CLOSED_UTC_HOURS
-                    )
-                ]
+                trained_models = train_ride_models(history)
+                print(f"Trained {len(trained_models)} ride models")
+
+                # Predict 30 days ahead using Pacific-local day boundaries so
+                # calendar days do not mix late evenings into the next UTC date.
+                slots = build_forecast_slots(now)
                 date_contexts = fetch_date_contexts(conn, slots)
                 forecasts_per_slot = []
                 for slot in slots:
-                    ctx = date_contexts.get(slot.strftime("%Y-%m-%d"))
-                    ride_forecasts, crowd_score = predict_for_date(history, slot, ctx)
+                    ctx = date_contexts.get(park_date_key(slot))
+                    ride_forecasts, crowd_score = predict_for_slot(trained_models, slot, ctx)
                     forecasts_per_slot.append((slot, ride_forecasts, crowd_score))
 
                 stale_deleted = delete_stale_forecasts(conn, [s for s, _, _ in forecasts_per_slot])

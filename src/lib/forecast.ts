@@ -1,21 +1,33 @@
 import { prisma } from "./db";
 import { Prisma } from "@prisma/client";
-import { startOfDay, endOfDay } from "date-fns";
 import { deriveCrowdScore } from "./crowd";
+import {
+  dateContextMonthRangeUtc,
+  normalizeParkDateKey,
+  parkDateDow,
+  parkDateKey,
+  parkDateRangeUtc,
+  parkMonthRangeUtc,
+} from "./park-time";
 
-export async function getForecastForDate(date: Date) {
+const PARK_LOCAL_RECORDED_AT = Prisma.raw(
+  `("recordedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')`
+);
+
+export async function getForecastForDate(date: Date | string) {
+  const { start, endExclusive } = parkDateRangeUtc(date);
   return prisma.dailyForecast.findMany({
     where: {
       forecastFor: {
-        gte: startOfDay(date),
-        lte: endOfDay(date),
+        gte: start,
+        lt: endExclusive,
       },
     },
     orderBy: [{ forecastFor: "asc" }, { rideName: "asc" }],
   });
 }
 
-export async function getCrowdScoreForDate(date: Date): Promise<number | null> {
+export async function getCrowdScoreForDate(date: Date | string): Promise<number | null> {
   const forecasts = await getForecastForDate(date);
   if (forecasts.length === 0) return null;
   const scores = forecasts.map((f) => f.crowdScore);
@@ -47,18 +59,17 @@ export type DayCrowdScore = {
 };
 
 export async function getCrowdScoresForMonth(year: number, month: number): Promise<DayCrowdScore[]> {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0); // last day of month
-  const endOfLastDay = endOfDay(end);
+  const { start, endExclusive } = parkMonthRangeUtc(year, month);
+  const dateContextRange = dateContextMonthRangeUtc(year, month);
 
   const [forecasts, histRows, dateContexts] = await Promise.all([
     prisma.dailyForecast.findMany({
-      where: { forecastFor: { gte: start, lte: endOfLastDay } },
+      where: { forecastFor: { gte: start, lt: endExclusive } },
       select: { forecastFor: true, crowdScore: true },
     }),
     prisma.$queryRaw<{ dow: number; meanWait: number }[]>(Prisma.sql`
       SELECT
-        EXTRACT(DOW FROM "recordedAt")::int AS dow,
+        EXTRACT(DOW FROM ${PARK_LOCAL_RECORDED_AT})::int AS dow,
         ROUND(AVG("waitTime"))::int AS "meanWait"
       FROM "WaitTimeRecord"
       WHERE "isOpen" = true
@@ -66,14 +77,14 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
       GROUP BY dow
     `),
     prisma.dateContext.findMany({
-      where: { date: { gte: start, lte: endOfLastDay } },
+      where: { date: { gte: dateContextRange.start, lt: dateContextRange.endExclusive } },
       select: { date: true, tier: true, specialEvent: true, isHoliday: true },
     }),
   ]);
 
   const mlByDate = new Map<string, number[]>();
   for (const f of forecasts) {
-    const key = f.forecastFor.toISOString().slice(0, 10);
+    const key = parkDateKey(f.forecastFor);
     if (!mlByDate.has(key)) mlByDate.set(key, []);
     mlByDate.get(key)!.push(f.crowdScore);
   }
@@ -101,10 +112,9 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
       .map((c) => c.date.toISOString().slice(0, 10))
   );
 
-  const daysInMonth = end.getDate();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const results: DayCrowdScore[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(year, month - 1, d);
     const key = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const tier = tierByDate.get(key) ?? null;
     const specialEvent = specialEventByDate.get(key) ?? null;
@@ -119,8 +129,8 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
         specialEvent,
         isHoliday,
       });
-    } else if (meanWaitByDow.has(date.getDay())) {
-      const meanWait = meanWaitByDow.get(date.getDay())!;
+    } else if (meanWaitByDow.has(parkDateDow(key))) {
+      const meanWait = meanWaitByDow.get(parkDateDow(key))!;
       results.push({ date: key, crowdScore: deriveCrowdScore(meanWait, tier ?? undefined), source: "historical", tier, specialEvent, isHoliday });
     } else {
       results.push({ date: key, crowdScore: null, source: null, tier, specialEvent, isHoliday });
@@ -129,20 +139,20 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
   return results;
 }
 
-export async function getHistoricalMeansForDate(date: Date): Promise<HistoricalMean[]> {
-  const dow = date.getDay(); // 0=Sunday..6=Saturday, matches PostgreSQL EXTRACT(DOW)
+export async function getHistoricalMeansForDate(date: Date | string): Promise<HistoricalMean[]> {
+  const dow = parkDateDow(normalizeParkDateKey(date)); // 0=Sunday..6=Saturday
   const rows = await prisma.$queryRaw<HistoricalMean[]>(Prisma.sql`
     SELECT
       "rideId",
       "rideName",
       "landName",
-      EXTRACT(HOUR FROM "recordedAt")::int AS hour,
+      EXTRACT(HOUR FROM ${PARK_LOCAL_RECORDED_AT})::int AS hour,
       ROUND(AVG("waitTime"))::int AS "meanWait"
     FROM "WaitTimeRecord"
     WHERE
       "isOpen" = true
-      AND EXTRACT(DOW FROM "recordedAt") = ${dow}
-    GROUP BY "rideId", "rideName", "landName", EXTRACT(HOUR FROM "recordedAt")
+      AND EXTRACT(DOW FROM ${PARK_LOCAL_RECORDED_AT}) = ${dow}
+    GROUP BY "rideId", "rideName", "landName", EXTRACT(HOUR FROM ${PARK_LOCAL_RECORDED_AT})
     ORDER BY "rideId", hour
   `);
   // Prisma raw may return BigInt for int columns — normalize

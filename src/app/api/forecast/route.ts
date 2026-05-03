@@ -3,12 +3,16 @@ import { z } from "zod";
 import { getForecastForDate, getRecentCollectRuns, getHistoricalMeansForDate } from "@/lib/forecast";
 import { narrateForecast, narrateForecastNoDataWithScore } from "@/lib/groq";
 import { deriveCrowdScore, HISTORICAL_FALLBACK_CONFIDENCE } from "@/lib/crowd";
-import { parseISO, isValid, startOfDay } from "date-fns";
+import { parseISO, isValid } from "date-fns";
+import { parkDateRangeUtc } from "@/lib/park-time";
 
 export const revalidate = 1800;
 
 const QuerySchema = z.object({
-  date: z.string().refine((v) => isValid(parseISO(v)), { message: "Invalid date" }),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((v) => isValid(parseISO(v)), { message: "Invalid date" }),
 });
 
 export async function GET(req: NextRequest) {
@@ -22,9 +26,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const date = parseISO(parsed.data.date);
+  const dateKey = parsed.data.date;
+  const date = parkDateRangeUtc(dateKey).start;
   const [forecasts, recentRuns] = await Promise.all([
-    getForecastForDate(date),
+    getForecastForDate(dateKey),
     getRecentCollectRuns(3),
   ]);
 
@@ -37,10 +42,10 @@ export async function GET(req: NextRequest) {
   const lastCollectedAt = recentRuns[0]?.ranAt ?? null;
 
   if (forecasts.length === 0) {
-    const historicalMeans = await getHistoricalMeansForDate(date);
+    const historicalMeans = await getHistoricalMeansForDate(dateKey);
 
     if (historicalMeans.length > 0) {
-      const dayStart = startOfDay(date);
+      const dayStart = parkDateRangeUtc(dateKey).start;
       const syntheticForecasts = historicalMeans.map((m) => ({
         rideId: m.rideId,
         rideName: m.rideName,

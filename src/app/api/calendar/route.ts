@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { getCrowdScoresForMonth } from "@/lib/forecast";
 import { estimateDowCrowdScores } from "@/lib/groq";
 import { prisma } from "@/lib/db";
+import { parkDateDow } from "@/lib/park-time";
 
 export const revalidate = 3600;
 
@@ -61,8 +62,7 @@ export async function GET(req: NextRequest) {
 
     const filledDays = days.map((day) => {
       if (day.source !== null || groqDow.size === 0) return day;
-      const [y, m, d] = day.date.split("-").map(Number);
-      const dow = new Date(y, m - 1, d).getDay();
+      const dow = parkDateDow(day.date);
       const score = groqDow.get(dow);
       return score !== undefined ? { ...day, crowdScore: score, source: "groq" as const } : day;
     });

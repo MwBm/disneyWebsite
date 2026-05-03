@@ -3,28 +3,37 @@ from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 from typing import List, Dict, Tuple, Optional, NamedTuple
 from schemas import RideHistory, RideForecast, DateContext
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 MIN_SAMPLES = 30
 
 # Must stay in sync with src/lib/crowd.ts
 CROWD_MAX_WAIT = 120       # wait minutes where crowd score = 100
 CROWD_EXPECTED_RIDES = 24  # nominal full ride complement for count adjustment
+PARK_TZ = ZoneInfo("America/Los_Angeles")
 
 
 class TrainedModel(NamedTuple):
     model: Optional[Ridge]            # None → use fallback
     scaler: Optional[StandardScaler]  # None → use fallback
     confidence: float
-    hour_means: Dict[int, int]        # UTC hour → mean wait (fallback lookup)
+    hour_means: Dict[int, int]        # Pacific hour → mean wait (fallback lookup)
     global_mean: int                  # fallback when hour has no history
 
 
+def _park_time(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(PARK_TZ)
+
+
 def _extract_features(dt: datetime, context: Optional[DateContext] = None) -> List[float]:
-    hour = float(dt.hour)
-    weekday = float(dt.weekday())
-    month = float(dt.month)
-    is_weekend = 1.0 if dt.weekday() >= 5 else 0.0
+    park_dt = _park_time(dt)
+    hour = float(park_dt.hour)
+    weekday = float(park_dt.weekday())
+    month = float(park_dt.month)
+    is_weekend = 1.0 if park_dt.weekday() >= 5 else 0.0
     tier = float(context.tier) if context else 0.0
     has_special_event = 1.0 if context and context.has_special_event else 0.0
     is_holiday = 1.0 if context and context.is_holiday else 0.0
@@ -67,7 +76,7 @@ def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
         global_mean = int(np.mean([r.wait_time for r in records])) if records else 0
         by_hour: Dict[int, List[float]] = {}
         for r in records:
-            by_hour.setdefault(r.recorded_at.hour, []).append(r.wait_time)
+            by_hour.setdefault(_park_time(r.recorded_at).hour, []).append(r.wait_time)
         hour_means = {h: int(np.mean(v)) for h, v in by_hour.items()}
 
         if len(records) < MIN_SAMPLES:
@@ -90,7 +99,7 @@ def predict_for_slot(
 
     for ride_id, tm in trained_models.items():
         if tm.model is None:
-            mean_wait = tm.hour_means.get(slot.hour, tm.global_mean)
+            mean_wait = tm.hour_means.get(_park_time(slot).hour, tm.global_mean)
             forecasts.append(
                 RideForecast(ride_id=ride_id, predicted_wait=max(0, mean_wait), confidence=tm.confidence)
             )
@@ -114,3 +123,12 @@ def predict_for_slot(
         crowd_score = 0
 
     return forecasts, crowd_score
+
+
+def predict_for_date(
+    rides: List[RideHistory],
+    target_date: datetime,
+    context: Optional[DateContext] = None,
+) -> Tuple[List[RideForecast], int]:
+    """Backward-compatible one-shot predictor for callers that pass raw history."""
+    return predict_for_slot(train_ride_models(rides), target_date, context)
