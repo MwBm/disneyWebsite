@@ -9,39 +9,46 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Dark warm backgrounds (class names preserved for compat)
+        // ── Semantic tokens (CSS-variable-backed, theme-aware) ──────────────
+
+        // Preserve existing class names so components need zero changes
         cream: {
-          50:  "#080703",
-          100: "#0d0b09",  // body bg
-          200: "#221a0f",  // borders / dividers / table headers
+          50:  "rgb(var(--color-bg)      / <alpha-value>)",
+          100: "rgb(var(--color-bg)      / <alpha-value>)",
+          200: "rgb(var(--color-border)  / <alpha-value>)",
         },
         warm: {
-          900: "#e8e4d8",  // primary text — warm cream
-          700: "#9b8f7e",  // secondary text
-          500: "#5a5048",  // muted / placeholder
+          900: "rgb(var(--color-text-primary)   / <alpha-value>)",
+          700: "rgb(var(--color-text-secondary) / <alpha-value>)",
+          500: "rgb(var(--color-text-muted)     / <alpha-value>)",
         },
-        // Primary accent — warm gold (class names kept for compat)
         orange: {
-          400: "#f0c060",  // gold light
-          500: "#d4a438",  // gold main CTA
-          600: "#b8882a",  // gold dark
+          400: "rgb(var(--color-gold)  / <alpha-value>)",
+          500: "rgb(var(--color-gold)  / <alpha-value>)",
+          600: "rgb(var(--color-amber) / <alpha-value>)",
         },
-        // Card / surface tokens
         space: {
-          card: "#141009",
-          900:  "#080703",
-          800:  "#0d0b09",
-          700:  "#221a0f",
-          600:  "#2a1e0a",
+          card: "rgb(var(--color-card)    / <alpha-value>)",
+          900:  "rgb(var(--color-bg)      / <alpha-value>)",
+          800:  "rgb(var(--color-bg)      / <alpha-value>)",
+          700:  "rgb(var(--color-border)  / <alpha-value>)",
+          600:  "rgb(var(--color-border)  / <alpha-value>)",
         },
-        // Burnt amber secondary
         amber: {
-          400: "#fb923c",
-          500: "#ea6c1e",
+          400: "rgb(var(--color-amber) / <alpha-value>)",
+          500: "rgb(var(--color-amber) / <alpha-value>)",
         },
+
+        // ── New semantic shortcuts ──────────────────────────────────────────
+        bg:      "rgb(var(--color-bg)      / <alpha-value>)",
+        surface: "rgb(var(--color-surface) / <alpha-value>)",
+        card:    "rgb(var(--color-card)    / <alpha-value>)",
+        gold:    "rgb(var(--color-gold)    / <alpha-value>)",
+        rose:    "rgb(var(--color-rose)    / <alpha-value>)",
+        indigo:  "rgb(var(--color-indigo)  / <alpha-value>)",
       },
       fontFamily: {
-        sans: ["Outfit", "system-ui", "sans-serif"],
+        sans:    ["Outfit", "system-ui", "sans-serif"],
         display: ["Fraunces", "Georgia", "serif"],
       },
     },

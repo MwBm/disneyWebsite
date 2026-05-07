@@ -29,8 +29,6 @@ jobs:
         working-directory: ml-service
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi

@@ -4,68 +4,79 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── "Sunlit Kingdom" palette ─────────────────────────
+   RGB channels — enables Tailwind opacity modifiers
+────────────────────────────────────────────────────── */
 :root {
-  --background: #0d0b09;
-  --foreground: #e8e4d8;
+  --color-bg:       250 244 232;  /* #faf4e8  warm parchment */
+  --color-surface:  255 249 240;  /* #fff9f0                 */
+  --color-card:     255 253 248;  /* #fffdf8                 */
+  --color-card-alt: 255 247 230;  /* #fff7e6                 */
+
+  --color-text-primary:   26 21 46;    /* deep navy    */
+  --color-text-secondary: 107 94 130;  /* warm purple  */
+  --color-text-muted:     158 147 168;
+
+  --color-border:        180 160 120;
+  --color-border-bright: 196 144 24;
+
+  --color-gold:   196 144 24;   /* #c49018 */
+  --color-amber:  212 112 26;   /* #d4701a */
+  --color-rose:   192 72 112;   /* #c04870 */
+  --color-indigo: 85 64 184;    /* #5540b8 */
+
+  --nav-bg: rgba(250, 244, 232, 0.92);
+  --scrollbar-track: #faf4e8;
+  --scrollbar-thumb: #e4d8c0;
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-text-primary));
   font-family: 'Outfit', system-ui, sans-serif;
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #0d0b09; }
-::-webkit-scrollbar-thumb { background: #2a1e0a; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #3a2a10; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--color-border)); }
 
 .shadow-sm {
-  box-shadow: 0 1px 3px rgba(0,0,0,0.6), 0 0 0 1px rgba(240,192,96,0.05);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgb(var(--color-gold) / 0.08);
 }
 .shadow-md {
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px rgba(240,192,96,0.07);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1), 0 0 0 1px rgb(var(--color-gold) / 0.1);
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+  .text-balance { text-wrap: balance; }
+  .font-display  { font-family: 'Fraunces', Georgia, serif; }
 
-  .font-display {
-    font-family: 'Fraunces', Georgia, serif;
-  }
-
-  /* Neon glow system — gold/amber palette */
   .neon {
-    --neon: 240, 192, 96;
-    border-color: rgba(var(--neon), 0.45) !important;
+    border-color: rgb(var(--color-gold) / 0.35) !important;
     box-shadow:
-      0 0 0 1px rgba(var(--neon), 0.2),
-      0 0 18px rgba(var(--neon), 0.2),
-      0 0 45px rgba(var(--neon), 0.08),
-      inset 0 0 24px rgba(var(--neon), 0.05);
+      0 0 0 1px rgb(var(--color-gold) / 0.15),
+      0 0 18px rgb(var(--color-gold) / 0.18),
+      0 0 45px rgb(var(--color-gold) / 0.07),
+      inset 0 0 24px rgb(var(--color-gold) / 0.04);
     transition: box-shadow 0.35s ease, border-color 0.35s ease;
   }
   .neon:hover, .neon:focus-within, .neon:focus {
-    border-color: rgba(var(--neon), 0.75) !important;
+    border-color: rgb(var(--color-gold) / 0.65) !important;
     box-shadow:
-      0 0 0 1px rgba(var(--neon), 0.45),
-      0 0 32px rgba(var(--neon), 0.5),
-      0 0 80px rgba(var(--neon), 0.22),
-      inset 0 0 36px rgba(var(--neon), 0.1);
+      0 0 0 1px rgb(var(--color-gold) / 0.4),
+      0 0 32px rgb(var(--color-gold) / 0.45),
+      0 0 80px rgb(var(--color-gold) / 0.2),
+      inset 0 0 36px rgb(var(--color-gold) / 0.08);
   }
 
-  .neon-gold   { --neon: 240, 192, 96; }
-  .neon-amber  { --neon: 251, 146, 60; }
-  .neon-rose   { --neon: 251, 113, 133; }
-
-  /* Legacy names remapped to warm palette */
-  .neon-blue   { --neon: 240, 192, 96; }
-  .neon-purple { --neon: 251, 146, 60; }
-  .neon-cyan   { --neon: 240, 192, 96; }
-  .neon-pink   { --neon: 251, 113, 133; }
+  .neon-gold   { }
+  .neon-amber  { }
+  .neon-rose   { }
+  .neon-blue   { }
+  .neon-purple { }
+  .neon-cyan   { }
+  .neon-pink   { }
 
   @keyframes navSweep {
     0%   { background-position: -100% 0; }
@@ -74,9 +85,9 @@ body {
   .nav-border {
     background: linear-gradient(90deg,
       transparent 0%,
-      rgba(240,192,96,0.35) 25%,
-      rgba(251,146,60,0.5) 50%,
-      rgba(240,192,96,0.35) 75%,
+      rgb(var(--color-gold) / 0.28) 25%,
+      rgb(var(--color-amber) / 0.42) 50%,
+      rgb(var(--color-gold) / 0.28) 75%,
       transparent 100%);
     background-size: 200% 100%;
     animation: navSweep 14s linear infinite;
@@ -86,7 +97,5 @@ body {
     0%, 100% { transform: translateY(0); }
     50%       { transform: translateY(-2px); }
   }
-  .icon-float {
-    animation: iconFloat 3.5s ease-in-out infinite;
-  }
+  .icon-float { animation: iconFloat 3.5s ease-in-out infinite; }
 }
