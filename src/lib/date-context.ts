@@ -1,7 +1,79 @@
 import { prisma } from "./db";
+import { adjustCrowdScore } from "./groq";
 
 const DISNEYLAND_PARK_ID = "7340550b-c14d-4def-80bb-acdb51d49a66";
 const THEMEPARKS_API_BASE = "https://api.themeparks.wiki/v1";
+
+// Anaheim, CA coordinates for Open-Meteo
+const ANAHEIM_LAT = 33.8366;
+const ANAHEIM_LON = -117.9143;
+
+// Climatological monthly means for Anaheim (°F high, °F low, precip mm/day)
+// Source: NOAA 30-year normals. Used when date > 16 days out (Open-Meteo forecast limit).
+const ANAHEIM_MONTHLY_NORMALS: Record<number, { tempHigh: number; tempLow: number; precipMm: number }> = {
+  1:  { tempHigh: 68, tempLow: 48, precipMm: 2.5 },
+  2:  { tempHigh: 69, tempLow: 49, precipMm: 2.5 },
+  3:  { tempHigh: 72, tempLow: 52, precipMm: 1.5 },
+  4:  { tempHigh: 76, tempLow: 55, precipMm: 0.5 },
+  5:  { tempHigh: 80, tempLow: 60, precipMm: 0.1 },
+  6:  { tempHigh: 86, tempLow: 64, precipMm: 0.0 },
+  7:  { tempHigh: 93, tempLow: 69, precipMm: 0.0 },
+  8:  { tempHigh: 93, tempLow: 70, precipMm: 0.1 },
+  9:  { tempHigh: 89, tempLow: 67, precipMm: 0.3 },
+  10: { tempHigh: 81, tempLow: 61, precipMm: 0.5 },
+  11: { tempHigh: 73, tempLow: 53, precipMm: 1.5 },
+  12: { tempHigh: 67, tempLow: 47, precipMm: 2.0 },
+};
+
+type WeatherDay = {
+  date: string;         // YYYY-MM-DD
+  tempHigh: number;     // °F
+  tempLow: number;      // °F
+  precipMm: number;
+  isRainy: boolean;
+};
+
+async function fetchWeatherForecast(startDate: string, endDate: string): Promise<Map<string, WeatherDay>> {
+  const url =
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${ANAHEIM_LAT}&longitude=${ANAHEIM_LON}` +
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum` +
+    `&temperature_unit=fahrenheit` +
+    `&precipitation_unit=mm` +
+    `&timezone=America%2FLos_Angeles` +
+    `&start_date=${startDate}&end_date=${endDate}`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Open-Meteo responded ${res.status}`);
+
+  const data = await res.json() as {
+    daily: {
+      time: string[];
+      temperature_2m_max: number[];
+      temperature_2m_min: number[];
+      precipitation_sum: number[];
+    };
+  };
+
+  const map = new Map<string, WeatherDay>();
+  for (let i = 0; i < data.daily.time.length; i++) {
+    const precipMm = data.daily.precipitation_sum[i] ?? 0;
+    map.set(data.daily.time[i], {
+      date: data.daily.time[i],
+      tempHigh: data.daily.temperature_2m_max[i] ?? 75,
+      tempLow: data.daily.temperature_2m_min[i] ?? 55,
+      precipMm,
+      isRainy: precipMm >= 2.5,
+    });
+  }
+  return map;
+}
+
+function climatologicalWeather(dateStr: string): WeatherDay {
+  const month = parseInt(dateStr.slice(5, 7), 10);
+  const n = ANAHEIM_MONTHLY_NORMALS[month]!;
+  return { date: dateStr, tempHigh: n.tempHigh, tempLow: n.tempLow, precipMm: n.precipMm, isRainy: n.precipMm >= 2.5 };
+}
 
 // All date arithmetic uses UTC so results are timezone-independent.
 // DateContext dates are stored as midnight UTC; getDate()/getMonth() would
@@ -218,19 +290,134 @@ export async function syncDateContext(
 
   if (toSync.length === 0) return { synced: 0, skipped: schedule.length };
 
+  // Fetch weather for up to 16-day Open-Meteo window; beyond that use climatological normals.
+  const forecastCutoff = new Date(now.getTime() + 16 * 86_400_000).toISOString().slice(0, 10);
+  const forecastEnd = toSync.some((s) => s.date <= forecastCutoff)
+    ? forecastCutoff < endDate ? forecastCutoff : endDate
+    : null;
+
+  let weatherMap = new Map<string, WeatherDay>();
+  if (forecastEnd) {
+    try {
+      weatherMap = await fetchWeatherForecast(startDate, forecastEnd);
+    } catch {
+      // Non-fatal: fall through to climatological normals for all dates
+    }
+  }
+
   const fetchedAt = new Date();
   await Promise.all(
     toSync.map((s) => {
       const d = new Date(s.date);
       const isHoliday = isHolidayDate(d);
       const isSchoolBreak = isSchoolBreakDate(d);
+      const weather = weatherMap.get(s.date) ?? climatologicalWeather(s.date);
       return prisma.dateContext.upsert({
         where: { date: d },
-        update: { tier: s.tier, specialEvent: s.specialEvent, isHoliday, isSchoolBreak, tierFetchedAt: fetchedAt, tierSource: "themeparks-wiki" },
-        create: { date: d, tier: s.tier, specialEvent: s.specialEvent, isHoliday, isSchoolBreak, tierFetchedAt: fetchedAt, tierSource: "themeparks-wiki" },
+        update: {
+          tier: s.tier,
+          specialEvent: s.specialEvent,
+          isHoliday,
+          isSchoolBreak,
+          tierFetchedAt: fetchedAt,
+          tierSource: "themeparks-wiki",
+          tempHigh: weather.tempHigh,
+          tempLow: weather.tempLow,
+          precipMm: weather.precipMm,
+          isRainy: weather.isRainy,
+          weatherFetchedAt: fetchedAt,
+        },
+        create: {
+          date: d,
+          tier: s.tier,
+          specialEvent: s.specialEvent,
+          isHoliday,
+          isSchoolBreak,
+          tierFetchedAt: fetchedAt,
+          tierSource: "themeparks-wiki",
+          tempHigh: weather.tempHigh,
+          tempLow: weather.tempLow,
+          precipMm: weather.precipMm,
+          isRainy: weather.isRainy,
+          weatherFetchedAt: fetchedAt,
+        },
       });
     })
   );
 
   return { synced: toSync.length, skipped: freshDates.size };
+}
+
+/**
+ * Call Groq adjuster for DateContext rows that have no groqAdjustment yet.
+ * Queries DailyForecast for the avg crowd score per date; falls back to 50.
+ * Non-fatal: a Groq failure for one date does not abort the others.
+ */
+export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number }> {
+  const now = new Date();
+  const startDate = now.toISOString().slice(0, 10);
+  const endDate = new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+
+  const pending = await prisma.dateContext.findMany({
+    where: {
+      date: { gte: new Date(startDate), lte: new Date(endDate) },
+      groqAdjustment: null,
+    },
+    select: {
+      id: true,
+      date: true,
+      tier: true,
+      isHoliday: true,
+      isSchoolBreak: true,
+      specialEvent: true,
+      tempHigh: true,
+      isRainy: true,
+    },
+  });
+
+  if (pending.length === 0) return { adjusted: 0 };
+
+  // Compute avg crowd score per date from DailyForecast
+  const dateKeys = pending.map((c) => c.date);
+  const forecasts = await prisma.dailyForecast.findMany({
+    where: { forecastFor: { in: dateKeys } },
+    select: { forecastFor: true, crowdScore: true },
+  });
+  const crowdByDate = new Map<string, number[]>();
+  for (const f of forecasts) {
+    const key = f.forecastFor.toISOString().slice(0, 10);
+    if (!crowdByDate.has(key)) crowdByDate.set(key, []);
+    crowdByDate.get(key)!.push(f.crowdScore);
+  }
+
+  let adjusted = 0;
+  await Promise.all(
+    pending.map(async (ctx) => {
+      const dateKey = ctx.date.toISOString().slice(0, 10);
+      const scores = crowdByDate.get(dateKey);
+      const mlCrowdScore =
+        scores && scores.length > 0
+          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+          : 50;
+
+      const result = await adjustCrowdScore({
+        date: dateKey,
+        tier: ctx.tier ?? 0,
+        isHoliday: ctx.isHoliday,
+        isSchoolBreak: ctx.isSchoolBreak,
+        hasSpecialEvent: ctx.specialEvent !== null,
+        tempHigh: ctx.tempHigh,
+        isRainy: ctx.isRainy ?? false,
+        mlCrowdScore,
+      });
+
+      await prisma.dateContext.update({
+        where: { id: ctx.id },
+        data: { groqAdjustment: result.adjustment, groqReasoning: result.reasoning },
+      });
+      adjusted++;
+    })
+  );
+
+  return { adjusted };
 }

@@ -230,7 +230,8 @@ def fetch_date_contexts(conn, dates: list[datetime]) -> dict[str, DateContext]:
     if not unique_strs:
         return {}
     sql = """
-        SELECT date::date, tier, "specialEvent", "isHoliday", "isSchoolBreak"
+        SELECT date::date, tier, "specialEvent", "isHoliday", "isSchoolBreak",
+               "tempHigh", "isRainy"
         FROM "DateContext"
         WHERE date::date = ANY(%s)
     """
@@ -244,6 +245,8 @@ def fetch_date_contexts(conn, dates: list[datetime]) -> dict[str, DateContext]:
                 has_special_event=bool(row[2]),
                 is_holiday=bool(row[3]),
                 is_school_break=bool(row[4]),
+                temp_high=float(row[5]) if row[5] is not None else None,
+                is_rainy=bool(row[6]) if row[6] is not None else False,
             )
     return result
 

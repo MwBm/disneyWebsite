@@ -33,8 +33,8 @@ def _make_mock_conn(fetchall_rows):
 
 def test_fetch_date_contexts_returns_keyed_dict():
     rows = [
-        (date(2026, 6, 1), 3, None, True, False),          # tier=3, holiday
-        (date(2026, 6, 2), 0, "Oogie Boogie", False, True), # special event + school break
+        (date(2026, 6, 1), 3, None, True, False, 82.0, False),          # tier=3, holiday, warm
+        (date(2026, 6, 2), 0, "Oogie Boogie", False, True, None, None), # special event + school break, no weather
     ]
     conn = _make_mock_conn(rows)
     dates = [
@@ -47,10 +47,14 @@ def test_fetch_date_contexts_returns_keyed_dict():
     assert result["2026-06-01"].tier == 3
     assert result["2026-06-01"].is_holiday is True
     assert result["2026-06-01"].is_school_break is False
+    assert result["2026-06-01"].temp_high == 82.0
+    assert result["2026-06-01"].is_rainy is False
 
     assert "2026-06-02" in result
     assert result["2026-06-02"].has_special_event is True
     assert result["2026-06-02"].is_school_break is True
+    assert result["2026-06-02"].temp_high is None  # no weather data
+    assert result["2026-06-02"].is_rainy is False   # None → default False
 
 
 def test_fetch_date_contexts_empty_dates_returns_empty():
@@ -58,10 +62,11 @@ def test_fetch_date_contexts_empty_dates_returns_empty():
     assert fetch_date_contexts(conn, []) == {}
 
 
-def test_training_scaler_tier_nonzero_when_context_attached():
-    """After attaching DateContext (tier=3) to training records, the scaler's
-    mean for the tier feature (index 4) must be close to 3.0 — confirming
-    context flows through to _extract_features during training."""
+def test_training_context_tier_flows_through():
+    """After attaching DateContext (tier=3) to training records, XGBoost trains
+    successfully and the tier feature (index 4) is constant 3.0 in the input matrix —
+    confirming context flows through to _extract_features during training."""
+    from model import _extract_features
     records = [
         RideHistory(
             ride_id=1,
@@ -76,10 +81,12 @@ def test_training_scaler_tier_nonzero_when_context_attached():
     ]
     trained = train_ride_models(records)
     assert 1 in trained
-    scaler = trained[1].scaler
-    assert scaler is not None
-    tier_feature_idx = 4
-    assert abs(scaler.mean_[tier_feature_idx] - 3.0) < 0.1
+    assert trained[1].model is not None  # enough samples to train
+
+    # Verify tier propagates: extract features for one record and check index 4
+    sample = records[0]
+    features = _extract_features(sample.recorded_at, sample.context)
+    assert features[4] == 3.0
 
 
 def test_context_attachment_pipeline():

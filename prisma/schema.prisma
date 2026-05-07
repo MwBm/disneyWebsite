@@ -37,7 +37,7 @@ model DailyForecast {
 }
 
 // Stores per-date signals used to improve crowd score accuracy:
-// Disney ticket tier, holiday/school-break flags, and cached Groq DOW estimates.
+// Disney ticket tier, holiday/school-break flags, weather forecast, and Groq adjustment.
 model DateContext {
   id              String    @id @default(uuid())
   date            DateTime  @unique // midnight UTC for the local park date
@@ -48,6 +48,15 @@ model DateContext {
   tierFetchedAt   DateTime? // when tier was last fetched; re-fetch after 24h
   tierSource      String?   // e.g. "disney-ticketing"
   groqDowEstimate Json?     // cached Map<dow, score> from estimateDowCrowdScores
+  // Weather fields (Open-Meteo; climatological fallback beyond 16-day forecast window)
+  tempHigh        Float?    // forecast high temperature in Fahrenheit
+  tempLow         Float?    // forecast low temperature in Fahrenheit
+  precipMm        Float?    // total precipitation in mm
+  isRainy         Boolean?  // true when precipMm >= 2.5
+  weatherFetchedAt DateTime? // when weather was last fetched
+  // Groq post-process adjustment applied on top of XGBoost crowd score
+  groqAdjustment  Float?    // points to add to mlCrowdScore (bounded ±20)
+  groqReasoning   String?   // one-sentence explanation from Groq
 
   predictions     Prediction[]
 

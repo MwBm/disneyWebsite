@@ -137,6 +137,51 @@ export async function estimateDowCrowdScores(): Promise<Map<number, number>> {
   return map;
 }
 
+export type CrowdAdjustmentContext = {
+  date: string;           // YYYY-MM-DD
+  tier: number;           // 0–5
+  isHoliday: boolean;
+  isSchoolBreak: boolean;
+  hasSpecialEvent: boolean;
+  tempHigh: number | null;
+  isRainy: boolean;
+  mlCrowdScore: number;   // 0–100 from XGBoost
+};
+
+export type CrowdAdjustmentResult = {
+  adjustment: number;     // integer ∈ [-20, 20]
+  reasoning: string | null;
+};
+
+export async function adjustCrowdScore(
+  ctx: CrowdAdjustmentContext
+): Promise<CrowdAdjustmentResult> {
+  try {
+    const groq = getGroqClient();
+    const msg = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      max_tokens: 80,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "user",
+          content: `You are a Disneyland crowd analytics expert. Given the ML crowd score and date context below, return a small integer adjustment (-20 to +20) representing how many points to add to the ML crowd score based on factors the model may miss (e.g. unusually popular IP events, extreme weather discouraging visits, local school calendars).
+
+date=${ctx.date}, tier=${ctx.tier}, isHoliday=${ctx.isHoliday}, isSchoolBreak=${ctx.isSchoolBreak}, hasSpecialEvent=${ctx.hasSpecialEvent}, tempHigh=${ctx.tempHigh ?? "unknown"}F, isRainy=${ctx.isRainy}, mlCrowdScore=${ctx.mlCrowdScore}
+
+Return ONLY valid JSON: {"adjustment": <integer -20 to 20>, "reasoning": "<one sentence>"}`,
+        },
+      ],
+    });
+    const content = msg.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(content);
+    const adjustment = Math.round(Math.max(-20, Math.min(20, Number(parsed.adjustment) || 0)));
+    return { adjustment, reasoning: String(parsed.reasoning || "") || null };
+  } catch {
+    return { adjustment: 0, reasoning: null };
+  }
+}
+
 export async function buildItinerary(
   arrival: string,
   departure: string,

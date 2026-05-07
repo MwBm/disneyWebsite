@@ -23,7 +23,8 @@ const PALETTE = [
 ];
 
 const CONNECT_DIST = 130;
-const MOUSE_RADIUS = 160;
+const MOUSE_RADIUS = 120;
+const MOUSE_ATTRACTION = 0.022;
 const COUNT        = 160;
 
 export default function SpaceBackground() {
@@ -113,8 +114,8 @@ export default function SpaceBackground() {
         if (distSq < MOUSE_RADIUS * MOUSE_RADIUS && distSq > 0) {
           const dist  = Math.sqrt(distSq);
           const force = (1 - dist / MOUSE_RADIUS) * 0.9;
-          p.vx += (dx / dist) * force * 0.055;
-          p.vy += (dy / dist) * force * 0.055;
+          p.vx += (dx / dist) * force * MOUSE_ATTRACTION;
+          p.vy += (dy / dist) * force * MOUSE_ATTRACTION;
         }
 
         for (const rip of ripples.current) {

@@ -1,6 +1,5 @@
 import numpy as np
-from sklearn.linear_model import Ridge
-from sklearn.preprocessing import StandardScaler
+import xgboost as xgb
 from typing import List, Dict, Tuple, Optional, NamedTuple
 from schemas import RideHistory, RideForecast, DateContext
 from datetime import datetime, timezone
@@ -15,11 +14,10 @@ PARK_TZ = ZoneInfo("America/Los_Angeles")
 
 
 class TrainedModel(NamedTuple):
-    model: Optional[Ridge]            # None → use fallback
-    scaler: Optional[StandardScaler]  # None → use fallback
+    model: Optional[xgb.XGBRegressor]  # None → use fallback
     confidence: float
-    hour_means: Dict[int, int]        # Pacific hour → mean wait (fallback lookup)
-    global_mean: int                  # fallback when hour has no history
+    hour_means: Dict[int, int]          # Pacific hour → mean wait (fallback lookup)
+    global_mean: int                    # fallback when hour has no history
 
 
 def _park_time(dt: datetime) -> datetime:
@@ -38,36 +36,44 @@ def _extract_features(dt: datetime, context: Optional[DateContext] = None) -> Li
     has_special_event = 1.0 if context and context.has_special_event else 0.0
     is_holiday = 1.0 if context and context.is_holiday else 0.0
     is_school_break = 1.0 if context and context.is_school_break else 0.0
+    temp_high = float(context.temp_high) if context and context.temp_high is not None else 75.0
+    is_rainy = 1.0 if context and context.is_rainy else 0.0
     hour_x_weekday = hour * weekday
     hour_x_weekend = hour * is_weekend
     month_x_weekday = month * weekday
     month_x_school_break = month * is_school_break
-    return [hour, weekday, month, is_weekend, tier, has_special_event, is_holiday, is_school_break, hour_x_weekday, hour_x_weekend, month_x_weekday, month_x_school_break]
+    return [
+        hour, weekday, month, is_weekend, tier, has_special_event,
+        is_holiday, is_school_break, temp_high, is_rainy,
+        hour_x_weekday, hour_x_weekend, month_x_weekday, month_x_school_break,
+    ]
 
 
-def _train_ride_model(
-    records: List[RideHistory],
-) -> Tuple[Ridge, StandardScaler, float]:
+def _train_ride_model(records: List[RideHistory]) -> Tuple[xgb.XGBRegressor, float]:
     X = np.array([_extract_features(r.recorded_at, r.context) for r in records], dtype=float)
     y = np.array([r.wait_time for r in records], dtype=float)
 
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    model = xgb.XGBRegressor(
+        n_estimators=100,
+        max_depth=5,
+        learning_rate=0.1,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        n_jobs=1,
+    )
+    model.fit(X, y)
 
-    model = Ridge(alpha=1.0)
-    model.fit(X_scaled, y)
-
-    # Simple confidence: 1 - (std of residuals / mean wait), clamped 0–1
-    preds = model.predict(X_scaled)
+    preds = model.predict(X)
     residuals = np.abs(preds - y)
     mean_wait = np.mean(y) if np.mean(y) > 0 else 1
     confidence = float(np.clip(1.0 - np.std(residuals) / mean_wait, 0.0, 1.0))
 
-    return model, scaler, confidence
+    return model, confidence
 
 
 def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
-    """Train one Ridge per ride from history. Call once; predict for many slots."""
+    """Train one XGBRegressor per ride from history. Call once; predict for many slots."""
     ride_groups: Dict[int, List[RideHistory]] = {}
     for r in rides:
         if r.is_open:
@@ -82,10 +88,10 @@ def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
         hour_means = {h: int(np.mean(v)) for h, v in by_hour.items()}
 
         if len(records) < MIN_SAMPLES:
-            result[ride_id] = TrainedModel(None, None, 0.3, hour_means, global_mean)
+            result[ride_id] = TrainedModel(None, 0.3, hour_means, global_mean)
         else:
-            model, scaler, confidence = _train_ride_model(records)
-            result[ride_id] = TrainedModel(model, scaler, confidence, hour_means, global_mean)
+            model, confidence = _train_ride_model(records)
+            result[ride_id] = TrainedModel(model, confidence, hour_means, global_mean)
 
     return result
 
@@ -107,8 +113,7 @@ def predict_for_slot(
             )
         else:
             X = np.array([features], dtype=float)
-            X_scaled = tm.scaler.transform(X)
-            predicted = int(np.clip(tm.model.predict(X_scaled)[0], 0, 300))
+            predicted = int(np.clip(tm.model.predict(X)[0], 0, 300))
             forecasts.append(
                 RideForecast(ride_id=ride_id, predicted_wait=predicted, confidence=tm.confidence)
             )

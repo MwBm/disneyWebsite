@@ -16,6 +16,25 @@ const FACTS = [
   "Indiana Jones Adventure has over 160,000 different ride variations programmed into its sequence.",
   "Club 33, Disneyland's secret members-only club, originally had a waiting list of over 14 years.",
   "The Haunted Mansion's stretching room actually descends — it's an elevator to the underground path.",
+  "Walt Disney was afraid of mice — which makes Mickey's creation all the more legendary.",
+  "Space Mountain's interior is so dark, riders can't see the track more than a foot ahead.",
+  "The Turkey Legs at Disneyland are actually smoked ham — not turkey. 🦃",
+  "Buzz Lightyear Astro Blasters has a secret max score that triggers a special Easter egg.",
+  "There's a private apartment above the fire station on Main Street that Walt used to stay in.",
+  "Every single trash can in Disneyland is within 30 steps of any spot in the park.",
+  "The voice of the Haunted Mansion's Ghost Host is Paul Frees, who also voiced Boris Badenov.",
+  "Splash Mountain drops you at 40 mph — faster than most people expect for a log flume.",
+  "Finding Nemo Submarine Voyage reused subs from the original 1959 attraction.",
+  "The Blue Bayou restaurant is technically inside the Pirates of the Caribbean ride.",
+  "Walt Disney wanted Disneyland to be a place parents could enjoy just as much as kids.",
+  "On hot days, the Mark Twain Riverboat can carry up to 300 guests — the largest capacity ride.",
+  "The gift shops are always at the exits of rides — never an accident, always by design.",
+  "Star Wars: Galaxy's Edge is built so no modern buildings are ever visible from inside.",
+  "Matterhorn has a basketball court inside it — cast members play between shifts.",
+  "'It's a Small World' was created for the 1964 World's Fair before moving to Disneyland.",
+  "Tomorrowland was redesigned in 1998 because the original 1967 future looked… too accurate.",
+  "The flowers on Main Street are replaced every single night after closing.",
+  "New Orleans Square was Walt Disney's personal favorite land in the park.",
 ];
 
 const STATUS_MESSAGES = [
@@ -54,6 +73,11 @@ export default function LoadingScreen() {
         op: +(Math.random() * 0.5 + 0.3).toFixed(2),
       }))
     );
+  }, []);
+
+  // Randomize starting fact client-side only (avoids hydration mismatch)
+  useEffect(() => {
+    setFactIndex(Math.floor(Math.random() * FACTS.length));
   }, []);
 
   // Fact rotation
@@ -103,10 +127,10 @@ export default function LoadingScreen() {
     };
   }, [dismiss]);
 
-  const GOLD = "#e8c547";
-  const ORANGE = "#e87c3e";
-  const BG = "#0d0b09";
-  const DIM = "rgba(232,197,71,0.12)";
+  const GOLD = "#c49018";
+  const AMBER = "#d4701a";
+  const BG = "#faf4e8";
+  const DIM = "rgba(196,144,24,0.18)";
 
   return (
     <div
@@ -134,7 +158,7 @@ export default function LoadingScreen() {
             style={{
               position: "absolute",
               borderRadius: "50%",
-              background: GOLD,
+              background: AMBER,
               width: s.size,
               height: s.size,
               top: `${s.top}%`,
@@ -194,7 +218,7 @@ export default function LoadingScreen() {
             letterSpacing: "0.04em",
             textTransform: "uppercase",
             color: GOLD,
-            textShadow: `0 2px 20px rgba(232,197,71,0.35)`,
+            textShadow: `0 2px 20px rgba(196,144,24,0.25)`,
             marginBottom: 6,
             textAlign: "center",
             lineHeight: 1.1,
@@ -206,7 +230,7 @@ export default function LoadingScreen() {
           style={{
             fontFamily: "monospace",
             fontSize: "clamp(0.6rem, 1.5vw, 0.72rem)",
-            color: ORANGE,
+            color: AMBER,
             letterSpacing: "0.25em",
             textTransform: "uppercase",
             marginBottom: 36,
@@ -279,7 +303,7 @@ export default function LoadingScreen() {
                 { ox: 65,  oy: 55,  rx: 55,  ry: 46,  l1x: 60,  l2x: 70  },
               ].map((g, i) => (
                 <g key={i} style={{ transformOrigin: `${g.ox}px ${g.oy}px`, animation: "ls-counter 8s linear infinite" }}>
-                  <rect x={g.rx} y={g.ry} width="20" height="16" rx="3" fill={ORANGE} stroke={GOLD} strokeWidth="1.5" />
+                  <rect x={g.rx} y={g.ry} width="20" height="16" rx="3" fill={AMBER} stroke={GOLD} strokeWidth="1.5" />
                   <line x1={g.l1x} y1={g.ry} x2={g.l1x} y2={g.oy} stroke={GOLD} strokeWidth="1" opacity="0.6" />
                   <line x1={g.l2x} y1={g.ry} x2={g.l2x} y2={g.oy} stroke={GOLD} strokeWidth="1" opacity="0.6" />
                 </g>
@@ -305,7 +329,7 @@ export default function LoadingScreen() {
           style={{
             width: "min(320px, 80vw)",
             height: 4,
-            background: "rgba(232,197,71,0.15)",
+            background: "rgba(196,144,24,0.18)",
             borderRadius: 2,
             overflow: "hidden",
             marginBottom: 28,
@@ -315,11 +339,11 @@ export default function LoadingScreen() {
           <div
             style={{
               height: "100%",
-              background: `linear-gradient(90deg, ${ORANGE}, ${GOLD})`,
+              background: `linear-gradient(90deg, ${AMBER}, ${GOLD})`,
               borderRadius: 2,
               width: `${progress}%`,
               transition: "width 0.4s ease",
-              boxShadow: "0 0 8px rgba(232,197,71,0.5)",
+              boxShadow: "0 0 8px rgba(196,144,24,0.4)",
             }}
           />
         </div>
@@ -342,8 +366,8 @@ export default function LoadingScreen() {
               fontSize: "0.6rem",
               letterSpacing: "0.2em",
               textTransform: "uppercase",
-              color: ORANGE,
-              opacity: 0.7,
+              color: AMBER,
+              opacity: 0.8,
             }}
           >
             ★ Did you know? ★
@@ -353,7 +377,7 @@ export default function LoadingScreen() {
             style={{
               fontFamily: `${abrilFatface.style.fontFamily}, Georgia, serif`,
               fontSize: "clamp(0.85rem, 2vw, 1rem)",
-              color: "#f5f0e8",
+              color: "#1a152e",
               lineHeight: 1.55,
               animation: "ls-factfade 0.6s ease",
             }}
@@ -371,7 +395,7 @@ export default function LoadingScreen() {
             letterSpacing: "0.15em",
             textTransform: "uppercase",
             color: GOLD,
-            opacity: 0.6,
+            opacity: 0.8,
           }}
         >
           {doneText ? "Welcome to the magic! ✨" : STATUS_MESSAGES[statusIndex]}

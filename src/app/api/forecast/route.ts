@@ -5,6 +5,7 @@ import { narrateForecast, narrateForecastNoDataWithScore } from "@/lib/groq";
 import { deriveCrowdScore, HISTORICAL_FALLBACK_CONFIDENCE } from "@/lib/crowd";
 import { parseISO, isValid } from "date-fns";
 import { parkDateRangeUtc } from "@/lib/park-time";
+import { prisma } from "@/lib/db";
 
 export const revalidate = 1800;
 
@@ -28,14 +29,24 @@ export async function GET(req: NextRequest) {
 
   const dateKey = parsed.data.date;
   const date = parkDateRangeUtc(dateKey).start;
-  const [forecasts, recentRuns] = await Promise.all([
+  const [forecasts, recentRuns, dateCtx] = await Promise.all([
     getForecastForDate(dateKey),
     getRecentCollectRuns(3),
+    prisma.dateContext.findUnique({
+      where: { date },
+      select: { groqAdjustment: true, groqReasoning: true },
+    }),
   ]);
 
-  const crowdScore =
+  const mlCrowdScore =
     forecasts.length > 0
       ? Math.round(forecasts.reduce((a, b) => a + b.crowdScore, 0) / forecasts.length)
+      : null;
+
+  const groqAdjustment = dateCtx?.groqAdjustment ?? 0;
+  const crowdScore =
+    mlCrowdScore !== null
+      ? Math.min(100, Math.max(0, Math.round(mlCrowdScore + groqAdjustment)))
       : null;
 
   const dataQualityOk = recentRuns.length > 0 && recentRuns.some((r) => r.success);
@@ -120,6 +131,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     date: parsed.data.date,
     crowdScore,
+    groqAdjustment: groqAdjustment !== 0 ? groqAdjustment : undefined,
+    groqReasoning: dateCtx?.groqReasoning ?? undefined,
     crowdNarration,
     forecasts: mappedForecasts,
     source: "ml",

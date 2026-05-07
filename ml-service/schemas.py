@@ -8,6 +8,8 @@ class DateContext(BaseModel):
     has_special_event: bool = False
     is_holiday: bool = False
     is_school_break: bool = False
+    temp_high: Optional[float] = None  # Fahrenheit; None → feature uses 75.0 default
+    is_rainy: bool = False
 
 
 class RideHistory(BaseModel):
@@ -20,18 +22,7 @@ class RideHistory(BaseModel):
     context: Optional["DateContext"] = None
 
 
-class PredictRequest(BaseModel):
-    rides: List[RideHistory]
-    target_date: datetime
-    full_retrain: bool = False
-
-
 class RideForecast(BaseModel):
     ride_id: int
     predicted_wait: int
     confidence: float
-
-
-class PredictResponse(BaseModel):
-    forecasts: List[RideForecast]
-    crowd_score: int

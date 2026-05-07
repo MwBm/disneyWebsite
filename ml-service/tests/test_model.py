@@ -84,17 +84,37 @@ def test_predict_without_context_backward_compatible():
     assert 0 <= crowd_score <= 100
 
 
+def test_predict_with_weather_context():
+    records = _make_records(1, 50, base_wait=40)
+    target = datetime(2026, 8, 1, 14, 0, tzinfo=timezone.utc)
+    ctx = DateContext(tier=3, is_holiday=False, temp_high=105.0, is_rainy=False)
+    forecasts, crowd_score = predict_for_date(records, target, ctx)
+
+    assert len(forecasts) == 1
+    assert 0 <= forecasts[0].predicted_wait <= 300
+    assert 0 <= crowd_score <= 100
+
+
+def test_predict_rainy_day_stays_in_range():
+    records = _make_records(1, 50, base_wait=40)
+    target = datetime(2026, 12, 25, 14, 0, tzinfo=timezone.utc)
+    ctx = DateContext(tier=5, is_holiday=True, temp_high=58.0, is_rainy=True)
+    forecasts, crowd_score = predict_for_date(records, target, ctx)
+
+    assert 0 <= crowd_score <= 100
+
+
 # --- Feature engineering tests ---
 
 def test_extract_features_shape():
-    """Feature vector must be 12 elements (10 base + 2 seasonal interactions)."""
-    dt = datetime(2026, 6, 5, 19, 0, tzinfo=timezone.utc)  # June 5 12:00 PM Pacific
+    """Feature vector must be 14 elements (10 base + 2 weather + 2 seasonal interactions)."""
+    dt = datetime(2026, 6, 5, 19, 0, tzinfo=timezone.utc)
     features = _extract_features(dt)
-    assert len(features) == 12
+    assert len(features) == 14
 
 
 def test_month_weekday_interaction():
-    """month_x_weekday (feature[10]) = month * weekday.
+    """month_x_weekday (feature[12]) = month * weekday.
     June 5 2026 is a Friday (weekday=4) in Pacific time; month=6.
     """
     # 2026-06-05 19:00 UTC = 2026-06-05 12:00 PDT (UTC-7)
@@ -102,25 +122,42 @@ def test_month_weekday_interaction():
     features = _extract_features(dt)
     month = features[2]   # index 2
     weekday = features[1]  # index 1
-    assert features[10] == pytest.approx(month * weekday)
-    assert features[10] == pytest.approx(6.0 * 4.0)  # June, Friday
+    assert features[12] == pytest.approx(month * weekday)
+    assert features[12] == pytest.approx(6.0 * 4.0)  # June, Friday
 
 
 def test_month_school_break_interaction():
-    """month_x_school_break (feature[11]) = month * is_school_break.
+    """month_x_school_break (feature[13]) = month * is_school_break.
     July + school break context → 7.0 * 1.0 = 7.0.
     """
     dt = datetime(2026, 7, 15, 19, 0, tzinfo=timezone.utc)  # July 15 12:00 PDT
     ctx = DateContext(is_school_break=True)
     features = _extract_features(dt, ctx)
-    assert features[11] == pytest.approx(7.0 * 1.0)
+    assert features[13] == pytest.approx(7.0 * 1.0)
 
 
 def test_month_school_break_zero_without_context():
-    """Without school_break context, feature[11] must be 0."""
+    """Without school_break context, feature[13] must be 0."""
     dt = datetime(2026, 7, 15, 19, 0, tzinfo=timezone.utc)
     features = _extract_features(dt)
-    assert features[11] == pytest.approx(0.0)
+    assert features[13] == pytest.approx(0.0)
+
+
+def test_weather_features_defaults():
+    """Without weather context, temp_high defaults to 75.0 and is_rainy to 0.0."""
+    dt = datetime(2026, 6, 15, 19, 0, tzinfo=timezone.utc)
+    features = _extract_features(dt)
+    assert features[8] == pytest.approx(75.0)  # temp_high default
+    assert features[9] == pytest.approx(0.0)   # is_rainy default
+
+
+def test_weather_features_with_context():
+    """Weather features reflect context values."""
+    dt = datetime(2026, 6, 15, 19, 0, tzinfo=timezone.utc)
+    ctx = DateContext(temp_high=95.0, is_rainy=True)
+    features = _extract_features(dt, ctx)
+    assert features[8] == pytest.approx(95.0)
+    assert features[9] == pytest.approx(1.0)
 
 
 # --- Crowd score constants sync test ---
