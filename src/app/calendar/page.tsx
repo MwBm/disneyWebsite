@@ -6,7 +6,7 @@ import { format, parseISO } from "date-fns";
 type DayScore = {
   date: string;
   crowdScore: number | null;
-  source: "ml" | "historical" | "groq" | null;
+  source: "ml" | "historical" | "groq" | "unavailable" | null;
   tier: number | null;
   specialEvent: string | null;
   isHoliday: boolean;
@@ -99,12 +99,13 @@ const ArrowRight = () => (
 );
 
 function SourceBadge({ source }: { source: DayScore["source"] }) {
-  if (!source) return null;
+  if (!source || source === "unavailable") return null;
   const cfg = {
     ml: { label: "ML", color: "#818cf8" },
     historical: { label: "Hist", color: "#94a3b8" },
     groq: { label: "AI", color: "#f0c060" },
   }[source];
+  if (!cfg) return null;
   return (
     <span
       className="text-[0.55rem] font-semibold uppercase tracking-wider px-1 py-0.5 rounded"
@@ -230,8 +231,8 @@ export default function CalendarPage() {
 
   const todayStr = format(today, "yyyy-MM-dd");
 
-  // Month stats
-  const scoredDays = days.filter(d => d.crowdScore !== null);
+  // Month stats — exclude unavailable days from averages
+  const scoredDays = days.filter(d => d.crowdScore !== null && d.source !== "unavailable");
   const avgScore = scoredDays.length
     ? Math.round(scoredDays.reduce((a, b) => a + (b.crowdScore ?? 0), 0) / scoredDays.length)
     : null;
@@ -326,8 +327,9 @@ export default function CalendarPage() {
         ) : (
           <div className="grid grid-cols-7">
             {cells.map((cell, i) => {
+              const isUnavailable = cell?.source === "unavailable";
               const isToday = cell?.date === todayStr;
-              const isSelected = cell?.date === selected?.date;
+              const isSelected = !isUnavailable && cell?.date === selected?.date;
               const score = cell?.crowdScore ?? null;
               const color = crowdColor(score);
               const bgOpacity = crowdBgOpacity(score);
@@ -342,14 +344,16 @@ export default function CalendarPage() {
               return (
                 <div
                   key={i}
-                  onClick={() => cell && setSelected(isSelected ? null : cell)}
+                  onClick={() => cell && !isUnavailable && setSelected(isSelected ? null : cell)}
                   className={`relative h-20 p-2.5 transition-all duration-150 ${
                     !isLastCol ? "border-r border-space-700/40" : ""
                   } ${!isLastRow ? "border-b border-space-700/40" : ""} ${
-                    cell ? "cursor-pointer" : ""
+                    cell && !isUnavailable ? "cursor-pointer" : ""
                   }`}
                   style={{
-                    background: cell
+                    background: isUnavailable
+                      ? "rgba(15,17,30,0.4)"
+                      : cell
                       ? isSelected
                         ? `${color}28`
                         : `${color}${Math.round(bgOpacity * 255).toString(16).padStart(2, "0")}`
@@ -357,17 +361,28 @@ export default function CalendarPage() {
                     boxShadow: isSelected ? `inset 0 0 0 1.5px ${color}60` : undefined,
                   }}
                   onMouseEnter={e => {
-                    if (cell && !isSelected) {
+                    if (cell && !isSelected && !isUnavailable) {
                       (e.currentTarget as HTMLDivElement).style.background = `${color}20`;
                     }
                   }}
                   onMouseLeave={e => {
-                    if (cell && !isSelected) {
+                    if (cell && !isSelected && !isUnavailable) {
                       (e.currentTarget as HTMLDivElement).style.background = `${color}${Math.round(bgOpacity * 255).toString(16).padStart(2, "0")}`;
                     }
                   }}
                 >
-                  {cell && (
+                  {cell && isUnavailable ? (
+                    <div className="flex flex-col h-full opacity-30">
+                      <span className="text-xs font-semibold leading-none text-warm-700">
+                        {parseInt(cell.date.slice(8))}
+                      </span>
+                      <div className="flex-1 flex items-center justify-center">
+                        <span className="text-[0.55rem] text-warm-600 uppercase tracking-wide text-center leading-tight">
+                          No forecast<br />yet
+                        </span>
+                      </div>
+                    </div>
+                  ) : cell ? (
                     <div className="flex flex-col h-full">
                       {/* Top row: day number + source badge */}
                       <div className="flex items-start justify-between">
@@ -442,7 +457,7 @@ export default function CalendarPage() {
                         </div>
                       )}
                     </div>
-                  )}
+                  ) : null}
 
                   {/* Today ring */}
                   {isToday && (
@@ -481,6 +496,7 @@ export default function CalendarPage() {
                     {selected.source === "ml" && "ML model prediction"}
                     {selected.source === "historical" && `Based on typical ${format(parseISO(selected.date), "EEEE")} patterns`}
                     {selected.source === "groq" && "AI estimate — limited historical data"}
+                    {selected.source === "unavailable" && "Outside the 30-day forecast window"}
                     {!selected.source && "No data available"}
                     {selected.tier !== null && <TierBadge tier={selected.tier} />}
                   </p>
@@ -576,17 +592,8 @@ export default function CalendarPage() {
           </div>
         ))}
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-space-700" />
-          <span className="text-xs text-warm-500">No data</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span
-            className="text-[0.6rem] font-semibold uppercase tracking-wider px-1 py-0.5 rounded"
-            style={{ color: "#f0c060", background: "#f0c06018", border: "1px solid #f0c06030" }}
-          >
-            AI
-          </span>
-          <span className="text-xs text-warm-500 italic">AI estimate</span>
+          <div className="w-2.5 h-2.5 rounded-sm bg-space-700 opacity-30" />
+          <span className="text-xs text-warm-500">No forecast yet (outside 30-day window)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-sm font-bold" style={{ color: "#60a5fa" }}>★</span>

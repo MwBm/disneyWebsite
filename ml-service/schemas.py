@@ -17,6 +17,7 @@ class RideHistory(BaseModel):
     wait_time: int
     is_open: bool
     recorded_at: datetime
+    context: Optional["DateContext"] = None
 
 
 class PredictRequest(BaseModel):

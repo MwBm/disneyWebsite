@@ -68,6 +68,10 @@ pip install -r requirements.txt
 DATABASE_URL="$DIRECT_URL" python collect.py
 ```
 
+The one-time DCA Kaggle historical backfill has its own manual workflow:
+Actions tab → "Import DCA Kaggle History" → Run workflow. It inserts into
+`HourlyWaitSummary`, and the next collect run will train on that history.
+
 ---
 
 ## Disabling

@@ -24,8 +24,9 @@ Uses Supabase `DIRECT_URL` (port 5432) — pgbouncer query param is stripped aut
 |---|---|
 | `collect.py` | End-to-end cron pipeline: queue-times → DB upsert → ML → DB insert |
 | `model.py` | `train_ride_models(records)` + `predict_for_slot(models, target_date)` — Ridge regression per ride |
+| `import_dca_kaggle_history.py` | One-time importer for the DCA Kaggle history dataset → `HourlyWaitSummary` |
 | `schemas.py` | Pydantic models (`RideHistory`, `RideForecast`) |
-| `requirements.txt` | scikit-learn, numpy, pydantic, httpx, psycopg, pytest |
+| `requirements.txt` | scikit-learn, numpy, pydantic, httpx, kagglehub, psycopg, pytest |
 
 ---
 
@@ -55,6 +56,29 @@ Errors caught at top level → logged to `CollectRun` with `success=false`, then
 - `crowd_score` = mean of predicted waits (each ride capped at 120) scaled to 0–100
 
 `predict_for_date(records, target_date)` remains as a backward-compatible one-shot wrapper for tests or ad hoc callers.
+
+---
+
+## DCA Kaggle Historical Import
+
+The DCA-only Kaggle dataset can be imported directly into `HourlyWaitSummary`:
+
+```bash
+cd ml-service
+pip install -r requirements.txt
+DATABASE_URL="$DIRECT_URL" python import_dca_kaggle_history.py
+```
+
+The script downloads `tivory27/disney-california-adventure-wait-times`, uses
+`disney_wait_times.csv`, maps known DCA ride names to queue-times ride IDs,
+skips excluded rides and zero-wait rows, and inserts hourly aggregate buckets
+with `ON CONFLICT DO NOTHING` so reruns do not overwrite existing archive data.
+
+For a local parse-only smoke test:
+
+```bash
+python import_dca_kaggle_history.py --dry-run --limit 1000
+```
 
 ---
 

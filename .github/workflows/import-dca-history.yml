@@ -1,0 +1,37 @@
+name: Import DCA Kaggle History
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Parse and aggregate without writing to the database"
+        type: boolean
+        default: false
+
+jobs:
+  import-dca-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: ml-service/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ml-service
+        run: pip install -r requirements.txt
+
+      - name: Import DCA Kaggle history
+        working-directory: ml-service
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi
+          python import_dca_kaggle_history.py $ARGS

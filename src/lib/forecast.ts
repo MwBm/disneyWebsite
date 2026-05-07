@@ -49,10 +49,12 @@ export type HistoricalMean = {
   meanWait: number;
 };
 
+export const ML_FORECAST_DAYS = 30;
+
 export type DayCrowdScore = {
   date: string;
   crowdScore: number | null;
-  source: "ml" | "historical" | "groq" | null;
+  source: "ml" | "historical" | "groq" | "unavailable" | null;
   tier: number | null;
   specialEvent: string | null;
   isHoliday: boolean;
@@ -67,14 +69,24 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
       where: { forecastFor: { gte: start, lt: endExclusive } },
       select: { forecastFor: true, crowdScore: true },
     }),
+    // Weighted same-month historical averages from HourlyWaitSummary.
+    // Groups by park-local date first (to get a daily average across all rides/hours),
+    // then computes a weighted average by day-of-week — recent same-month dates get 2x weight.
     prisma.$queryRaw<{ dow: number; meanWait: number }[]>(Prisma.sql`
       SELECT
-        EXTRACT(DOW FROM ${PARK_LOCAL_RECORDED_AT})::int AS dow,
-        ROUND(AVG("waitTime"))::int AS "meanWait"
-      FROM "WaitTimeRecord"
-      WHERE "isOpen" = true
-        AND "recordedAt" > NOW() - INTERVAL '90 days'
-      GROUP BY dow
+        EXTRACT(DOW FROM sub.date)::int AS dow,
+        ROUND(SUM(sub.avg_wait * sub.weight) / SUM(sub.weight))::int AS "meanWait"
+      FROM (
+        SELECT
+          date,
+          AVG("avgWait") AS avg_wait,
+          CASE WHEN date >= NOW() - INTERVAL '1 year' THEN 2.0 ELSE 1.0 END AS weight
+        FROM "HourlyWaitSummary"
+        WHERE EXTRACT(MONTH FROM date) = ${month}
+          AND date >= NOW() - INTERVAL '3 years'
+        GROUP BY date
+      ) sub
+      GROUP BY EXTRACT(DOW FROM sub.date)
     `),
     prisma.dateContext.findMany({
       where: { date: { gte: dateContextRange.start, lt: dateContextRange.endExclusive } },
@@ -113,12 +125,18 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
   );
 
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const windowCutoff = new Date();
+  windowCutoff.setDate(windowCutoff.getDate() + ML_FORECAST_DAYS);
+  const windowCutoffKey = windowCutoff.toISOString().slice(0, 10);
+
   const results: DayCrowdScore[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const key = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const tier = tierByDate.get(key) ?? null;
     const specialEvent = specialEventByDate.get(key) ?? null;
     const isHoliday = isHolidayByDate.has(key);
+    const beyondWindow = key > windowCutoffKey;
+
     if (mlByDate.has(key)) {
       const scores = mlByDate.get(key)!;
       results.push({
@@ -129,9 +147,11 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
         specialEvent,
         isHoliday,
       });
-    } else if (meanWaitByDow.has(parkDateDow(key))) {
+    } else if (!beyondWindow && meanWaitByDow.has(parkDateDow(key))) {
       const meanWait = meanWaitByDow.get(parkDateDow(key))!;
       results.push({ date: key, crowdScore: deriveCrowdScore(meanWait, tier ?? undefined), source: "historical", tier, specialEvent, isHoliday });
+    } else if (beyondWindow) {
+      results.push({ date: key, crowdScore: null, source: "unavailable", tier, specialEvent, isHoliday });
     } else {
       results.push({ date: key, crowdScore: null, source: null, tier, specialEvent, isHoliday });
     }

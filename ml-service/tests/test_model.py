@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timezone
 from schemas import RideHistory, DateContext
-from model import predict_for_date, MIN_SAMPLES
+from model import predict_for_date, MIN_SAMPLES, CROWD_MAX_WAIT, CROWD_EXPECTED_RIDES, _extract_features
 
 
 def _make_records(ride_id: int, n: int, base_wait: int = 30, is_open: bool = True):
@@ -82,3 +82,53 @@ def test_predict_without_context_backward_compatible():
     assert len(forecasts) == 1
     assert 0 <= forecasts[0].predicted_wait <= 300
     assert 0 <= crowd_score <= 100
+
+
+# --- Feature engineering tests ---
+
+def test_extract_features_shape():
+    """Feature vector must be 12 elements (10 base + 2 seasonal interactions)."""
+    dt = datetime(2026, 6, 5, 19, 0, tzinfo=timezone.utc)  # June 5 12:00 PM Pacific
+    features = _extract_features(dt)
+    assert len(features) == 12
+
+
+def test_month_weekday_interaction():
+    """month_x_weekday (feature[10]) = month * weekday.
+    June 5 2026 is a Friday (weekday=4) in Pacific time; month=6.
+    """
+    # 2026-06-05 19:00 UTC = 2026-06-05 12:00 PDT (UTC-7)
+    dt = datetime(2026, 6, 5, 19, 0, tzinfo=timezone.utc)
+    features = _extract_features(dt)
+    month = features[2]   # index 2
+    weekday = features[1]  # index 1
+    assert features[10] == pytest.approx(month * weekday)
+    assert features[10] == pytest.approx(6.0 * 4.0)  # June, Friday
+
+
+def test_month_school_break_interaction():
+    """month_x_school_break (feature[11]) = month * is_school_break.
+    July + school break context → 7.0 * 1.0 = 7.0.
+    """
+    dt = datetime(2026, 7, 15, 19, 0, tzinfo=timezone.utc)  # July 15 12:00 PDT
+    ctx = DateContext(is_school_break=True)
+    features = _extract_features(dt, ctx)
+    assert features[11] == pytest.approx(7.0 * 1.0)
+
+
+def test_month_school_break_zero_without_context():
+    """Without school_break context, feature[11] must be 0."""
+    dt = datetime(2026, 7, 15, 19, 0, tzinfo=timezone.utc)
+    features = _extract_features(dt)
+    assert features[11] == pytest.approx(0.0)
+
+
+# --- Crowd score constants sync test ---
+
+def test_crowd_score_formula_constants():
+    """CROWD_MAX_WAIT and CROWD_EXPECTED_RIDES must match src/lib/crowd.ts constants.
+    crowd.ts: MAX_WAIT = 120, EXPECTED_RIDES = 24
+    If these drift, the Python and TypeScript crowd scores will silently diverge.
+    """
+    assert CROWD_MAX_WAIT == 120, "Must match MAX_WAIT in src/lib/crowd.ts"
+    assert CROWD_EXPECTED_RIDES == 24, "Must match EXPECTED_RIDES in src/lib/crowd.ts"

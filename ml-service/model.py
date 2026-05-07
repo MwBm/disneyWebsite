@@ -40,13 +40,15 @@ def _extract_features(dt: datetime, context: Optional[DateContext] = None) -> Li
     is_school_break = 1.0 if context and context.is_school_break else 0.0
     hour_x_weekday = hour * weekday
     hour_x_weekend = hour * is_weekend
-    return [hour, weekday, month, is_weekend, tier, has_special_event, is_holiday, is_school_break, hour_x_weekday, hour_x_weekend]
+    month_x_weekday = month * weekday
+    month_x_school_break = month * is_school_break
+    return [hour, weekday, month, is_weekend, tier, has_special_event, is_holiday, is_school_break, hour_x_weekday, hour_x_weekend, month_x_weekday, month_x_school_break]
 
 
 def _train_ride_model(
     records: List[RideHistory],
 ) -> Tuple[Ridge, StandardScaler, float]:
-    X = np.array([_extract_features(r.recorded_at) for r in records], dtype=float)
+    X = np.array([_extract_features(r.recorded_at, r.context) for r in records], dtype=float)
     y = np.array([r.wait_time for r in records], dtype=float)
 
     scaler = StandardScaler()

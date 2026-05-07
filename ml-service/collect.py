@@ -161,6 +161,7 @@ def fetch_hourly_archive(conn) -> list[RideHistory]:
     sql = """
         SELECT "rideId", "rideName", "landName", "avgWait", "isOpen", date, hour
         FROM "HourlyWaitSummary"
+        WHERE date >= NOW() - INTERVAL '3 years'
     """
     with conn.cursor() as cur:
         cur.execute(sql)
@@ -304,6 +305,14 @@ def main() -> int:
                 archived_history = fetch_hourly_archive(conn)
                 history = raw_history + archived_history
                 print(f"Loaded {len(raw_history)} raw + {len(archived_history)} archived records ({len(history)} total)")
+
+                # Attach DateContext to training records so tier/holiday features
+                # are non-zero during training, matching prediction-time feature values.
+                training_contexts = fetch_date_contexts(conn, [r.recorded_at for r in history])
+                history = [
+                    r.model_copy(update={"context": training_contexts.get(park_date_key(r.recorded_at), DateContext())})
+                    for r in history
+                ]
 
                 trained_models = train_ride_models(history)
                 print(f"Trained {len(trained_models)} ride models")
