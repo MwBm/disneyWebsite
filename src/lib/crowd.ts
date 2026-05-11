@@ -1,13 +1,11 @@
 export const MAX_WAIT = 120; // minutes at which crowd score = 100
 export const EXPECTED_RIDES = 24; // nominal full complement for ride-count adjustment
+export const TIER_MULTIPLIER_STEP = 0.08; // per-tier increment: tier 0 → 1.0×, tier 5 → 1.4×
 export const HISTORICAL_FALLBACK_CONFIDENCE = 0.25;
 
-/**
- * Derive a 0–100 crowd score from average wait time, Disney ticket tier, and open ride count.
- *
- * tier multiplier: 1.0 + tier * 0.08 (tier 0 → 1.0×, tier 5 → 1.4×)
- * ride count adjustment: scales effective wait by openRideCount / EXPECTED_RIDES when below full complement
- */
+// Sync contract: CROWD_MAX_WAIT, CROWD_EXPECTED_RIDES, TIER_MULTIPLIER_STEP must match
+// the constants of the same names in ml-service/model.py.
+
 export function deriveCrowdScore(
   avgWait: number,
   tier?: number,
@@ -17,7 +15,7 @@ export function deriveCrowdScore(
     openRideCount !== undefined ? Math.min(openRideCount / EXPECTED_RIDES, 1.0) : 1.0;
   const effectiveWait = avgWait * rideRatio;
   const base = Math.min((effectiveWait / MAX_WAIT) * 100, 100);
-  const tierMultiplier = tier !== undefined ? 1.0 + tier * 0.08 : 1.0;
+  const tierMultiplier = tier !== undefined ? 1.0 + tier * TIER_MULTIPLIER_STEP : 1.0;
   return Math.round(Math.min(base * tierMultiplier, 100));
 }
 

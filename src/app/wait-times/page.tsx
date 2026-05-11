@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import RidePredictionTable from "@/components/RidePredictionTable";
 import DisneyDatePicker from "@/components/DisneyDatePicker";
+import PageHeader from "@/components/PageHeader";
 
 type Ride = {
   rideId: number;
@@ -52,7 +53,7 @@ function WaitTimesContent() {
   const [rides, setRides] = useState<Ride[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function fetch_() {
+  async function fetchPredictions() {
     setLoading(true);
     setError(null);
     try {
@@ -81,18 +82,15 @@ function WaitTimesContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex items-start gap-4">
-        <div className="w-11 h-11 rounded-xl border border-space-600 flex items-center justify-center text-orange-400 shrink-0"
-          style={{ background: "rgba(240,192,96,0.07)", border: "1px solid rgba(240,192,96,0.14)" }}>
+      <PageHeader
+        icon={
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
             <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>
           </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-semibold text-warm-900 tracking-tight">Wait Time Predictions</h1>
-          <p className="text-warm-700 text-sm mt-0.5">Per-ride predicted wait times for a specific date and hour.</p>
-        </div>
-      </div>
+        }
+        title="Wait Time Predictions"
+        subtitle="Per-ride predicted wait times for a specific date and hour."
+      />
 
       <div className="bg-space-card border border-space-700 rounded-2xl p-5 neon neon-blue">
         <div className="flex gap-3 flex-wrap items-end">
@@ -112,7 +110,7 @@ function WaitTimesContent() {
             </select>
           </div>
           <button
-            onClick={fetch_}
+            onClick={fetchPredictions}
             disabled={loading}
             className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
           >

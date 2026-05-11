@@ -13,9 +13,31 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import psycopg
+from pydantic import BaseModel
 
 from model import predict_for_slot, train_ride_models
 from schemas import RideHistory, DateContext
+
+
+# Sync contract: mirrors the Zod schema in src/lib/queue-times.ts (QueueTimesResponseSchema).
+# If queue-times.com changes its API shape, both parsers should fail loudly.
+class _QueueTimesRide(BaseModel):
+    id: int
+    name: str
+    is_open: bool
+    wait_time: int
+    last_updated: str
+
+
+class _QueueTimesLand(BaseModel):
+    id: int
+    name: str
+    rides: list[_QueueTimesRide]
+
+
+class _QueueTimesResponse(BaseModel):
+    lands: list[_QueueTimesLand] = []
+    rides: list[_QueueTimesRide] = []
 
 
 WINDOW_MINUTES = 30
@@ -76,27 +98,27 @@ def fetch_live_rides() -> list[dict]:
         excluded = set(park["excludedRideIds"])
         res = httpx.get(park["queueTimesUrl"], timeout=20.0)
         res.raise_for_status()
-        data = res.json()
-        for land in data.get("lands", []):
-            for ride in land.get("rides", []):
-                if ride["id"] in excluded:
+        parsed = _QueueTimesResponse.model_validate(res.json())
+        for land in parsed.lands:
+            for ride in land.rides:
+                if ride.id in excluded:
                     continue
                 rides.append({
-                    "id": ride["id"],
-                    "name": ride["name"],
-                    "land_name": land["name"],
-                    "is_open": ride["is_open"],
-                    "wait_time": ride["wait_time"],
+                    "id": ride.id,
+                    "name": ride.name,
+                    "land_name": land.name,
+                    "is_open": ride.is_open,
+                    "wait_time": ride.wait_time,
                 })
-        for ride in data.get("rides", []):
-            if ride["id"] in excluded:
+        for ride in parsed.rides:
+            if ride.id in excluded:
                 continue
             rides.append({
-                "id": ride["id"],
-                "name": ride["name"],
+                "id": ride.id,
+                "name": ride.name,
                 "land_name": "Other",
-                "is_open": ride["is_open"],
-                "wait_time": ride["wait_time"],
+                "is_open": ride.is_open,
+                "wait_time": ride.wait_time,
             })
     return rides
 

@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AccuracyChart from "@/components/AccuracyChart";
+import PageHeader from "@/components/PageHeader";
+import { filterAndSortRides } from "@/lib/accuracy-filters";
+import type { PerRide, ParkFilter, SortKey } from "@/lib/accuracy-filters";
 
 type Summary = {
   mae: number;
@@ -11,15 +14,6 @@ type Summary = {
   totalPredictions: number;
 };
 
-type PerRide = {
-  rideId: number;
-  rideName: string;
-  landName: string;
-  parkName: string;
-  mae: number;
-  within10: number;
-  sampleCount: number;
-};
 
 type Row = {
   rideId: number;
@@ -46,8 +40,7 @@ type RawRow = {
   recordedAt: string;
 };
 
-type ParkFilter = "all" | "Disneyland" | "Disney California Adventure";
-type SortKey = "mae-asc" | "mae-desc" | "alpha" | "samples-desc";
+
 type RawSortKey = "time-desc" | "time-asc" | "wait-desc" | "wait-asc" | "alpha";
 type Tab = "accuracy" | "raw";
 
@@ -267,6 +260,7 @@ function RawDataTable({ rows }: { rows: RawRow[] }) {
 export default function AccuracyPage() {
   const [tab, setTab] = useState<Tab>("accuracy");
   const [data, setData] = useState<AccuracyData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [rawRows, setRawRows] = useState<RawRow[] | null>(null);
   const [rawLoading, setRawLoading] = useState(false);
   const [selectedRide, setSelectedRide] = useState<string>("");
@@ -276,16 +270,14 @@ export default function AccuracyPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    fetch("/api/accuracy")
-      .then((r) => r.json())
-      .then((d: AccuracyData) => {
-        setData(d);
-        if (d.perRide.length > 0) setSelectedRide(d.perRide[0].rideName);
-      });
-
-    fetch("/api/forecast?date=" + new Date().toISOString().split("T")[0])
-      .then((r) => r.json())
-      .then((d) => setDataQualityOk(d.dataQualityOk ?? true));
+    Promise.all([
+      fetch("/api/accuracy", { cache: "force-cache" }).then((r) => r.json()),
+      fetch("/api/forecast?date=" + new Date().toISOString().split("T")[0], { cache: "force-cache" }).then((r) => r.json()),
+    ]).then(([accuracyData, forecastData]: [AccuracyData, { dataQualityOk?: boolean }]) => {
+      setData(accuracyData);
+      if (accuracyData.perRide.length > 0) setSelectedRide(accuracyData.perRide[0].rideName);
+      setDataQualityOk(forecastData.dataQualityOk ?? true);
+    }).finally(() => setLoading(false));
   }, []);
 
   function switchToRaw() {
@@ -298,30 +290,10 @@ export default function AccuracyPage() {
       .finally(() => setRawLoading(false));
   }
 
-  const filteredRides = useMemo(() => {
-    if (!data) return [];
-    let rides = data.perRide;
-
-    if (parkFilter !== "all") {
-      rides = rides.filter((r) => r.parkName === parkFilter);
-    }
-
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      rides = rides.filter((r) => r.rideName.toLowerCase().includes(q));
-    }
-
-    switch (sortKey) {
-      case "mae-asc":
-        return [...rides].sort((a, b) => a.mae - b.mae);
-      case "mae-desc":
-        return [...rides].sort((a, b) => b.mae - a.mae);
-      case "alpha":
-        return [...rides].sort((a, b) => a.rideName.localeCompare(b.rideName));
-      case "samples-desc":
-        return [...rides].sort((a, b) => b.sampleCount - a.sampleCount);
-    }
-  }, [data, parkFilter, sortKey, search]);
+  const filteredRides = useMemo(
+    () => filterAndSortRides(data?.perRide ?? [], parkFilter, search, sortKey),
+    [data, parkFilter, sortKey, search]
+  );
 
   const parkCounts = useMemo(() => {
     if (!data) return { all: 0, dl: 0, dca: 0 };
@@ -335,24 +307,17 @@ export default function AccuracyPage() {
   return (
     <div className="flex flex-col gap-8">
       <div className="flex items-start justify-between flex-wrap gap-4">
-        <div className="flex items-start gap-4">
-          <div
-            className="w-11 h-11 rounded-xl border border-space-600 flex items-center justify-center text-orange-400 shrink-0"
-            style={{ background: "rgba(59,130,246,0.08)" }}
-          >
+        <PageHeader
+          icon={
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="20" x2="18" y2="10" />
               <line x1="12" y1="20" x2="12" y2="4" />
               <line x1="6" y1="20" x2="6" y2="14" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-warm-900 tracking-tight">Prediction Accuracy</h1>
-            <p className="text-warm-700 text-sm mt-0.5">
-              How well our model&apos;s predictions matched actual wait times — last 30 days.
-            </p>
-          </div>
-        </div>
+          }
+          title="Prediction Accuracy"
+          subtitle="How well our model's predictions matched actual wait times — last 30 days."
+        />
         <div className="flex items-center gap-1 p-1 bg-cream-200 rounded-xl border border-space-700">
           <button
             onClick={() => setTab("accuracy")}
@@ -376,6 +341,12 @@ export default function AccuracyPage() {
           </button>
         </div>
       </div>
+
+      {loading && (
+        <div className="bg-space-card border border-space-700 rounded-2xl p-8 text-center shadow-sm">
+          <p className="text-warm-700 text-sm">Loading accuracy data…</p>
+        </div>
+      )}
 
       {!dataQualityOk && (
         <div className="text-xs text-warm-700 bg-space-card border border-space-700 rounded-lg px-3 py-2 self-start">

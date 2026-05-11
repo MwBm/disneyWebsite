@@ -1,0 +1,50 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e54]:
+    - navigation [ref=e55]:
+      - generic [ref=e56]:
+        - link "Disneyland Planner" [ref=e57]:
+          - /url: /
+          - img [ref=e59]
+          - generic [ref=e61]: Disneyland
+          - generic [ref=e62]: Planner
+        - list [ref=e63]:
+          - listitem [ref=e64]:
+            - link "Forecast" [ref=e65]:
+              - /url: /
+          - listitem [ref=e66]:
+            - link "Calendar" [ref=e67]:
+              - /url: /calendar
+          - listitem [ref=e68]:
+            - link "Wait Times" [ref=e69]:
+              - /url: /wait-times
+          - listitem [ref=e70]:
+            - link "Accuracy" [ref=e71]:
+              - /url: /accuracy
+          - listitem [ref=e72]:
+            - link "Chat" [ref=e73]:
+              - /url: /chat
+          - listitem [ref=e74]:
+            - link "Data" [ref=e75]:
+              - /url: /admin
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - img [ref=e80]
+          - generic [ref=e82]:
+            - heading "Chat" [level=1] [ref=e83]
+            - paragraph [ref=e84]: Ask anything about Disneyland — live wait times, ride tips, and planning advice.
+        - generic [ref=e85]:
+          - button "What are the least crowded days this week?" [ref=e86] [cursor=pointer]
+          - button "Which rides should we hit first thing in the morning?" [ref=e87] [cursor=pointer]
+          - button "Best strategy for visiting with young kids?" [ref=e88] [cursor=pointer]
+          - button "Is Lightning Lane worth it?" [ref=e89] [cursor=pointer]
+        - generic [ref=e90]:
+          - generic [ref=e92]:
+            - img [ref=e94]
+            - paragraph [ref=e96]: Ask anything — try one of the suggestions above, or type your own question.
+          - generic [ref=e97]:
+            - textbox "Ask about wait times, best times to visit, rides…" [ref=e98]
+            - button "Send" [disabled] [ref=e99]
+  - button "Open Next.js Dev Tools" [ref=e105] [cursor=pointer]:
+    - img [ref=e106]
+  - alert [ref=e113]

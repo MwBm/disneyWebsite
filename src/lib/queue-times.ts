@@ -1,6 +1,8 @@
 import { z } from "zod";
 import rideConfig from "./ride-config.json";
 
+// Sync contract: _QueueTimesResponse/_QueueTimesLand/_QueueTimesRide in ml-service/collect.py
+// mirrors this schema. If queue-times.com changes shape, both parsers should fail loudly.
 const RideSchema = z.object({
   id: z.number(),
   name: z.string(),

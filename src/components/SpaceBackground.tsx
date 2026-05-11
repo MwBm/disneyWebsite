@@ -64,6 +64,19 @@ export default function SpaceBackground() {
     resize();
     window.addEventListener("resize", resize);
 
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const { w, h } = dims.current;
+      ctx.fillStyle = "#faf4e8";
+      ctx.fillRect(0, 0, w, h);
+      for (const p of particles.current) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${p.colorR},${p.colorG},${p.colorB},0.45)`;
+        ctx.fill();
+      }
+      return () => window.removeEventListener("resize", resize);
+    }
+
     const onMove  = (e: MouseEvent) => { mouse.current = { x: e.clientX, y: e.clientY }; };
     const onClick = (e: MouseEvent) => {
       const colors = ["rgba(196,144,24,", "rgba(212,112,26,", "rgba(192,72,112,"];

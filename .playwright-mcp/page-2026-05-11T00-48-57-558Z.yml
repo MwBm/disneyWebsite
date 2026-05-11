@@ -1,0 +1,87 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e54]:
+    - navigation [ref=e55]:
+      - generic [ref=e56]:
+        - link "Disneyland Planner" [ref=e57]:
+          - /url: /
+          - img [ref=e59]
+          - generic [ref=e61]: Disneyland
+          - generic [ref=e62]: Planner
+        - button "Close menu" [expanded] [ref=e142] [cursor=pointer]:
+          - img [ref=e64]
+      - list [ref=e144]:
+        - listitem [ref=e145]:
+          - link "Forecast" [ref=e146]:
+            - /url: /
+        - listitem [ref=e147]:
+          - link "Calendar" [ref=e148]:
+            - /url: /calendar
+        - listitem [ref=e149]:
+          - link "Wait Times" [ref=e150]:
+            - /url: /wait-times
+        - listitem [ref=e151]:
+          - link "Accuracy" [ref=e152]:
+            - /url: /accuracy
+        - listitem [ref=e153]:
+          - link "Chat" [ref=e154]:
+            - /url: /chat
+        - listitem [ref=e155]:
+          - link "Data" [ref=e156]:
+            - /url: /admin
+    - main [ref=e66]:
+      - generic [ref=e67]:
+        - generic [ref=e68]:
+          - img [ref=e70]
+          - generic [ref=e72]:
+            - heading "Plan the perfect Disneyland day" [level=1] [ref=e73]:
+              - text: Plan the perfect
+              - text: Disneyland day
+            - paragraph [ref=e74]: ML-powered crowd forecasts and per-ride wait predictions — spend more time on rides, less time in lines.
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - paragraph [ref=e78]: Select a date
+            - generic [ref=e79]:
+              - generic [ref=e81]: ADMIT ONE
+              - generic [ref=e82]:
+                - button "Previous day" [ref=e83] [cursor=pointer]:
+                  - img [ref=e84]
+                - button "Disneyland Resort May 10, 2026 Sunday" [ref=e86] [cursor=pointer]:
+                  - generic [ref=e87]: Disneyland Resort
+                  - generic [ref=e88]: May 10, 2026
+                  - generic [ref=e89]: Sunday
+                - button "Next day" [ref=e90] [cursor=pointer]:
+                  - img [ref=e91]
+          - button "Forecast" [ref=e93] [cursor=pointer]
+        - generic [ref=e94]:
+          - paragraph [ref=e95]: What you can do
+          - generic [ref=e96]:
+            - link "Crowd Forecast See how busy the park will be on any date — before you book. Pick a date above" [ref=e97]:
+              - /url: /
+              - img [ref=e99]
+              - generic [ref=e101]:
+                - heading "Crowd Forecast" [level=3] [ref=e102]
+                - paragraph [ref=e103]: See how busy the park will be on any date — before you book.
+              - generic [ref=e104]:
+                - text: Pick a date above
+                - img [ref=e105]
+            - link "Wait Time Predictions Per-ride predicted waits by hour, powered by our ML model. View predictions" [ref=e107]:
+              - /url: /wait-times
+              - img [ref=e109]
+              - generic [ref=e112]:
+                - heading "Wait Time Predictions" [level=3] [ref=e113]
+                - paragraph [ref=e114]: Per-ride predicted waits by hour, powered by our ML model.
+              - generic [ref=e115]:
+                - text: View predictions
+                - img [ref=e116]
+            - link "Trip Advisor Ask anything — best days, ride tips, itinerary help. Start chatting" [ref=e118]:
+              - /url: /chat
+              - img [ref=e120]
+              - generic [ref=e124]:
+                - heading "Trip Advisor" [level=3] [ref=e125]
+                - paragraph [ref=e126]: Ask anything — best days, ride tips, itinerary help.
+              - generic [ref=e127]:
+                - text: Start chatting
+                - img [ref=e128]
+  - button "Open Next.js Dev Tools" [ref=e135] [cursor=pointer]:
+    - img [ref=e136]
+  - alert [ref=e141]

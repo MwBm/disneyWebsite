@@ -7,9 +7,13 @@ from zoneinfo import ZoneInfo
 
 MIN_SAMPLES = 30
 
-# Must stay in sync with src/lib/crowd.ts
+# Sync contract: must stay in sync with src/lib/crowd.ts
+# MAX_WAIT           = CROWD_MAX_WAIT         = 120
+# EXPECTED_RIDES     = CROWD_EXPECTED_RIDES   = 24
+# TIER_MULTIPLIER_STEP                        = 0.08
 CROWD_MAX_WAIT = 120       # wait minutes where crowd score = 100
 CROWD_EXPECTED_RIDES = 24  # nominal full ride complement for count adjustment
+TIER_MULTIPLIER_STEP = 0.08
 PARK_TZ = ZoneInfo("America/Los_Angeles")
 
 
@@ -124,7 +128,7 @@ def predict_for_slot(
         ride_ratio = min(len(forecasts) / CROWD_EXPECTED_RIDES, 1.0)
         effective_wait = avg_wait * ride_ratio
         base = min(effective_wait / CROWD_MAX_WAIT * 100, 100)
-        tier_multiplier = 1.0 + (context.tier * 0.08 if context else 0.0)
+        tier_multiplier = 1.0 + (context.tier * TIER_MULTIPLIER_STEP if context else 0.0)
         crowd_score = int(min(base * tier_multiplier, 100))
     else:
         crowd_score = 0

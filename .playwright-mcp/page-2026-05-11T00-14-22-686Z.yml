@@ -1,0 +1,90 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Disneyland" [level=1] [ref=e4]
+    - paragraph [ref=e5]: Planner
+    - img [ref=e7]
+    - generic [ref=e50]:
+      - generic [ref=e51]: ★ Did you know? ★
+      - paragraph [ref=e52]: Disneyland opened July 17, 1955 — Walt called opening day 'Black Sunday' due to the chaos.
+    - paragraph [ref=e53]: Warming up the magic…
+  - generic [ref=e54]:
+    - navigation [ref=e55]:
+      - generic [ref=e56]:
+        - link "Disneyland Planner" [ref=e57] [cursor=pointer]:
+          - /url: /
+          - img [ref=e59]
+          - generic [ref=e61]: Disneyland
+          - generic [ref=e62]: Planner
+        - list [ref=e63]:
+          - listitem [ref=e64]:
+            - link "Forecast" [ref=e65] [cursor=pointer]:
+              - /url: /
+          - listitem [ref=e66]:
+            - link "Calendar" [ref=e67] [cursor=pointer]:
+              - /url: /calendar
+          - listitem [ref=e68]:
+            - link "Wait Times" [ref=e69] [cursor=pointer]:
+              - /url: /wait-times
+          - listitem [ref=e70]:
+            - link "Accuracy" [ref=e71] [cursor=pointer]:
+              - /url: /accuracy
+          - listitem [ref=e72]:
+            - link "Chat" [ref=e73] [cursor=pointer]:
+              - /url: /chat
+          - listitem [ref=e74]:
+            - link "Data" [ref=e75] [cursor=pointer]:
+              - /url: /admin
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - img [ref=e80]
+          - generic [ref=e82]:
+            - heading "Plan the perfect Disneyland day" [level=1] [ref=e83]:
+              - text: Plan the perfect
+              - text: Disneyland day
+            - paragraph [ref=e84]: ML-powered crowd forecasts and per-ride wait predictions — spend more time on rides, less time in lines.
+        - generic [ref=e86]:
+          - generic [ref=e87]:
+            - paragraph [ref=e88]: Select a date
+            - generic [ref=e89]:
+              - generic [ref=e91]: ADMIT ONE
+              - generic [ref=e92]:
+                - button "Previous day" [ref=e93] [cursor=pointer]:
+                  - img [ref=e94]
+                - button "Disneyland Resort May 10, 2026 Sunday" [ref=e96] [cursor=pointer]:
+                  - generic [ref=e97]: Disneyland Resort
+                  - generic [ref=e98]: May 10, 2026
+                  - generic [ref=e99]: Sunday
+                - button "Next day" [ref=e100] [cursor=pointer]:
+                  - img [ref=e101]
+          - button "Forecast" [ref=e103] [cursor=pointer]
+        - generic [ref=e104]:
+          - paragraph [ref=e105]: What you can do
+          - generic [ref=e106]:
+            - link "Crowd Forecast See how busy the park will be on any date — before you book. Pick a date above" [ref=e107] [cursor=pointer]:
+              - /url: /
+              - img [ref=e109]
+              - generic [ref=e111]:
+                - heading "Crowd Forecast" [level=3] [ref=e112]
+                - paragraph [ref=e113]: See how busy the park will be on any date — before you book.
+              - generic [ref=e114]:
+                - text: Pick a date above
+                - img [ref=e115]
+            - link "Wait Time Predictions Per-ride predicted waits by hour, powered by our ML model. View predictions" [ref=e117] [cursor=pointer]:
+              - /url: /wait-times
+              - img [ref=e119]
+              - generic [ref=e122]:
+                - heading "Wait Time Predictions" [level=3] [ref=e123]
+                - paragraph [ref=e124]: Per-ride predicted waits by hour, powered by our ML model.
+              - generic [ref=e125]:
+                - text: View predictions
+                - img [ref=e126]
+            - link "Trip Advisor Ask anything — best days, ride tips, itinerary help. Start chatting" [ref=e128] [cursor=pointer]:
+              - /url: /chat
+              - img [ref=e130]
+              - generic [ref=e134]:
+                - heading "Trip Advisor" [level=3] [ref=e135]
+                - paragraph [ref=e136]: Ask anything — best days, ride tips, itinerary help.
+              - generic [ref=e137]:
+                - text: Start chatting
+                - img [ref=e138]

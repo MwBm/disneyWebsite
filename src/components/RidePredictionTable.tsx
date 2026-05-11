@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 type Ride = {
   rideId: number;
@@ -11,6 +11,21 @@ type Ride = {
 };
 
 type SortKey = "predictedWait" | "rideName" | "landName";
+
+function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100);
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 bg-cream-200 rounded-full h-1.5">
+        <div
+          className="h-1.5 rounded-full bg-orange-500 transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-warm-700 text-xs w-7 text-right">{pct}%</span>
+    </div>
+  );
+}
 
 function waitColor(minutes: number) {
   if (minutes <= 20) return "#22c55e";
@@ -28,12 +43,12 @@ export default function RidePredictionTable({ rides }: { rides: Ride[] }) {
     else { setSort(key); setAsc(false); }
   }
 
-  const sorted = [...rides].sort((a, b) => {
+  const sorted = useMemo(() => [...rides].sort((a, b) => {
     const av = a[sort];
     const bv = b[sort];
     const cmp = typeof av === "number" ? av - (bv as number) : String(av).localeCompare(String(bv));
     return asc ? cmp : -cmp;
-  });
+  }), [rides, sort, asc]);
 
   function Header({ k, label }: { k: SortKey; label: string }) {
     return (
@@ -72,8 +87,8 @@ export default function RidePredictionTable({ rides }: { rides: Ride[] }) {
                   {ride.predictedWait} min
                 </span>
               </td>
-              <td className="px-4 py-3 text-warm-700">
-                {Math.round(ride.mlConfidence * 100)}%
+              <td className="px-4 py-3 min-w-[8rem]">
+                <ConfidenceBar value={ride.mlConfidence} />
               </td>
             </tr>
           ))}

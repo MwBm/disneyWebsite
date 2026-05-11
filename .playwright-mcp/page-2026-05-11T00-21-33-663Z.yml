@@ -1,0 +1,75 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Disneyland" [level=1] [ref=e4]
+    - paragraph [ref=e5]: Planner
+    - img [ref=e7]
+    - generic [ref=e50]:
+      - generic [ref=e51]: ★ Did you know? ★
+      - paragraph [ref=e52]: Splash Mountain drops you at 40 mph — faster than most people expect for a log flume.
+    - paragraph [ref=e53]: Warming up the magic…
+  - generic [ref=e54]:
+    - navigation [ref=e55]:
+      - generic [ref=e56]:
+        - link "Disneyland Planner" [ref=e57]:
+          - /url: /
+          - img [ref=e59]
+          - generic [ref=e61]: Disneyland
+          - generic [ref=e62]: Planner
+        - list [ref=e63]:
+          - listitem [ref=e64]:
+            - link "Forecast" [ref=e65]:
+              - /url: /
+          - listitem [ref=e66]:
+            - link "Calendar" [ref=e67]:
+              - /url: /calendar
+          - listitem [ref=e68]:
+            - link "Wait Times" [ref=e69]:
+              - /url: /wait-times
+          - listitem [ref=e70]:
+            - link "Accuracy" [ref=e71]:
+              - /url: /accuracy
+          - listitem [ref=e72]:
+            - link "Chat" [ref=e73]:
+              - /url: /chat
+          - listitem [ref=e74]:
+            - link "Data" [ref=e75]:
+              - /url: /admin
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - img [ref=e80]
+          - generic [ref=e86]:
+            - heading "Crowd Calendar" [level=1] [ref=e87]
+            - paragraph [ref=e88]: Monthly view of predicted park busyness — click any day for details.
+        - generic [ref=e89]:
+          - generic [ref=e90]:
+            - button [ref=e91] [cursor=pointer]:
+              - img [ref=e92]
+            - generic [ref=e94]:
+              - paragraph [ref=e95]: May
+              - paragraph [ref=e96]: "2026"
+            - button [ref=e97] [cursor=pointer]:
+              - img [ref=e98]
+          - generic [ref=e100]:
+            - generic [ref=e101]: Sun
+            - generic [ref=e102]: Mon
+            - generic [ref=e103]: Tue
+            - generic [ref=e104]: Wed
+            - generic [ref=e105]: Thu
+            - generic [ref=e106]: Fri
+            - generic [ref=e107]: Sat
+        - generic [ref=e179]:
+          - generic [ref=e182]: Low (≤30)
+          - generic [ref=e185]: Moderate (31–55)
+          - generic [ref=e188]: Busy (56–75)
+          - generic [ref=e191]: Very Busy (76+)
+          - generic [ref=e194]: No forecast yet (outside 30-day window)
+          - generic [ref=e195]:
+            - generic [ref=e196]: ★
+            - generic [ref=e197]: US Holiday
+          - generic [ref=e198]:
+            - generic [ref=e199]: ♦
+            - generic [ref=e200]: Disney Ticketed Event (after-hours paid event)
+  - button "Open Next.js Dev Tools" [ref=e206] [cursor=pointer]:
+    - img [ref=e207]
+  - alert [ref=e212]

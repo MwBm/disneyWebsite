@@ -1,4 +1,6 @@
-import { fetchDateSchedule, syncDateContext, isHolidayDate, isSchoolBreakDate } from "@/lib/date-context";
+import { syncDateContext } from "@/lib/date-context";
+import { fetchDateSchedule } from "@/lib/park-schedule";
+import { isHolidayDate, isSchoolBreakDate } from "@/lib/calendar";
 import { prisma } from "@/lib/db";
 
 const mockDateContextFindMany = prisma.dateContext.findMany as jest.Mock;

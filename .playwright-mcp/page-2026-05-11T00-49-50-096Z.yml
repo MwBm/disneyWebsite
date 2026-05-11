@@ -1,0 +1,641 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e54]:
+    - navigation [ref=e55]:
+      - generic [ref=e56]:
+        - link "Disneyland Planner" [ref=e57]:
+          - /url: /
+          - img [ref=e59]
+          - generic [ref=e61]: Disneyland
+          - generic [ref=e62]: Planner
+        - list [ref=e63]:
+          - listitem [ref=e64]:
+            - link "Forecast" [ref=e65]:
+              - /url: /
+          - listitem [ref=e66]:
+            - link "Calendar" [ref=e67]:
+              - /url: /calendar
+          - listitem [ref=e68]:
+            - link "Wait Times" [ref=e69]:
+              - /url: /wait-times
+          - listitem [ref=e70]:
+            - link "Accuracy" [ref=e71]:
+              - /url: /accuracy
+          - listitem [ref=e72]:
+            - link "Chat" [ref=e73]:
+              - /url: /chat
+          - listitem [ref=e74]:
+            - link "Data" [ref=e75]:
+              - /url: /admin
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e79]:
+            - img [ref=e81]
+            - generic [ref=e82]:
+              - heading "Prediction Accuracy" [level=1] [ref=e83]
+              - paragraph [ref=e84]: How well our model's predictions matched actual wait times — last 30 days.
+          - generic [ref=e85]:
+            - button "Accuracy" [ref=e86] [cursor=pointer]
+            - button "Recent Data (2h)" [ref=e87] [cursor=pointer]
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - paragraph [ref=e105]: Avg Error
+            - paragraph [ref=e106]: ±7.4 min
+          - generic [ref=e107]:
+            - paragraph [ref=e108]: Within 10 min
+            - paragraph [ref=e109]: 78%
+          - generic [ref=e110]:
+            - paragraph [ref=e111]: Within 15 min
+            - paragraph [ref=e112]: 87%
+          - generic [ref=e113]:
+            - paragraph [ref=e114]: Total Predictions
+            - paragraph [ref=e115]: 21,318
+        - generic [ref=e116]:
+          - generic [ref=e117]:
+            - generic [ref=e118]:
+              - heading "Predicted vs. Actual" [level=2] [ref=e119]
+              - paragraph [ref=e120]: Walt Disney's Enchanted Tiki Room
+            - generic [ref=e121]: Click a card below to switch rides
+          - generic [ref=e123]:
+            - img [ref=e124]:
+              - generic [ref=e127]:
+                - generic [ref=e129]: 05/01 10:00
+                - generic [ref=e131]: 05/01 11:00
+                - generic [ref=e133]: 05/01 11:00
+                - generic [ref=e135]: 05/01 11:00
+                - generic [ref=e137]: 05/01 12:00
+                - generic [ref=e139]: 05/01 12:00
+                - generic [ref=e141]: 05/01 13:00
+                - generic [ref=e143]: 05/01 13:00
+                - generic [ref=e145]: 05/01 13:00
+                - generic [ref=e147]: 05/01 14:00
+                - generic [ref=e149]: 05/01 14:00
+                - generic [ref=e151]: 05/01 14:00
+              - generic [ref=e153]:
+                - generic [ref=e155]: 0 min
+                - generic [ref=e157]: 1 min
+                - generic [ref=e159]: 2 min
+                - generic [ref=e161]: 3 min
+                - generic [ref=e163]: 4 min
+            - list [ref=e165]:
+              - listitem [ref=e166]:
+                - img [ref=e167]
+                - text: Predicted
+              - listitem [ref=e169]:
+                - img [ref=e170]
+                - text: Actual
+        - generic [ref=e172]:
+          - generic [ref=e173]:
+            - button "All (67)" [ref=e174] [cursor=pointer]
+            - button "DL (50)" [ref=e175] [cursor=pointer]
+            - button "DCA (17)" [ref=e176] [cursor=pointer]
+          - generic [ref=e177]:
+            - generic [ref=e178]:
+              - img [ref=e179]
+              - textbox "Search rides..." [ref=e182]
+            - combobox [ref=e183]:
+              - option "Best accuracy first"
+              - option "Worst accuracy first"
+              - option "A → Z" [selected]
+              - option "Most data first"
+        - generic [ref=e184]:
+          - button "\"it's a small world\" ±7.5 83% Fantasyland 484 samples" [ref=e185] [cursor=pointer]:
+            - generic [ref=e186]:
+              - generic [ref=e187]: "\"it's a small world\""
+              - generic [ref=e188]: ±7.5
+            - generic [ref=e196]: 83%
+            - generic [ref=e197]:
+              - generic [ref=e198]: Fantasyland
+              - generic [ref=e199]: 484 samples
+          - button "Adventureland Treehouse inspired by Walt Disney’s Swiss Family Robinson ±0.0 100% Adventureland 183 samples" [ref=e200] [cursor=pointer]:
+            - generic [ref=e201]:
+              - generic [ref=e202]: Adventureland Treehouse inspired by Walt Disney’s Swiss Family Robinson
+              - generic [ref=e203]: ±0.0
+            - generic [ref=e210]: 100%
+            - generic [ref=e211]:
+              - generic [ref=e212]: Adventureland
+              - generic [ref=e213]: 183 samples
+          - button "Alice in Wonderland ±6.3 80% Fantasyland 486 samples" [ref=e214] [cursor=pointer]:
+            - generic [ref=e215]:
+              - generic [ref=e216]: Alice in Wonderland
+              - generic [ref=e217]: ±6.3
+            - generic [ref=e225]: 80%
+            - generic [ref=e226]:
+              - generic [ref=e227]: Fantasyland
+              - generic [ref=e228]: 486 samples
+          - button "Astro Orbitor ±9.4 67% Tomorrowland 513 samples" [ref=e229] [cursor=pointer]:
+            - generic [ref=e230]:
+              - generic [ref=e231]: Astro Orbitor
+              - generic [ref=e232]: ±9.4
+            - generic [ref=e240]: 67%
+            - generic [ref=e241]:
+              - generic [ref=e242]: Tomorrowland
+              - generic [ref=e243]: 513 samples
+          - button "Autopia ±8.0 76% Tomorrowland 519 samples" [ref=e244] [cursor=pointer]:
+            - generic [ref=e245]:
+              - generic [ref=e246]: Autopia
+              - generic [ref=e247]: ±8.0
+            - generic [ref=e255]: 76%
+            - generic [ref=e256]:
+              - generic [ref=e257]: Tomorrowland
+              - generic [ref=e258]: 519 samples
+          - button "Big Thunder Mountain Railroad ±11.2 61% Frontierland 459 samples" [ref=e259] [cursor=pointer]:
+            - generic [ref=e260]:
+              - generic [ref=e261]: Big Thunder Mountain Railroad
+              - generic [ref=e262]: ±11.2
+            - generic [ref=e270]: 61%
+            - generic [ref=e271]:
+              - generic [ref=e272]: Frontierland
+              - generic [ref=e273]: 459 samples
+          - button "Bluey’s Best Day Ever! at Fantasyland Theatre ±0.0 100% Other 242 samples" [ref=e274] [cursor=pointer]:
+            - generic [ref=e275]:
+              - generic [ref=e276]: Bluey’s Best Day Ever! at Fantasyland Theatre
+              - generic [ref=e277]: ±0.0
+            - generic [ref=e284]: 100%
+            - generic [ref=e285]:
+              - generic [ref=e286]: Other
+              - generic [ref=e287]: 242 samples
+          - button "Casey Jr. Circus Train ±5.2 92% Fantasyland 474 samples" [ref=e288] [cursor=pointer]:
+            - generic [ref=e289]:
+              - generic [ref=e290]: Casey Jr. Circus Train
+              - generic [ref=e291]: ±5.2
+            - generic [ref=e299]: 92%
+            - generic [ref=e300]:
+              - generic [ref=e301]: Fantasyland
+              - generic [ref=e302]: 474 samples
+          - button "Chip 'n' Dale's GADGETcoaster ±8.6 73% Mickey's Toontown 504 samples" [ref=e303] [cursor=pointer]:
+            - generic [ref=e304]:
+              - generic [ref=e305]: Chip 'n' Dale's GADGETcoaster
+              - generic [ref=e306]: ±8.6
+            - generic [ref=e314]: 73%
+            - generic [ref=e315]:
+              - generic [ref=e316]: Mickey's Toontown
+              - generic [ref=e317]: 504 samples
+          - button "Davy Crockett's Explorer Canoes ±1.2 99% Bayou Country 158 samples" [ref=e318] [cursor=pointer]:
+            - generic [ref=e319]:
+              - generic [ref=e320]: Davy Crockett's Explorer Canoes
+              - generic [ref=e321]: ±1.2
+            - generic [ref=e329]: 99%
+            - generic [ref=e330]:
+              - generic [ref=e331]: Bayou Country
+              - generic [ref=e332]: 158 samples
+          - button "Disneyland Monorail ±5.9 100% Tomorrowland 16 samples" [ref=e333] [cursor=pointer]:
+            - generic [ref=e334]:
+              - generic [ref=e335]: Disneyland Monorail
+              - generic [ref=e336]: ±5.9
+            - generic [ref=e344]: 100%
+            - generic [ref=e345]:
+              - generic [ref=e346]: Tomorrowland
+              - generic [ref=e347]: 16 samples
+          - button "Disneyland Railroad ±3.6 100% Main Street U.S.A 136 samples" [ref=e348] [cursor=pointer]:
+            - generic [ref=e349]:
+              - generic [ref=e350]: Disneyland Railroad
+              - generic [ref=e351]: ±3.6
+            - generic [ref=e359]: 100%
+            - generic [ref=e360]:
+              - generic [ref=e361]: Main Street U.S.A
+              - generic [ref=e362]: 136 samples
+          - button "Donald's Duck Pond ±0.0 100% Mickey's Toontown 242 samples" [ref=e363] [cursor=pointer]:
+            - generic [ref=e364]:
+              - generic [ref=e365]: Donald's Duck Pond
+              - generic [ref=e366]: ±0.0
+            - generic [ref=e373]: 100%
+            - generic [ref=e374]:
+              - generic [ref=e375]: Mickey's Toontown
+              - generic [ref=e376]: 242 samples
+          - button "Dumbo the Flying Elephant ±7.2 82% Fantasyland 522 samples" [ref=e377] [cursor=pointer]:
+            - generic [ref=e378]:
+              - generic [ref=e379]: Dumbo the Flying Elephant
+              - generic [ref=e380]: ±7.2
+            - generic [ref=e388]: 82%
+            - generic [ref=e389]:
+              - generic [ref=e390]: Fantasyland
+              - generic [ref=e391]: 522 samples
+          - button "Finding Nemo Submarine Voyage ±5.3 89% Tomorrowland 514 samples" [ref=e392] [cursor=pointer]:
+            - generic [ref=e393]:
+              - generic [ref=e394]: Finding Nemo Submarine Voyage
+              - generic [ref=e395]: ±5.3
+            - generic [ref=e403]: 89%
+            - generic [ref=e404]:
+              - generic [ref=e405]: Tomorrowland
+              - generic [ref=e406]: 514 samples
+          - button "Frontierland Shootin' Exposition ±0.0 100% Frontierland 242 samples" [ref=e407] [cursor=pointer]:
+            - generic [ref=e408]:
+              - generic [ref=e409]: Frontierland Shootin' Exposition
+              - generic [ref=e410]: ±0.0
+            - generic [ref=e417]: 100%
+            - generic [ref=e418]:
+              - generic [ref=e419]: Frontierland
+              - generic [ref=e420]: 242 samples
+          - button "Golden Zephyr ±2.8 95% Paradise Gardens Park 122 samples" [ref=e421] [cursor=pointer]:
+            - generic [ref=e422]:
+              - generic [ref=e423]: Golden Zephyr
+              - generic [ref=e424]: ±2.8
+            - generic [ref=e432]: 95%
+            - generic [ref=e433]:
+              - generic [ref=e434]: Paradise Gardens Park
+              - generic [ref=e435]: 122 samples
+          - button "Goofy's How-to-Play Yard ±0.0 100% Mickey's Toontown 136 samples" [ref=e436] [cursor=pointer]:
+            - generic [ref=e437]:
+              - generic [ref=e438]: Goofy's How-to-Play Yard
+              - generic [ref=e439]: ±0.0
+            - generic [ref=e446]: 100%
+            - generic [ref=e447]:
+              - generic [ref=e448]: Mickey's Toontown
+              - generic [ref=e449]: 136 samples
+          - button "Goofy's Sky School ±10.4 60% Paradise Gardens Park 235 samples" [ref=e450] [cursor=pointer]:
+            - generic [ref=e451]:
+              - generic [ref=e452]: Goofy's Sky School
+              - generic [ref=e453]: ±10.4
+            - generic [ref=e461]: 60%
+            - generic [ref=e462]:
+              - generic [ref=e463]: Paradise Gardens Park
+              - generic [ref=e464]: 235 samples
+          - button "Great Moments with Mr. Lincoln ±0.0 100% Main Street U.S.A 87 samples" [ref=e465] [cursor=pointer]:
+            - generic [ref=e466]:
+              - generic [ref=e467]: Great Moments with Mr. Lincoln
+              - generic [ref=e468]: ±0.0
+            - generic [ref=e475]: 100%
+            - generic [ref=e476]:
+              - generic [ref=e477]: Main Street U.S.A
+              - generic [ref=e478]: 87 samples
+          - button "Grizzly River Run ±9.9 65% Grizzly Peak 226 samples" [ref=e479] [cursor=pointer]:
+            - generic [ref=e480]:
+              - generic [ref=e481]: Grizzly River Run
+              - generic [ref=e482]: ±9.9
+            - generic [ref=e490]: 65%
+            - generic [ref=e491]:
+              - generic [ref=e492]: Grizzly Peak
+              - generic [ref=e493]: 226 samples
+          - 'button "Guardians of the Galaxy - Mission: BREAKOUT! ±15.9 46% Avengers Campus 253 samples" [ref=e494] [cursor=pointer]':
+            - generic [ref=e495]:
+              - generic [ref=e496]: "Guardians of the Galaxy - Mission: BREAKOUT!"
+              - generic [ref=e497]: ±15.9
+            - generic [ref=e505]: 46%
+            - generic [ref=e506]:
+              - generic [ref=e507]: Avengers Campus
+              - generic [ref=e508]: 253 samples
+          - button "Haunted Mansion ±10.9 59% New Orleans Square 512 samples" [ref=e509] [cursor=pointer]:
+            - generic [ref=e510]:
+              - generic [ref=e511]: Haunted Mansion
+              - generic [ref=e512]: ±10.9
+            - generic [ref=e520]: 59%
+            - generic [ref=e521]:
+              - generic [ref=e522]: New Orleans Square
+              - generic [ref=e523]: 512 samples
+          - button "Hyperspace Mountain ±12.3 58% Tomorrowland 515 samples" [ref=e524] [cursor=pointer]:
+            - generic [ref=e525]:
+              - generic [ref=e526]: Hyperspace Mountain
+              - generic [ref=e527]: ±12.3
+            - generic [ref=e535]: 58%
+            - generic [ref=e536]:
+              - generic [ref=e537]: Tomorrowland
+              - generic [ref=e538]: 515 samples
+          - button "Incredicoaster ±8.0 74% Pixar Pier 245 samples" [ref=e539] [cursor=pointer]:
+            - generic [ref=e540]:
+              - generic [ref=e541]: Incredicoaster
+              - generic [ref=e542]: ±8.0
+            - generic [ref=e550]: 74%
+            - generic [ref=e551]:
+              - generic [ref=e552]: Pixar Pier
+              - generic [ref=e553]: 245 samples
+          - button "Indiana Jones™ Adventure ±11.5 66% Adventureland 466 samples" [ref=e554] [cursor=pointer]:
+            - generic [ref=e555]:
+              - generic [ref=e556]: Indiana Jones™ Adventure
+              - generic [ref=e557]: ±11.5
+            - generic [ref=e565]: 66%
+            - generic [ref=e566]:
+              - generic [ref=e567]: Adventureland
+              - generic [ref=e568]: 466 samples
+          - button "Jessie's Critter Carousel ±1.3 100% Pixar Pier 243 samples" [ref=e569] [cursor=pointer]:
+            - generic [ref=e570]:
+              - generic [ref=e571]: Jessie's Critter Carousel
+              - generic [ref=e572]: ±1.3
+            - generic [ref=e580]: 100%
+            - generic [ref=e581]:
+              - generic [ref=e582]: Pixar Pier
+              - generic [ref=e583]: 243 samples
+          - button "Jumpin' Jellyfish ±3.9 95% Pixar Pier 249 samples" [ref=e584] [cursor=pointer]:
+            - generic [ref=e585]:
+              - generic [ref=e586]: Jumpin' Jellyfish
+              - generic [ref=e587]: ±3.9
+            - generic [ref=e595]: 95%
+            - generic [ref=e596]:
+              - generic [ref=e597]: Pixar Pier
+              - generic [ref=e598]: 249 samples
+          - button "Jungle Cruise ±9.4 62% Adventureland 511 samples" [ref=e599] [cursor=pointer]:
+            - generic [ref=e600]:
+              - generic [ref=e601]: Jungle Cruise
+              - generic [ref=e602]: ±9.4
+            - generic [ref=e610]: 62%
+            - generic [ref=e611]:
+              - generic [ref=e612]: Adventureland
+              - generic [ref=e613]: 511 samples
+          - button "King Arthur Carrousel ±2.9 99% Fantasyland 508 samples" [ref=e614] [cursor=pointer]:
+            - generic [ref=e615]:
+              - generic [ref=e616]: King Arthur Carrousel
+              - generic [ref=e617]: ±2.9
+            - generic [ref=e625]: 99%
+            - generic [ref=e626]:
+              - generic [ref=e627]: Fantasyland
+              - generic [ref=e628]: 508 samples
+          - button "Luigi's Rollickin' Roadsters ±7.4 77% Cars Land 240 samples" [ref=e629] [cursor=pointer]:
+            - generic [ref=e630]:
+              - generic [ref=e631]: Luigi's Rollickin' Roadsters
+              - generic [ref=e632]: ±7.4
+            - generic [ref=e640]: 77%
+            - generic [ref=e641]:
+              - generic [ref=e642]: Cars Land
+              - generic [ref=e643]: 240 samples
+          - button "Mad Tea Party ±2.9 100% Fantasyland 520 samples" [ref=e644] [cursor=pointer]:
+            - generic [ref=e645]:
+              - generic [ref=e646]: Mad Tea Party
+              - generic [ref=e647]: ±2.9
+            - generic [ref=e655]: 100%
+            - generic [ref=e656]:
+              - generic [ref=e657]: Fantasyland
+              - generic [ref=e658]: 520 samples
+          - button "Main Street Cinema ±0.0 100% Main Street U.S.A 242 samples" [ref=e659] [cursor=pointer]:
+            - generic [ref=e660]:
+              - generic [ref=e661]: Main Street Cinema
+              - generic [ref=e662]: ±0.0
+            - generic [ref=e669]: 100%
+            - generic [ref=e670]:
+              - generic [ref=e671]: Main Street U.S.A
+              - generic [ref=e672]: 242 samples
+          - button "Main Street Vehicles ±0.0 100% Main Street U.S.A 242 samples" [ref=e673] [cursor=pointer]:
+            - generic [ref=e674]:
+              - generic [ref=e675]: Main Street Vehicles
+              - generic [ref=e676]: ±0.0
+            - generic [ref=e683]: 100%
+            - generic [ref=e684]:
+              - generic [ref=e685]: Main Street U.S.A
+              - generic [ref=e686]: 242 samples
+          - button "Mark Twain Riverboat ±0.7 100% Frontierland 121 samples" [ref=e687] [cursor=pointer]:
+            - generic [ref=e688]:
+              - generic [ref=e689]: Mark Twain Riverboat
+              - generic [ref=e690]: ±0.7
+            - generic [ref=e698]: 100%
+            - generic [ref=e699]:
+              - generic [ref=e700]: Frontierland
+              - generic [ref=e701]: 121 samples
+          - button "Mater's Junkyard Jamboree ±6.0 87% Cars Land 254 samples" [ref=e702] [cursor=pointer]:
+            - generic [ref=e703]:
+              - generic [ref=e704]: Mater's Junkyard Jamboree
+              - generic [ref=e705]: ±6.0
+            - generic [ref=e713]: 87%
+            - generic [ref=e714]:
+              - generic [ref=e715]: Cars Land
+              - generic [ref=e716]: 254 samples
+          - button "Matterhorn Bobsleds ±11.6 68% Fantasyland 490 samples" [ref=e717] [cursor=pointer]:
+            - generic [ref=e718]:
+              - generic [ref=e719]: Matterhorn Bobsleds
+              - generic [ref=e720]: ±11.6
+            - generic [ref=e728]: 68%
+            - generic [ref=e729]:
+              - generic [ref=e730]: Fantasyland
+              - generic [ref=e731]: 490 samples
+          - button "Meet Disney Princesses at Royal Hall ±32.5 17% Fantasyland 96 samples" [ref=e732] [cursor=pointer]:
+            - generic [ref=e733]:
+              - generic [ref=e734]: Meet Disney Princesses at Royal Hall
+              - generic [ref=e735]: ±32.5
+            - generic [ref=e743]: 17%
+            - generic [ref=e744]:
+              - generic [ref=e745]: Fantasyland
+              - generic [ref=e746]: 96 samples
+          - button "Mickey & Minnie's Runaway Railway ±11.4 66% Mickey's Toontown 467 samples" [ref=e747] [cursor=pointer]:
+            - generic [ref=e748]:
+              - generic [ref=e749]: Mickey & Minnie's Runaway Railway
+              - generic [ref=e750]: ±11.4
+            - generic [ref=e758]: 66%
+            - generic [ref=e759]:
+              - generic [ref=e760]: Mickey's Toontown
+              - generic [ref=e761]: 467 samples
+          - button "Mickey's House and Meet Mickey Mouse ±18.2 45% Mickey's Toontown 125 samples" [ref=e762] [cursor=pointer]:
+            - generic [ref=e763]:
+              - generic [ref=e764]: Mickey's House and Meet Mickey Mouse
+              - generic [ref=e765]: ±18.2
+            - generic [ref=e773]: 45%
+            - generic [ref=e774]:
+              - generic [ref=e775]: Mickey's Toontown
+              - generic [ref=e776]: 125 samples
+          - 'button "Millennium Falcon: Smugglers Run ±12.8 53% Star Wars: Galaxy''s Edge 521 samples" [ref=e777] [cursor=pointer]':
+            - generic [ref=e778]:
+              - generic [ref=e779]: "Millennium Falcon: Smugglers Run"
+              - generic [ref=e780]: ±12.8
+            - generic [ref=e788]: 53%
+            - generic [ref=e789]:
+              - generic [ref=e790]: "Star Wars: Galaxy's Edge"
+              - generic [ref=e791]: 521 samples
+          - 'button "Millennium Falcon: Smugglers Run Single Rider ±0.0 100% Star Wars: Galaxy''s Edge 183 samples" [ref=e792] [cursor=pointer]':
+            - generic [ref=e793]:
+              - generic [ref=e794]: "Millennium Falcon: Smugglers Run Single Rider"
+              - generic [ref=e795]: ±0.0
+            - generic [ref=e802]: 100%
+            - generic [ref=e803]:
+              - generic [ref=e804]: "Star Wars: Galaxy's Edge"
+              - generic [ref=e805]: 183 samples
+          - button "Minnie's House ±0.0 100% Mickey's Toontown 242 samples" [ref=e806] [cursor=pointer]:
+            - generic [ref=e807]:
+              - generic [ref=e808]: Minnie's House
+              - generic [ref=e809]: ±0.0
+            - generic [ref=e816]: 100%
+            - generic [ref=e817]:
+              - generic [ref=e818]: Mickey's Toontown
+              - generic [ref=e819]: 242 samples
+          - button "Monsters, Inc. Mike & Sulley to the Rescue! ±9.5 66% Hollywood Land 248 samples" [ref=e820] [cursor=pointer]:
+            - generic [ref=e821]:
+              - generic [ref=e822]: Monsters, Inc. Mike & Sulley to the Rescue!
+              - generic [ref=e823]: ±9.5
+            - generic [ref=e831]: 66%
+            - generic [ref=e832]:
+              - generic [ref=e833]: Hollywood Land
+              - generic [ref=e834]: 248 samples
+          - button "Mr. Toad's Wild Ride ±5.0 88% Fantasyland 500 samples" [ref=e835] [cursor=pointer]:
+            - generic [ref=e836]:
+              - generic [ref=e837]: Mr. Toad's Wild Ride
+              - generic [ref=e838]: ±5.0
+            - generic [ref=e846]: 88%
+            - generic [ref=e847]:
+              - generic [ref=e848]: Fantasyland
+              - generic [ref=e849]: 500 samples
+          - button "Opera House - Walt Disney - A Magical Life ±0.0 100% Main Street U.S.A 136 samples" [ref=e850] [cursor=pointer]:
+            - generic [ref=e851]:
+              - generic [ref=e852]: Opera House - Walt Disney - A Magical Life
+              - generic [ref=e853]: ±0.0
+            - generic [ref=e860]: 100%
+            - generic [ref=e861]:
+              - generic [ref=e862]: Main Street U.S.A
+              - generic [ref=e863]: 136 samples
+          - button "Peter Pan's Flight ±7.0 82% Fantasyland 485 samples" [ref=e864] [cursor=pointer]:
+            - generic [ref=e865]:
+              - generic [ref=e866]: Peter Pan's Flight
+              - generic [ref=e867]: ±7.0
+            - generic [ref=e875]: 82%
+            - generic [ref=e876]:
+              - generic [ref=e877]: Fantasyland
+              - generic [ref=e878]: 485 samples
+          - button "Pinocchio's Daring Journey ±3.4 98% Fantasyland 508 samples" [ref=e879] [cursor=pointer]:
+            - generic [ref=e880]:
+              - generic [ref=e881]: Pinocchio's Daring Journey
+              - generic [ref=e882]: ±3.4
+            - generic [ref=e890]: 98%
+            - generic [ref=e891]:
+              - generic [ref=e892]: Fantasyland
+              - generic [ref=e893]: 508 samples
+          - button "Pirates of the Caribbean ±8.8 74% New Orleans Square 326 samples" [ref=e894] [cursor=pointer]:
+            - generic [ref=e895]:
+              - generic [ref=e896]: Pirates of the Caribbean
+              - generic [ref=e897]: ±8.8
+            - generic [ref=e905]: 74%
+            - generic [ref=e906]:
+              - generic [ref=e907]: New Orleans Square
+              - generic [ref=e908]: 326 samples
+          - button "Pixar Pal-A-Round - Swinging ±6.6 80% Pixar Pier 210 samples" [ref=e909] [cursor=pointer]:
+            - generic [ref=e910]:
+              - generic [ref=e911]: Pixar Pal-A-Round - Swinging
+              - generic [ref=e912]: ±6.6
+            - generic [ref=e920]: 80%
+            - generic [ref=e921]:
+              - generic [ref=e922]: Pixar Pier
+              - generic [ref=e923]: 210 samples
+          - button "Pixar Pal-A-Round – Non-Swinging ±8.5 68% Pixar Pier 211 samples" [ref=e924] [cursor=pointer]:
+            - generic [ref=e925]:
+              - generic [ref=e926]: Pixar Pal-A-Round – Non-Swinging
+              - generic [ref=e927]: ±8.5
+            - generic [ref=e935]: 68%
+            - generic [ref=e936]:
+              - generic [ref=e937]: Pixar Pier
+              - generic [ref=e938]: 211 samples
+          - button "Radiator Springs Racers ±17.9 38% Cars Land 248 samples" [ref=e939] [cursor=pointer]:
+            - generic [ref=e940]:
+              - generic [ref=e941]: Radiator Springs Racers
+              - generic [ref=e942]: ±17.9
+            - generic [ref=e950]: 38%
+            - generic [ref=e951]:
+              - generic [ref=e952]: Cars Land
+              - generic [ref=e953]: 248 samples
+          - button "Roger Rabbit's Car Toon Spin ±13.1 49% Mickey's Toontown 281 samples" [ref=e954] [cursor=pointer]:
+            - generic [ref=e955]:
+              - generic [ref=e956]: Roger Rabbit's Car Toon Spin
+              - generic [ref=e957]: ±13.1
+            - generic [ref=e965]: 49%
+            - generic [ref=e966]:
+              - generic [ref=e967]: Mickey's Toontown
+              - generic [ref=e968]: 281 samples
+          - button "Snow White's Enchanted Wish ±5.0 92% Fantasyland 502 samples" [ref=e969] [cursor=pointer]:
+            - generic [ref=e970]:
+              - generic [ref=e971]: Snow White's Enchanted Wish
+              - generic [ref=e972]: ±5.0
+            - generic [ref=e980]: 92%
+            - generic [ref=e981]:
+              - generic [ref=e982]: Fantasyland
+              - generic [ref=e983]: 502 samples
+          - button "Soarin' Over California ±10.6 60% Grizzly Peak 255 samples" [ref=e984] [cursor=pointer]:
+            - generic [ref=e985]:
+              - generic [ref=e986]: Soarin' Over California
+              - generic [ref=e987]: ±10.6
+            - generic [ref=e995]: 60%
+            - generic [ref=e996]:
+              - generic [ref=e997]: Grizzly Peak
+              - generic [ref=e998]: 255 samples
+          - button "Star Tours - The Adventures Continue ±8.5 69% Tomorrowland 507 samples" [ref=e999] [cursor=pointer]:
+            - generic [ref=e1000]:
+              - generic [ref=e1001]: Star Tours - The Adventures Continue
+              - generic [ref=e1002]: ±8.5
+            - generic [ref=e1010]: 69%
+            - generic [ref=e1011]:
+              - generic [ref=e1012]: Tomorrowland
+              - generic [ref=e1013]: 507 samples
+          - 'button "Star Wars: Rise of the Resistance ±15.5 50% Star Wars: Galaxy''s Edge 459 samples" [ref=e1014] [cursor=pointer]':
+            - generic [ref=e1015]:
+              - generic [ref=e1016]: "Star Wars: Rise of the Resistance"
+              - generic [ref=e1017]: ±15.5
+            - generic [ref=e1025]: 50%
+            - generic [ref=e1026]:
+              - generic [ref=e1027]: "Star Wars: Galaxy's Edge"
+              - generic [ref=e1028]: 459 samples
+          - button "Storybook Land Canal Boats ±5.6 88% Fantasyland 522 samples" [ref=e1029] [cursor=pointer]:
+            - generic [ref=e1030]:
+              - generic [ref=e1031]: Storybook Land Canal Boats
+              - generic [ref=e1032]: ±5.6
+            - generic [ref=e1040]: 88%
+            - generic [ref=e1041]:
+              - generic [ref=e1042]: Fantasyland
+              - generic [ref=e1043]: 522 samples
+          - button "The Disney Gallery ±0.0 100% Main Street U.S.A 242 samples" [ref=e1044] [cursor=pointer]:
+            - generic [ref=e1045]:
+              - generic [ref=e1046]: The Disney Gallery
+              - generic [ref=e1047]: ±0.0
+            - generic [ref=e1054]: 100%
+            - generic [ref=e1055]:
+              - generic [ref=e1056]: Main Street U.S.A
+              - generic [ref=e1057]: 242 samples
+          - button "The Little Mermaid - Ariel's Undersea Adventure ±8.5 66% Paradise Gardens Park 237 samples" [ref=e1058] [cursor=pointer]:
+            - generic [ref=e1059]:
+              - generic [ref=e1060]: The Little Mermaid - Ariel's Undersea Adventure
+              - generic [ref=e1061]: ±8.5
+            - generic [ref=e1069]: 66%
+            - generic [ref=e1070]:
+              - generic [ref=e1071]: Paradise Gardens Park
+              - generic [ref=e1072]: 237 samples
+          - button "The Many Adventures of Winnie the Pooh ±6.8 83% Bayou Country 479 samples" [ref=e1073] [cursor=pointer]:
+            - generic [ref=e1074]:
+              - generic [ref=e1075]: The Many Adventures of Winnie the Pooh
+              - generic [ref=e1076]: ±6.8
+            - generic [ref=e1084]: 83%
+            - generic [ref=e1085]:
+              - generic [ref=e1086]: Bayou Country
+              - generic [ref=e1087]: 479 samples
+          - button "Tiana's Bayou Adventure ±11.8 61% Bayou Country 426 samples" [ref=e1088] [cursor=pointer]:
+            - generic [ref=e1089]:
+              - generic [ref=e1090]: Tiana's Bayou Adventure
+              - generic [ref=e1091]: ±11.8
+            - generic [ref=e1099]: 61%
+            - generic [ref=e1100]:
+              - generic [ref=e1101]: Bayou Country
+              - generic [ref=e1102]: 426 samples
+          - button "Tiana's Bayou Adventure Single Rider ±0.0 100% Bayou Country 118 samples" [ref=e1103] [cursor=pointer]:
+            - generic [ref=e1104]:
+              - generic [ref=e1105]: Tiana's Bayou Adventure Single Rider
+              - generic [ref=e1106]: ±0.0
+            - generic [ref=e1113]: 100%
+            - generic [ref=e1114]:
+              - generic [ref=e1115]: Bayou Country
+              - generic [ref=e1116]: 118 samples
+          - button "Toy Story Midway Mania! ±10.9 59% Pixar Pier 248 samples" [ref=e1117] [cursor=pointer]:
+            - generic [ref=e1118]:
+              - generic [ref=e1119]: Toy Story Midway Mania!
+              - generic [ref=e1120]: ±10.9
+            - generic [ref=e1128]: 59%
+            - generic [ref=e1129]:
+              - generic [ref=e1130]: Pixar Pier
+              - generic [ref=e1131]: 248 samples
+          - button "Walt Disney - A Magical Life ±0.0 100% Main Street U.S.A 25 samples" [ref=e1132] [cursor=pointer]:
+            - generic [ref=e1133]:
+              - generic [ref=e1134]: Walt Disney - A Magical Life
+              - generic [ref=e1135]: ±0.0
+            - generic [ref=e1142]: 100%
+            - generic [ref=e1143]:
+              - generic [ref=e1144]: Main Street U.S.A
+              - generic [ref=e1145]: 25 samples
+          - button "Walt Disney's Enchanted Tiki Room ±0.0 100% Adventureland 174 samples" [ref=e1146] [cursor=pointer]:
+            - generic [ref=e1147]:
+              - generic [ref=e1148]: Walt Disney's Enchanted Tiki Room
+              - generic [ref=e1149]: ±0.0
+            - generic [ref=e1156]: 100%
+            - generic [ref=e1157]:
+              - generic [ref=e1158]: Adventureland
+              - generic [ref=e1159]: 174 samples
+          - 'button "WEB SLINGERS: A Spider-Man Adventure ±10.6 62% Avengers Campus 226 samples" [ref=e1160] [cursor=pointer]':
+            - generic [ref=e1161]:
+              - generic [ref=e1162]: "WEB SLINGERS: A Spider-Man Adventure"
+              - generic [ref=e1163]: ±10.6
+            - generic [ref=e1171]: 62%
+            - generic [ref=e1172]:
+              - generic [ref=e1173]: Avengers Campus
+              - generic [ref=e1174]: 226 samples
+  - button "Open Next.js Dev Tools" [ref=e97] [cursor=pointer]:
+    - img [ref=e98]
+  - alert [ref=e1175]
+  - generic [ref=e1176]: "0"

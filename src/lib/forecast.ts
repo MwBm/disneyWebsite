@@ -60,6 +60,24 @@ export type DayCrowdScore = {
   isHoliday: boolean;
 };
 
+export function resolveCrowdScore({
+  mlScore,
+  historicalScore,
+  groqScore,
+  isBeyondWindow,
+}: {
+  mlScore: number | null;
+  historicalScore: number | null;
+  groqScore: number | null;
+  isBeyondWindow: boolean;
+}): { crowdScore: number | null; source: DayCrowdScore["source"] } {
+  if (mlScore !== null) return { crowdScore: mlScore, source: "ml" };
+  if (!isBeyondWindow && historicalScore !== null) return { crowdScore: historicalScore, source: "historical" };
+  if (!isBeyondWindow && groqScore !== null) return { crowdScore: groqScore, source: "groq" };
+  if (isBeyondWindow) return { crowdScore: null, source: "unavailable" };
+  return { crowdScore: null, source: null };
+}
+
 export async function getCrowdScoresForMonth(year: number, month: number): Promise<DayCrowdScore[]> {
   const { start, endExclusive } = parkMonthRangeUtc(year, month);
   const dateContextRange = dateContextMonthRangeUtc(year, month);
@@ -135,26 +153,20 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     const tier = tierByDate.get(key) ?? null;
     const specialEvent = specialEventByDate.get(key) ?? null;
     const isHoliday = isHolidayByDate.has(key);
-    const beyondWindow = key > windowCutoffKey;
 
-    if (mlByDate.has(key)) {
-      const scores = mlByDate.get(key)!;
-      results.push({
-        date: key,
-        crowdScore: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
-        source: "ml",
-        tier,
-        specialEvent,
-        isHoliday,
-      });
-    } else if (!beyondWindow && meanWaitByDow.has(parkDateDow(key))) {
-      const meanWait = meanWaitByDow.get(parkDateDow(key))!;
-      results.push({ date: key, crowdScore: deriveCrowdScore(meanWait, tier ?? undefined), source: "historical", tier, specialEvent, isHoliday });
-    } else if (beyondWindow) {
-      results.push({ date: key, crowdScore: null, source: "unavailable", tier, specialEvent, isHoliday });
-    } else {
-      results.push({ date: key, crowdScore: null, source: null, tier, specialEvent, isHoliday });
-    }
+    const mlScores = mlByDate.get(key);
+    const mlScore = mlScores ? Math.round(mlScores.reduce((a, b) => a + b, 0) / mlScores.length) : null;
+    const dowMeanWait = meanWaitByDow.get(parkDateDow(key)) ?? null;
+    const historicalScore = dowMeanWait !== null ? deriveCrowdScore(dowMeanWait, tier ?? undefined) : null;
+
+    const { crowdScore, source } = resolveCrowdScore({
+      mlScore,
+      historicalScore,
+      groqScore: null,
+      isBeyondWindow: key > windowCutoffKey,
+    });
+
+    results.push({ date: key, crowdScore, source, tier, specialEvent, isHoliday });
   }
   return results;
 }

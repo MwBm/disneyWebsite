@@ -1,0 +1,81 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e54]:
+    - navigation [ref=e55]:
+      - generic [ref=e56]:
+        - link "Disneyland Planner" [ref=e57]:
+          - /url: /
+          - img [ref=e59]
+          - generic [ref=e61]: Disneyland
+          - generic [ref=e62]: Planner
+        - list [ref=e63]:
+          - listitem [ref=e64]:
+            - link "Forecast" [ref=e65]:
+              - /url: /
+          - listitem [ref=e66]:
+            - link "Calendar" [ref=e67]:
+              - /url: /calendar
+          - listitem [ref=e68]:
+            - link "Wait Times" [ref=e69]:
+              - /url: /wait-times
+          - listitem [ref=e70]:
+            - link "Accuracy" [ref=e71]:
+              - /url: /accuracy
+          - listitem [ref=e72]:
+            - link "Chat" [ref=e73]:
+              - /url: /chat
+          - listitem [ref=e74]:
+            - link "Data" [ref=e75]:
+              - /url: /admin
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - img [ref=e80]
+          - generic [ref=e83]:
+            - heading "Wait Time Predictions" [level=1] [ref=e84]
+            - paragraph [ref=e85]: Per-ride predicted wait times for a specific date and hour.
+        - generic [ref=e87]:
+          - generic [ref=e88]:
+            - paragraph [ref=e89]: Date
+            - generic [ref=e90]:
+              - generic [ref=e92]: ADMIT ONE
+              - generic [ref=e93]:
+                - button "Previous day" [ref=e94] [cursor=pointer]:
+                  - img [ref=e95]
+                - button "Disneyland Resort May 10, 2026 Sunday" [ref=e97] [cursor=pointer]:
+                  - generic [ref=e98]: Disneyland Resort
+                  - generic [ref=e99]: May 10, 2026
+                  - generic [ref=e100]: Sunday
+                - button "Next day" [ref=e101] [cursor=pointer]:
+                  - img [ref=e102]
+          - generic [ref=e104]:
+            - generic [ref=e105]: Hour
+            - combobox [ref=e106]:
+              - option "8:00 AM"
+              - option "9:00 AM"
+              - option "10:00 AM"
+              - option "11:00 AM"
+              - option "12:00 PM"
+              - option "1:00 PM"
+              - option "2:00 PM"
+              - option "3:00 PM"
+              - option "4:00 PM"
+              - option "5:00 PM" [selected]
+              - option "6:00 PM"
+              - option "7:00 PM"
+              - option "8:00 PM"
+              - option "9:00 PM"
+              - option "10:00 PM"
+          - button "Show Predictions" [ref=e107] [cursor=pointer]
+        - generic [ref=e108]:
+          - generic [ref=e109]:
+            - img [ref=e111]
+            - paragraph [ref=e114]: Arrive at rope drop — waits are shortest in the first 90 minutes.
+          - generic [ref=e115]:
+            - img [ref=e117]
+            - paragraph [ref=e119]: Ride during peak meal hours (noon–2 PM) when crowds thin out.
+          - generic [ref=e120]:
+            - img [ref=e122]
+            - paragraph [ref=e124]: Evening is great for headliners — many guests leave after fireworks.
+  - button "Open Next.js Dev Tools" [ref=e130] [cursor=pointer]:
+    - img [ref=e131]
+  - alert [ref=e136]

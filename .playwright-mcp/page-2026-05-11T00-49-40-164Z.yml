@@ -1,0 +1,51 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Disneyland" [level=1] [ref=e4]
+    - paragraph [ref=e5]: Planner
+    - img [ref=e7]
+    - generic [ref=e50]:
+      - generic [ref=e51]: ★ Did you know? ★
+      - paragraph [ref=e52]: Disneyland opened July 17, 1955 — Walt called opening day 'Black Sunday' due to the chaos.
+    - paragraph [ref=e53]: Warming up the magic…
+  - generic [ref=e54]:
+    - navigation [ref=e55]:
+      - generic [ref=e56]:
+        - link "Disneyland Planner" [ref=e57]:
+          - /url: /
+          - img [ref=e59]
+          - generic [ref=e61]: Disneyland
+          - generic [ref=e62]: Planner
+        - list [ref=e63]:
+          - listitem [ref=e64]:
+            - link "Forecast" [ref=e65]:
+              - /url: /
+          - listitem [ref=e66]:
+            - link "Calendar" [ref=e67]:
+              - /url: /calendar
+          - listitem [ref=e68]:
+            - link "Wait Times" [ref=e69]:
+              - /url: /wait-times
+          - listitem [ref=e70]:
+            - link "Accuracy" [ref=e71]:
+              - /url: /accuracy
+          - listitem [ref=e72]:
+            - link "Chat" [ref=e73]:
+              - /url: /chat
+          - listitem [ref=e74]:
+            - link "Data" [ref=e75]:
+              - /url: /admin
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e79]:
+            - img [ref=e81]
+            - generic [ref=e82]:
+              - heading "Prediction Accuracy" [level=1] [ref=e83]
+              - paragraph [ref=e84]: How well our model's predictions matched actual wait times — last 30 days.
+          - generic [ref=e85]:
+            - button "Accuracy" [ref=e86] [cursor=pointer]
+            - button "Recent Data (2h)" [ref=e87] [cursor=pointer]
+        - paragraph [ref=e89]: Loading accuracy data…
+        - paragraph [ref=e91]: No accuracy data yet. Once the model has made predictions and actual data has been collected for those times, comparisons will appear here.
+  - button "Open Next.js Dev Tools" [ref=e97] [cursor=pointer]:
+    - img [ref=e98]
