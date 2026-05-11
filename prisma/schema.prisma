@@ -32,7 +32,7 @@ model DailyForecast {
   mlConfidence  Float
   createdAt     DateTime @default(now())
 
-  @@index([rideId, forecastFor])
+  @@unique([rideId, forecastFor])
   @@index([forecastFor])
 }
 

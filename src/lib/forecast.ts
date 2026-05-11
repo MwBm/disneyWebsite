@@ -16,15 +16,33 @@ const PARK_LOCAL_RECORDED_AT = Prisma.raw(
 
 export async function getForecastForDate(date: Date | string) {
   const { start, endExclusive } = parkDateRangeUtc(date);
-  return prisma.dailyForecast.findMany({
-    where: {
-      forecastFor: {
-        gte: start,
-        lt: endExclusive,
-      },
-    },
-    orderBy: [{ forecastFor: "asc" }, { rideName: "asc" }],
-  });
+  // DISTINCT ON pushes dedup to Postgres — returns exactly one row per ride
+  // (the slot with the highest mlConfidence) instead of loading all 1,900+ rows
+  // into TypeScript for in-memory deduplication.
+  return prisma.$queryRaw<
+    {
+      rideId: number;
+      rideName: string;
+      landName: string;
+      forecastFor: Date;
+      predictedWait: number;
+      crowdScore: number;
+      mlConfidence: number;
+    }[]
+  >(Prisma.sql`
+    SELECT DISTINCT ON ("rideId")
+      "rideId",
+      "rideName",
+      "landName",
+      "forecastFor",
+      "predictedWait",
+      "crowdScore",
+      "mlConfidence"
+    FROM "DailyForecast"
+    WHERE "forecastFor" >= ${start}
+      AND "forecastFor" < ${endExclusive}
+    ORDER BY "rideId", "mlConfidence" DESC
+  `);
 }
 
 export async function getCrowdScoreForDate(date: Date | string): Promise<number | null> {

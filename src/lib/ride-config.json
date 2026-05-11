@@ -1,4 +1,8 @@
 {
+  "crowdMaxWait": 120,
+  "crowdExpectedRides": 24,
+  "tierMultiplierStep": 0.08,
+  "headlinerRideIds": [],
   "parks": [
     {
       "id": 16,

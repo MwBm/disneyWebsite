@@ -1,10 +1,9 @@
-export const MAX_WAIT = 120; // minutes at which crowd score = 100
-export const EXPECTED_RIDES = 24; // nominal full complement for ride-count adjustment
-export const TIER_MULTIPLIER_STEP = 0.08; // per-tier increment: tier 0 → 1.0×, tier 5 → 1.4×
-export const HISTORICAL_FALLBACK_CONFIDENCE = 0.25;
+import rideConfig from "./ride-config.json";
 
-// Sync contract: CROWD_MAX_WAIT, CROWD_EXPECTED_RIDES, TIER_MULTIPLIER_STEP must match
-// the constants of the same names in ml-service/model.py.
+export const MAX_WAIT: number = rideConfig.crowdMaxWait;
+export const EXPECTED_RIDES: number = rideConfig.crowdExpectedRides;
+export const TIER_MULTIPLIER_STEP: number = rideConfig.tierMultiplierStep;
+export const HISTORICAL_FALLBACK_CONFIDENCE = 0.25;
 
 export function deriveCrowdScore(
   avgWait: number,
