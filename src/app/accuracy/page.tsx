@@ -14,7 +14,6 @@ type Summary = {
   totalPredictions: number;
 };
 
-
 type Row = {
   rideId: number;
   rideName: string;
@@ -30,20 +29,6 @@ type AccuracyData = {
   rows: Row[];
 };
 
-type RawRow = {
-  rideId: number;
-  rideName: string;
-  landName: string;
-  waitTime: number;
-  isOpen: boolean;
-  windowedAt: string;
-  recordedAt: string;
-};
-
-
-type RawSortKey = "time-desc" | "time-asc" | "wait-desc" | "wait-asc" | "alpha";
-type Tab = "accuracy" | "raw";
-
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-space-card border border-space-700 rounded-2xl px-6 py-5 shadow-sm neon">
@@ -54,9 +39,8 @@ function StatCard({ label, value }: { label: string; value: string }) {
 }
 
 function MaeBar({ value }: { value: number }) {
-  // MAE range: 0–30 min for color purposes
   const pct = Math.min(value / 30, 1);
-  const hue = Math.round(120 - pct * 120); // green → red
+  const hue = Math.round(120 - pct * 120);
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 bg-cream-200 rounded-full h-1.5">
@@ -126,143 +110,9 @@ function RideCard({
   );
 }
 
-function RawDataTable({ rows }: { rows: RawRow[] }) {
-  const [sortKey, setSortKey] = useState<RawSortKey>("time-desc");
-  const [search, setSearch] = useState("");
-  const [showClosedRides, setShowClosedRides] = useState(false);
-
-  const sorted = useMemo(() => {
-    let r = rows.filter((row) => {
-      if (!showClosedRides && !row.isOpen) return false;
-      if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        return row.rideName.toLowerCase().includes(q) || row.landName.toLowerCase().includes(q);
-      }
-      return true;
-    });
-    switch (sortKey) {
-      case "time-desc": return [...r].sort((a, b) => b.windowedAt.localeCompare(a.windowedAt));
-      case "time-asc":  return [...r].sort((a, b) => a.windowedAt.localeCompare(b.windowedAt));
-      case "wait-desc": return [...r].sort((a, b) => b.waitTime - a.waitTime);
-      case "wait-asc":  return [...r].sort((a, b) => a.waitTime - b.waitTime);
-      case "alpha":     return [...r].sort((a, b) => a.rideName.localeCompare(b.rideName));
-    }
-  }, [rows, sortKey, search, showClosedRides]);
-
-  const windows = useMemo(() => {
-    const s = new Set(rows.map((r) => r.windowedAt));
-    return s.size;
-  }, [rows]);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2 items-center justify-between">
-        <p className="text-xs text-warm-700">
-          {rows.length} records across {windows} collection window{windows !== 1 ? "s" : ""}
-        </p>
-        <div className="flex gap-2 flex-wrap items-center">
-          <label className="flex items-center gap-1.5 text-xs text-warm-700 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showClosedRides}
-              onChange={(e) => setShowClosedRides(e.target.checked)}
-              className="rounded"
-            />
-            Show closed rides
-          </label>
-          <div className="relative">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-warm-700" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input
-              type="text"
-              placeholder="Filter rides..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-7 pr-3 py-1.5 text-sm border border-space-700 rounded-xl bg-cream-100 text-warm-900 placeholder:text-warm-700 focus:outline-none focus:ring-2 focus:ring-orange-500 w-40"
-            />
-          </div>
-          <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as RawSortKey)}
-            className="border border-space-700 rounded-xl px-3 py-1.5 text-sm text-warm-900 bg-cream-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
-          >
-            <option value="time-desc">Newest first</option>
-            <option value="time-asc">Oldest first</option>
-            <option value="wait-desc">Longest wait first</option>
-            <option value="wait-asc">Shortest wait first</option>
-            <option value="alpha">A → Z</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="bg-space-card border border-space-700 rounded-2xl overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-space-700 text-left">
-                <th className="px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide whitespace-nowrap">Window (UTC)</th>
-                <th className="px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide">Ride</th>
-                <th className="px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide">Land</th>
-                <th className="px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide text-right">Wait</th>
-                <th className="px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-space-700">
-              {sorted.map((row, i) => {
-                const window = new Date(row.windowedAt);
-                const timeStr = window.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-                const dateStr = window.toLocaleDateString([], { month: "short", day: "numeric" });
-                return (
-                  <tr key={i} className="hover:bg-white/3 transition-colors">
-                    <td className="px-4 py-2.5 text-warm-700 text-xs whitespace-nowrap font-mono">
-                      {dateStr} {timeStr}
-                    </td>
-                    <td className="px-4 py-2.5 text-warm-900 font-medium">{row.rideName}</td>
-                    <td className="px-4 py-2.5 text-warm-700 text-xs">{row.landName}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      {row.isOpen ? (
-                        <span className={`font-semibold ${row.waitTime > 60 ? "text-red-500" : row.waitTime > 30 ? "text-orange-500" : "text-green-600"}`}>
-                          {row.waitTime} min
-                        </span>
-                      ) : (
-                        <span className="text-warm-600">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                        row.isOpen
-                          ? "bg-green-500/10 text-green-600 border border-green-500/20"
-                          : "bg-warm-600/10 text-warm-600 border border-warm-600/20"
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${row.isOpen ? "bg-green-500" : "bg-warm-600"}`} />
-                        {row.isOpen ? "Open" : "Closed"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-              {sorted.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-warm-700 text-sm">
-                    No records match your filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function AccuracyPage() {
-  const [tab, setTab] = useState<Tab>("accuracy");
   const [data, setData] = useState<AccuracyData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [rawRows, setRawRows] = useState<RawRow[] | null>(null);
-  const [rawLoading, setRawLoading] = useState(false);
   const [selectedRide, setSelectedRide] = useState<string>("");
   const [dataQualityOk, setDataQualityOk] = useState(true);
   const [parkFilter, setParkFilter] = useState<ParkFilter>("all");
@@ -280,16 +130,6 @@ export default function AccuracyPage() {
     }).finally(() => setLoading(false));
   }, []);
 
-  function switchToRaw() {
-    setTab("raw");
-    if (rawRows !== null) return;
-    setRawLoading(true);
-    fetch("/api/raw-data?hours=2")
-      .then((r) => r.json())
-      .then((d) => setRawRows(d.rows))
-      .finally(() => setRawLoading(false));
-  }
-
   const filteredRides = useMemo(
     () => filterAndSortRides(data?.perRide ?? [], parkFilter, search, sortKey),
     [data, parkFilter, sortKey, search]
@@ -306,41 +146,17 @@ export default function AccuracyPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <PageHeader
-          icon={
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="20" x2="18" y2="10" />
-              <line x1="12" y1="20" x2="12" y2="4" />
-              <line x1="6" y1="20" x2="6" y2="14" />
-            </svg>
-          }
-          title="Prediction Accuracy"
-          subtitle="How well our model's predictions matched actual wait times — last 30 days."
-        />
-        <div className="flex items-center gap-1 p-1 bg-cream-200 rounded-xl border border-space-700">
-          <button
-            onClick={() => setTab("accuracy")}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              tab === "accuracy"
-                ? "bg-space-card text-warm-900 shadow-sm border border-space-700"
-                : "text-warm-700 hover:text-warm-900"
-            }`}
-          >
-            Accuracy
-          </button>
-          <button
-            onClick={switchToRaw}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              tab === "raw"
-                ? "bg-space-card text-warm-900 shadow-sm border border-space-700"
-                : "text-warm-700 hover:text-warm-900"
-            }`}
-          >
-            Recent Data (2h)
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        icon={
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
+          </svg>
+        }
+        title="Prediction Accuracy"
+        subtitle="How well our model's predictions matched actual wait times — last 30 days."
+      />
 
       {loading && (
         <div className="bg-space-card border border-space-700 rounded-2xl p-8 text-center shadow-sm">
@@ -354,17 +170,7 @@ export default function AccuracyPage() {
         </div>
       )}
 
-      {tab === "raw" && (
-        rawLoading ? (
-          <div className="bg-space-card border border-space-700 rounded-2xl p-8 text-center shadow-sm">
-            <p className="text-warm-700 text-sm">Loading…</p>
-          </div>
-        ) : rawRows !== null ? (
-          <RawDataTable rows={rawRows} />
-        ) : null
-      )}
-
-      {tab === "accuracy" && !data?.summary && (
+      {!data?.summary && !loading && (
         <div className="bg-space-card border border-space-700 rounded-2xl p-8 text-center shadow-sm">
           <p className="text-warm-700 text-sm">
             No accuracy data yet. Once the model has made predictions and actual data has been
@@ -373,7 +179,7 @@ export default function AccuracyPage() {
         </div>
       )}
 
-      {tab === "accuracy" && data?.summary && (
+      {data?.summary && (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <StatCard label="Avg Error" value={`±${data.summary.mae.toFixed(1)} min`} />
@@ -382,7 +188,6 @@ export default function AccuracyPage() {
             <StatCard label="Total Predictions" value={data.summary.totalPredictions.toLocaleString()} />
           </div>
 
-          {/* Chart */}
           <div className="bg-space-card border border-space-700 rounded-2xl p-6 shadow-sm neon">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div>
@@ -398,9 +203,7 @@ export default function AccuracyPage() {
             {selectedRide && <AccuracyChart rows={data.rows} rideName={selectedRide} />}
           </div>
 
-          {/* Controls */}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            {/* Park tabs */}
             <div className="flex gap-1 p-1 bg-cream-200 rounded-xl border border-space-700">
               {(
                 [
@@ -424,7 +227,6 @@ export default function AccuracyPage() {
             </div>
 
             <div className="flex gap-2 items-center flex-wrap">
-              {/* Search */}
               <div className="relative">
                 <svg
                   className="absolute left-2.5 top-1/2 -translate-y-1/2 text-warm-700"
@@ -447,7 +249,6 @@ export default function AccuracyPage() {
                 />
               </div>
 
-              {/* Sort */}
               <select
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as SortKey)}
@@ -461,7 +262,6 @@ export default function AccuracyPage() {
             </div>
           </div>
 
-          {/* Card grid */}
           {filteredRides.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredRides.map((ride) => (

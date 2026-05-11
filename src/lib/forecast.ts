@@ -126,7 +126,7 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     `),
     prisma.dateContext.findMany({
       where: { date: { gte: dateContextRange.start, lt: dateContextRange.endExclusive } },
-      select: { date: true, tier: true, specialEvent: true, isHoliday: true },
+      select: { date: true, tier: true, specialEvent: true, isHoliday: true, groqAdjustment: true },
     }),
   ]);
 
@@ -146,6 +146,12 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     dateContexts
       .filter((c) => c.tier !== null)
       .map((c) => [c.date.toISOString().slice(0, 10), c.tier!])
+  );
+
+  const groqAdjByDate = new Map<string, number>(
+    dateContexts
+      .filter((c) => c.groqAdjustment !== null)
+      .map((c) => [c.date.toISOString().slice(0, 10), c.groqAdjustment!])
   );
 
   const specialEventByDate = new Map<string, string>(
@@ -173,7 +179,9 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     const isHoliday = isHolidayByDate.has(key);
 
     const mlScores = mlByDate.get(key);
-    const mlScore = mlScores ? Math.round(mlScores.reduce((a, b) => a + b, 0) / mlScores.length) : null;
+    const rawMlScore = mlScores ? Math.round(mlScores.reduce((a, b) => a + b, 0) / mlScores.length) : null;
+    const groqAdj = groqAdjByDate.get(key) ?? 0;
+    const mlScore = rawMlScore !== null ? Math.min(100, Math.max(0, Math.round(rawMlScore + groqAdj))) : null;
     const dowMeanWait = meanWaitByDow.get(parkDateDow(key)) ?? null;
     const historicalScore = dowMeanWait !== null ? deriveCrowdScore(dowMeanWait, tier ?? undefined) : null;
 

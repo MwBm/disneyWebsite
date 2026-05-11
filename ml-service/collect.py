@@ -25,7 +25,7 @@ from model import (
     train_ride_models,
     _compute_crowd_score,
 )
-from schemas import DateContext, LagFeatures, RideHistory
+from schemas import DateContext, LagFeatures, RideForecast, RideHistory
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -167,13 +167,17 @@ def fetch_history(conn, since: datetime) -> list[RideHistory]:
     """
     with conn.cursor() as cur:
         cur.execute(sql, (since,))
-        return [
-            RideHistory(
+        rows = cur.fetchall()
+        result = []
+        for row in rows:
+            recorded_at = row[5]
+            if recorded_at.tzinfo is None:
+                recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+            result.append(RideHistory(
                 ride_id=row[0], ride_name=row[1], land_name=row[2],
-                wait_time=row[3], is_open=row[4], recorded_at=row[5],
-            )
-            for row in cur.fetchall()
-        ]
+                wait_time=row[3], is_open=row[4], recorded_at=recorded_at,
+            ))
+        return result
 
 
 def fetch_hourly_archive(conn) -> list[RideHistory]:

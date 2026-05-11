@@ -142,14 +142,14 @@ export type CrowdAdjustmentContext = {
   tier: number;           // 0–5
   isHoliday: boolean;
   isSchoolBreak: boolean;
-  hasSpecialEvent: boolean;
+  specialEvent: string | null;
   tempHigh: number | null;
   isRainy: boolean;
   mlCrowdScore: number;   // 0–100 from XGBoost
 };
 
 export type CrowdAdjustmentResult = {
-  adjustment: number;     // integer ∈ [-20, 20]
+  adjustment: number;     // integer ∈ [-35, 35]
   reasoning: string | null;
 };
 
@@ -158,6 +158,7 @@ export async function adjustCrowdScore(
 ): Promise<CrowdAdjustmentResult> {
   try {
     const groq = getGroqClient();
+    const eventStr = ctx.specialEvent ? `specialEvent="${ctx.specialEvent}"` : "specialEvent=none";
     const msg = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       max_tokens: 80,
@@ -165,17 +166,17 @@ export async function adjustCrowdScore(
       messages: [
         {
           role: "user",
-          content: `You are a Disneyland crowd analytics expert. Given the ML crowd score and date context below, return a small integer adjustment (-20 to +20) representing how many points to add to the ML crowd score based on factors the model may miss (e.g. unusually popular IP events, extreme weather discouraging visits, local school calendars).
+          content: `You are a Disneyland crowd analytics expert. Given the ML crowd score and date context below, return an integer adjustment (-35 to +35) representing how many points to add to the ML crowd score. The ML model is still building its dataset and may significantly underestimate crowds. Apply larger adjustments when strong signals (high tier, holiday, popular events, school breaks) suggest the crowd will be heavier than the model predicts.
 
-date=${ctx.date}, tier=${ctx.tier}, isHoliday=${ctx.isHoliday}, isSchoolBreak=${ctx.isSchoolBreak}, hasSpecialEvent=${ctx.hasSpecialEvent}, tempHigh=${ctx.tempHigh ?? "unknown"}F, isRainy=${ctx.isRainy}, mlCrowdScore=${ctx.mlCrowdScore}
+date=${ctx.date}, tier=${ctx.tier}, isHoliday=${ctx.isHoliday}, isSchoolBreak=${ctx.isSchoolBreak}, ${eventStr}, tempHigh=${ctx.tempHigh ?? "unknown"}F, isRainy=${ctx.isRainy}, mlCrowdScore=${ctx.mlCrowdScore}
 
-Return ONLY valid JSON: {"adjustment": <integer -20 to 20>, "reasoning": "<one sentence>"}`,
+Return ONLY valid JSON: {"adjustment": <integer -35 to 35>, "reasoning": "<one sentence>"}`,
         },
       ],
     });
     const content = msg.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(content);
-    const adjustment = Math.round(Math.max(-20, Math.min(20, Number(parsed.adjustment) || 0)));
+    const adjustment = Math.round(Math.max(-35, Math.min(35, Number(parsed.adjustment) || 0)));
     return { adjustment, reasoning: String(parsed.reasoning || "") || null };
   } catch {
     return { adjustment: 0, reasoning: null };

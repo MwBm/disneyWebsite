@@ -5,12 +5,10 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 
 const links = [
-  { href: "/",           label: "Forecast"   },
-  { href: "/calendar",   label: "Calendar"   },
-  { href: "/wait-times", label: "Wait Times" },
-  { href: "/accuracy",   label: "Accuracy"   },
-  { href: "/chat",       label: "Chat"       },
-  { href: "/admin",      label: "Data"       },
+  { href: "/",          label: "Forecast" },
+  { href: "/calendar",  label: "Calendar" },
+  { href: "/accuracy",  label: "Accuracy" },
+  { href: "/chat",      label: "Chat"     },
 ];
 
 const SparkleIcon = () => (

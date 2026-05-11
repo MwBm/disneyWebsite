@@ -5,6 +5,7 @@ node_modules/
 .next/
 __pycache__/
 *.pyc
-.venv/
+.venv*/
+venv*/
 dist/
 .DS_Store

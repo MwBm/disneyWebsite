@@ -95,10 +95,14 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
   const startDate = now.toISOString().slice(0, 10);
   const endDate = new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 
+  const staleGroqThreshold = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const pending = await prisma.dateContext.findMany({
     where: {
       date: { gte: new Date(startDate), lte: new Date(endDate) },
-      groqAdjustment: null,
+      OR: [
+        { groqAdjustment: null },
+        { groqAdjustedAt: { lt: staleGroqThreshold } },
+      ],
     },
     select: {
       id: true,
@@ -141,7 +145,7 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
         tier: ctx.tier ?? 0,
         isHoliday: ctx.isHoliday,
         isSchoolBreak: ctx.isSchoolBreak,
-        hasSpecialEvent: ctx.specialEvent !== null,
+        specialEvent: ctx.specialEvent,
         tempHigh: ctx.tempHigh,
         isRainy: ctx.isRainy ?? false,
         mlCrowdScore,
@@ -149,7 +153,7 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
 
       await prisma.dateContext.update({
         where: { id: ctx.id },
-        data: { groqAdjustment: result.adjustment, groqReasoning: result.reasoning },
+        data: { groqAdjustment: result.adjustment, groqReasoning: result.reasoning, groqAdjustedAt: new Date() },
       });
       adjusted++;
     })

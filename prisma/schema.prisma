@@ -55,8 +55,9 @@ model DateContext {
   isRainy         Boolean?  // true when precipMm >= 2.5
   weatherFetchedAt DateTime? // when weather was last fetched
   // Groq post-process adjustment applied on top of XGBoost crowd score
-  groqAdjustment  Float?    // points to add to mlCrowdScore (bounded ±20)
+  groqAdjustment  Float?    // points to add to mlCrowdScore (bounded ±35)
   groqReasoning   String?   // one-sentence explanation from Groq
+  groqAdjustedAt  DateTime? // when groqAdjustment was last computed; re-sync after 7 days
 
   predictions     Prediction[]
 
