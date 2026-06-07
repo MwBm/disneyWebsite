@@ -67,22 +67,36 @@ The cron pipeline lives in `ml-service/collect.py` and runs via GitHub Actions d
 
 ## `/api/accuracy` — Prediction Accuracy
 
-**No cache** (always fresh).
+**Cache:** `revalidate = 1800` (30 min)
 
-**Query params:** `?days=30` (optional, default 30, max 90)
+**Logic:** Single `$queryRaw` JOIN — `DailyForecast` × `WaitTimeRecord` where `windowedAt = forecastFor` (both 30-min-aligned UTC) AND `isOpen = true`. Looks back 30 days. Closed rides excluded.
 
-**Logic:** Single `$queryRaw` JOIN — `Prediction` × `WaitTimeRecord` where `windowedAt` matches `predictedFor` rounded to 30 min AND `isOpen = true`. Closed rides excluded.
+`parkName` derived server-side from `landName` (DCA lands vs. Disneyland lands).
 
 **Returns:**
 ```json
 {
-  "mae": 8.3,
-  "within5": 0.41,
-  "within10": 0.68,
-  "within15": 0.82,
-  "perRide": [{ "rideId": 1, "rideName": "...", "mae": 6.1, "count": 48 }]
+  "summary": {
+    "mae": 8.3,
+    "within5": 0.41,
+    "within10": 0.68,
+    "within15": 0.82,
+    "totalPredictions": 1240
+  },
+  "perRide": [{
+    "rideId": 1,
+    "rideName": "Matterhorn Bobsleds",
+    "landName": "Fantasyland",
+    "parkName": "Disneyland",
+    "mae": 6.1,
+    "within10": 0.74,
+    "sampleCount": 48
+  }],
+  "rows": [{ "rideId": 1, "rideName": "...", "predictedFor": "...", "predictedWait": 45, "actualWait": 38, "absError": 7 }]
 }
 ```
+
+When no data: `{ "summary": null, "perRide": [], "rows": [] }`.
 
 ---
 

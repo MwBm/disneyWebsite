@@ -7,7 +7,7 @@ Crowd-level predictor, per-ride wait time forecaster, and historical accuracy tr
 | Layer              | Tech                                                           |
 | ------------------ | -------------------------------------------------------------- |
 | Frontend + API     | Next.js 14 (App Router, TypeScript) — Vercel                   |
-| Data + ML pipeline | Python 3.11 + XGBoost — GitHub Actions (manual dispatch)       |
+| Data + ML pipeline | Python 3.11 + XGBoost — GitHub Actions (daily + manual dispatch) |
 | Database           | Supabase (PostgreSQL) via Prisma                               |
 | AI                 | Groq API (`llama-3.3-70b-versatile`)                           |
 
@@ -74,13 +74,19 @@ Browser
         ├── /api/chat          ← Groq streaming + live context
         └── /api/live          ← live wait times (revalidate 300s)
 
+GitHub Actions (daily 06:00 UTC)
+  └── ml-service/train.py
+        ├── Full history: WaitTimeRecord (raw window) + HourlyWaitSummary
+        ├── Attach DateContext + lag features + cross-ride features
+        ├── XGBoost per-ride model with walk-forward CV (23 features)
+        └── Supabase (upsert 30-day DailyForecast + log CollectRun)
+
 GitHub Actions (manual dispatch)
   └── ml-service/collect.py
         ├── queue-times.com (fetch live data for all parks)
         ├── Supabase (upsert WaitTimeRecord)
-        ├── XGBoost per-ride model (trained on 30-day raw + 3-year hourly archive)
-        │     └── DateContext attached to training records (tier, holiday, weather)
-        └── Supabase (insert DailyForecast + log CollectRun)
+        ├── XGBoost quick retrain → today's intraday DailyForecast slots
+        └── Supabase (log CollectRun)
 
 GitHub Actions (weekly Sunday 09:00 UTC)
   └── ml-service/archive.py

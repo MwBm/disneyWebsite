@@ -59,6 +59,11 @@ pytest tests/ -v
 - `DateContext` tier flows through training → XGBoost → feature index 4
 - Context attachment pipeline: records get correct `DateContext` from map; missing dates get default
 
+### `tests/test_train.py`
+- `train.main()` exits non-zero without `DATABASE_URL`/`DIRECT_URL`
+- `build_forecast_slots(days=30)` spans exactly 30 Pacific calendar days
+- `train.py` generates more slots than `collect.py` (full 30-day window vs. intraday)
+
 ### `tests/test_archive.py`
 - Archive aggregation logic
 - `ON CONFLICT DO NOTHING` behavior

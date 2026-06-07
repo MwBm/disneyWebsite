@@ -47,32 +47,78 @@ Throws `QueueTimesError` on network failure or invalid response shape. Callers (
 
 ## `forecast.ts` — DB Read Helpers
 
-| Function | Returns |
+| Function / Export | Returns |
 |---|---|
 | `getForecastForDate(date)` | `DailyForecast[]` for a given date |
 | `getCrowdScoreForDate(date)` | Average `crowdScore` across all rides for date |
 | `getRecentCollectRuns(n)` | Last `n` `CollectRun` rows (for data-quality indicator) |
 | `getHistoricalMeansForDate(date)` | Same-DOW hour-means from `WaitTimeRecord` (historical fallback) |
 | `getCrowdScoresForMonth(year, month)` | Full month of `DayCrowdScore` for calendar view |
+| `resolveCrowdScore({forecasts, ctx, historicalMeans})` | Pick best crowd score from available sources (ML → historical → null) |
+| `ML_FORECAST_DAYS` | Constant: `30` — the ML forecast horizon |
+| `DayCrowdScore` | `{ date, crowdScore, source, tier, specialEvent, isHoliday }` |
+| `HistoricalMean` | `{ rideId, rideName, hour, avgWait }` |
 
 `getCrowdScoresForMonth` sources per day (in priority order): ML forecasts → same-DOW historical means from `HourlyWaitSummary` → `"unavailable"` beyond ML window.
 
 ---
 
-## `date-context.ts` — Date Context Sync
+## `calendar.ts` — Holiday / School Break Detection
 
 | Export | Purpose |
 |---|---|
 | `isHolidayDate(date)` | US/CA holiday detection (fixed + floating; Easter weekend included) |
-| `isSchoolBreakDate(date)` | SoCal school break detection (winter, spring, summer, Thanksgiving) |
-| `fetchDateSchedule(start, end)` | ThemeParks.wiki park schedule → tier + special events |
-| `syncDateContext(days)` | Full sync: schedule + weather + holiday/break flags → upsert `DateContext` |
-| `syncGroqAdjustments(days)` | Call Groq adjuster for dates missing `groqAdjustment`; store result |
+| `isSchoolBreakDate(date)` | SoCal school break detection (winter, spring, summer, Thanksgiving week) |
+
+---
+
+## `park-schedule.ts` — ThemeParks.wiki Schedule
+
+| Export | Purpose |
+|---|---|
+| `fetchDateSchedule(start, end)` | Fetch park schedule from ThemeParks.wiki → tier + special events |
 | `DateScheduleInfo` | `{ date, tier, specialEvent }` |
 
-**Weather:** `syncDateContext` calls Open-Meteo for the 16-day forecast window (Anaheim, lat=33.8366, lon=-117.9143), then falls back to `ANAHEIM_MONTHLY_NORMALS` (NOAA 30-year climatological means) for dates beyond 16 days.
+Tier derived from LLMP price (`lightninglanemultipass_330339`) when available, else from park hours. Fallback tier: 2.
+
+---
+
+## `weather.ts` — Weather Fetch + Climatological Fallback
+
+| Export | Purpose |
+|---|---|
+| `fetchWeatherForecast(start, end)` | Open-Meteo 16-day forecast → `Map<date, WeatherDay>` |
+| `climatologicalWeather(dateStr)` | NOAA 30-year climatological normal for Anaheim for a given month |
+| `ANAHEIM_MONTHLY_NORMALS` | Monthly tempHigh/tempLow/precipMm reference table |
+| `WeatherDay` | `{ date, tempHigh, tempLow, precipMm, isRainy }` |
+
+`isRainy` = true when precipMm ≥ 2.5.
+
+---
+
+## `date-context.ts` — Date Context Sync
+
+Re-exports `isHolidayDate`, `isSchoolBreakDate` from `./calendar` and `fetchDateSchedule` from `./park-schedule`. Own exports:
+
+| Export | Purpose |
+|---|---|
+| `syncDateContext(days)` | Full sync: schedule + weather + holiday/break flags → upsert `DateContext` |
+| `syncGroqAdjustments(days)` | Call Groq adjuster for dates missing `groqAdjustment`; store result |
+
+**Weather:** `syncDateContext` calls `fetchWeatherForecast` for the 16-day window (Anaheim), then `climatologicalWeather` for dates beyond.
 
 **Groq adjuster:** `syncGroqAdjustments` queries average crowd score from `DailyForecast` per date (falls back to 50), calls `adjustCrowdScore`, and stores `groqAdjustment` ± 20 + `groqReasoning`. Non-fatal per date.
+
+---
+
+## `accuracy-filters.ts` — Accuracy Page Filters
+
+| Export | Purpose |
+|---|---|
+| `filterAndSortRides(rides, parkFilter, search, sortKey)` | Client-side filter + sort for the accuracy page ride table |
+| `PerRide` | `{ rideId, rideName, landName, parkName, mae, within10, sampleCount }` |
+| `ParkFilter` | `"all" \| "Disneyland" \| "Disney California Adventure"` |
+| `SortKey` | `"mae-asc" \| "mae-desc" \| "alpha" \| "samples-desc"` |
 
 ---
 
