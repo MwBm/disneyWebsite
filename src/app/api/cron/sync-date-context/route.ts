@@ -14,7 +14,9 @@ export async function GET(req: NextRequest) {
     let groqResult = { adjusted: 0 };
     try {
       groqResult = await syncGroqAdjustments(365);
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      console.error("syncGroqAdjustments failed", err);
+    }
     return NextResponse.json({ ok: true, ...syncResult, ...groqResult });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

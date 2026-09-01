@@ -5,6 +5,7 @@ import AccuracyChart from "@/components/AccuracyChart";
 import PageHeader from "@/components/PageHeader";
 import { filterAndSortRides } from "@/lib/accuracy-filters";
 import type { PerRide, ParkFilter, SortKey } from "@/lib/accuracy-filters";
+import { DCA, DISNEYLAND } from "@/lib/parks";
 
 type Summary = {
   mae: number;
@@ -14,19 +15,9 @@ type Summary = {
   totalPredictions: number;
 };
 
-type Row = {
-  rideId: number;
-  rideName: string;
-  predictedFor: string;
-  predictedWait: number;
-  actualWait: number;
-  absError: number;
-};
-
 type AccuracyData = {
   summary: Summary | null;
   perRide: PerRide[];
-  rows: Row[];
 };
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -113,7 +104,10 @@ function RideCard({
 export default function AccuracyPage() {
   const [data, setData] = useState<AccuracyData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedRide, setSelectedRide] = useState<string>("");
+  // Selection is by id, not name: the chart's points are now fetched per ride
+  // from /api/accuracy/rides/[rideId] rather than filtered out of one big
+  // client-side array.
+  const [selectedRideId, setSelectedRideId] = useState<number | null>(null);
   const [dataQualityOk, setDataQualityOk] = useState(true);
   const [parkFilter, setParkFilter] = useState<ParkFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("alpha");
@@ -125,10 +119,15 @@ export default function AccuracyPage() {
       fetch("/api/forecast?date=" + new Date().toISOString().split("T")[0], { cache: "force-cache" }).then((r) => r.json()),
     ]).then(([accuracyData, forecastData]: [AccuracyData, { dataQualityOk?: boolean }]) => {
       setData(accuracyData);
-      if (accuracyData.perRide.length > 0) setSelectedRide(accuracyData.perRide[0].rideName);
+      if (accuracyData.perRide.length > 0) setSelectedRideId(accuracyData.perRide[0].rideId);
       setDataQualityOk(forecastData.dataQualityOk ?? true);
     }).finally(() => setLoading(false));
   }, []);
+
+  const selectedRideName = useMemo(
+    () => data?.perRide.find((r) => r.rideId === selectedRideId)?.rideName ?? "",
+    [data, selectedRideId]
+  );
 
   const filteredRides = useMemo(
     () => filterAndSortRides(data?.perRide ?? [], parkFilter, search, sortKey),
@@ -139,8 +138,8 @@ export default function AccuracyPage() {
     if (!data) return { all: 0, dl: 0, dca: 0 };
     return {
       all: data.perRide.length,
-      dl: data.perRide.filter((r) => r.parkName === "Disneyland").length,
-      dca: data.perRide.filter((r) => r.parkName === "Disney California Adventure").length,
+      dl: data.perRide.filter((r) => r.parkName === DISNEYLAND).length,
+      dca: data.perRide.filter((r) => r.parkName === DCA).length,
     };
   }, [data]);
 
@@ -192,15 +191,17 @@ export default function AccuracyPage() {
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div>
                 <h2 className="font-medium text-warm-900">Predicted vs. Actual</h2>
-                {selectedRide && (
-                  <p className="text-xs text-warm-700 mt-0.5">{selectedRide}</p>
+                {selectedRideName && (
+                  <p className="text-xs text-warm-700 mt-0.5">{selectedRideName}</p>
                 )}
               </div>
               <span className="text-xs text-warm-700 border border-space-700 rounded-lg px-2.5 py-1 bg-cream-100">
                 Click a card below to switch rides
               </span>
             </div>
-            {selectedRide && <AccuracyChart rows={data.rows} rideName={selectedRide} />}
+            {selectedRideId !== null && (
+              <AccuracyChart rideId={selectedRideId} rideName={selectedRideName} />
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
@@ -268,8 +269,8 @@ export default function AccuracyPage() {
                 <RideCard
                   key={ride.rideId}
                   ride={ride}
-                  selected={selectedRide === ride.rideName}
-                  onClick={() => setSelectedRide(ride.rideName)}
+                  selected={selectedRideId === ride.rideId}
+                  onClick={() => setSelectedRideId(ride.rideId)}
                 />
               ))}
             </div>

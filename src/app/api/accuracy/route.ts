@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { cachedJson } from "@/lib/http";
+import { getParkName } from "@/lib/parks";
 
 /**
  * Dynamic, not prerendered.
@@ -7,117 +8,106 @@ import { cachedJson } from "@/lib/http";
  * This route takes no search params, so Next prerendered it at build time —
  * which ran this query against the production database during `next build` and
  * made a live DB a hard build dependency. A deploy (or any CI) without database
- * reachability failed with ECONNREFUSED before it could finish.
- *
- * It also baked a 30-day accuracy window into the build output. The window
- * moves every day, so the correct shape is a dynamic route with a CDN cache
- * header, matching /api/forecast and /api/calendar.
+ * reachability failed with ECONNREFUSED. It also baked a 30-day accuracy window
+ * into the build output, though the window moves every day.
  */
 export const dynamic = "force-dynamic";
 
 const CACHE_SECONDS = 1800;
+const WINDOW_DAYS = 30;
 
-const DCA_LANDS = new Set([
-  "Avengers Campus",
-  "Cars Land",
-  "Grizzly Peak",
-  "Hollywood Land",
-  "Paradise Gardens Park",
-  "Pixar Pier",
-  "San Fransokyo Square",
-]);
-
-function getParkName(landName: string): "Disneyland" | "Disney California Adventure" {
-  return DCA_LANDS.has(landName) ? "Disney California Adventure" : "Disneyland";
-}
-
-type AccuracyRow = {
-  rideId: number;
-  rideName: string;
-  landName: string;
-  predictedFor: Date;
-  predictedWait: number;
-  actualWait: number;
-  absError: number;
+type SummaryRow = {
+  mae: number;
+  within5: number;
+  within10: number;
+  within15: number;
+  totalPredictions: bigint | number;
 };
 
+type PerRideRow = {
+  rideId: bigint | number;
+  rideName: string;
+  landName: string;
+  mae: number;
+  within10: number;
+  sampleCount: bigint | number;
+};
+
+/**
+ * Both queries aggregate in Postgres.
+ *
+ * This route used to SELECT every joined row for the window — roughly
+ * 50 rides x 40 slots x 30 days — materialise all of them in Node, walk the
+ * array three times for the within-N buckets, and ship the whole thing to the
+ * browser. The page rendered 48 points from it. Aggregates belong in SQL, and
+ * the chart's points now come from /api/accuracy/rides/[rideId].
+ *
+ * DailyForecast.forecastFor and WaitTimeRecord.windowedAt are both stored as
+ * 30-min-aligned UTC datetimes, so exact equality join is correct.
+ */
 export async function GET() {
-  // DailyForecast.forecastFor and WaitTimeRecord.windowedAt are both stored as
-  // 30-min-aligned UTC datetimes, so exact equality join is correct.
-  const rows = await prisma.$queryRaw<AccuracyRow[]>`
-    SELECT
-      df."rideId",
-      df."rideName",
-      df."landName",
-      df."forecastFor"  AS "predictedFor",
-      df."predictedWait",
-      w."waitTime"      AS "actualWait",
-      ABS(df."predictedWait" - w."waitTime") AS "absError"
-    FROM "DailyForecast" df
-    JOIN "WaitTimeRecord" w
-      ON  w."rideId"     = df."rideId"
-      AND w."windowedAt" = df."forecastFor"
-      AND w."isOpen"     = true
-    WHERE df."forecastFor" >= NOW() - INTERVAL '30 days'
-      AND df."forecastFor" < NOW()
-    ORDER BY df."forecastFor" DESC
-  `;
+  const [summaryRows, perRideRows] = await Promise.all([
+    prisma.$queryRaw<SummaryRow[]>`
+      SELECT
+        AVG(ABS(df."predictedWait" - w."waitTime"))::float                                    AS "mae",
+        AVG((ABS(df."predictedWait" - w."waitTime") <= 5)::int)::float                        AS "within5",
+        AVG((ABS(df."predictedWait" - w."waitTime") <= 10)::int)::float                       AS "within10",
+        AVG((ABS(df."predictedWait" - w."waitTime") <= 15)::int)::float                       AS "within15",
+        COUNT(*)                                                                              AS "totalPredictions"
+      FROM "DailyForecast" df
+      JOIN "WaitTimeRecord" w
+        ON  w."rideId"     = df."rideId"
+        AND w."windowedAt" = df."forecastFor"
+        AND w."isOpen"     = true
+      WHERE df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')
+        AND df."forecastFor" < NOW()
+    `,
+    prisma.$queryRaw<PerRideRow[]>`
+      SELECT
+        df."rideId",
+        MAX(df."rideName")                                                     AS "rideName",
+        MAX(df."landName")                                                     AS "landName",
+        AVG(ABS(df."predictedWait" - w."waitTime"))::float                     AS "mae",
+        AVG((ABS(df."predictedWait" - w."waitTime") <= 10)::int)::float        AS "within10",
+        COUNT(*)                                                               AS "sampleCount"
+      FROM "DailyForecast" df
+      JOIN "WaitTimeRecord" w
+        ON  w."rideId"     = df."rideId"
+        AND w."windowedAt" = df."forecastFor"
+        AND w."isOpen"     = true
+      WHERE df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')
+        AND df."forecastFor" < NOW()
+      GROUP BY df."rideId"
+      ORDER BY AVG(ABS(df."predictedWait" - w."waitTime")) ASC
+    `,
+  ]);
 
-  if (rows.length === 0) {
-    return cachedJson({ summary: null, perRide: [], rows: [] }, CACHE_SECONDS);
+  const raw = summaryRows[0];
+  const total = Number(raw?.totalPredictions ?? 0);
+
+  if (total === 0) {
+    return cachedJson({ summary: null, perRide: [] }, CACHE_SECONDS);
   }
 
-  // Summary stats
-  const errors = rows.map((r) => Number(r.absError));
-  const mae = errors.reduce((a, b) => a + b, 0) / errors.length;
-  const within5 = errors.filter((e) => e <= 5).length / errors.length;
-  const within10 = errors.filter((e) => e <= 10).length / errors.length;
-  const within15 = errors.filter((e) => e <= 15).length / errors.length;
-
-  // Per-ride breakdown
-  const rideMap: Record<
-    number,
-    { rideName: string; landName: string; parkName: string; errors: number[] }
-  > = {};
-  for (const row of rows) {
-    const id = Number(row.rideId);
-    if (!rideMap[id]) {
-      rideMap[id] = {
-        rideName: row.rideName,
-        landName: row.landName,
-        parkName: getParkName(row.landName),
-        errors: [],
-      };
-    }
-    rideMap[id].errors.push(Number(row.absError));
-  }
-  const perRide = Object.entries(rideMap)
-    .map(([id, v]) => ({
-      rideId: Number(id),
-      rideName: v.rideName,
-      landName: v.landName,
-      parkName: v.parkName,
-      mae: v.errors.reduce((a, b) => a + b, 0) / v.errors.length,
-      within10:
-        v.errors.filter((e) => e <= 10).length / v.errors.length,
-      sampleCount: v.errors.length,
-    }))
-    .sort((a, b) => a.mae - b.mae);
-
-  const serializedRows = rows.map((r) => ({
-    rideId: Number(r.rideId),
-    rideName: r.rideName,
-    predictedFor: r.predictedFor instanceof Date
-      ? r.predictedFor.toISOString()
-      : String(r.predictedFor),
-    predictedWait: Number(r.predictedWait),
-    actualWait: Number(r.actualWait),
-    absError: Number(r.absError),
-  }));
-
-  return cachedJson({
-    summary: { mae, within5, within10, within15, totalPredictions: rows.length },
-    perRide,
-    rows: serializedRows,
-  }, CACHE_SECONDS);
+  return cachedJson(
+    {
+      summary: {
+        mae: Number(raw.mae),
+        within5: Number(raw.within5),
+        within10: Number(raw.within10),
+        within15: Number(raw.within15),
+        totalPredictions: total,
+      },
+      perRide: perRideRows.map((r) => ({
+        rideId: Number(r.rideId),
+        rideName: r.rideName,
+        landName: r.landName,
+        parkName: getParkName(r.landName),
+        mae: Number(r.mae),
+        within10: Number(r.within10),
+        sampleCount: Number(r.sampleCount),
+      })),
+    },
+    CACHE_SECONDS
+  );
 }

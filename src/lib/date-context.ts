@@ -3,6 +3,14 @@ import { adjustCrowdScore } from "./groq";
 import { isHolidayDate, isSchoolBreakDate } from "./calendar";
 import { fetchWeatherForecast, climatologicalWeather, WeatherDay } from "./weather";
 import { fetchDateSchedule } from "./park-schedule";
+import { mapWithConcurrency } from "./concurrency";
+import { parkDateKey, parkDateRangeUtc } from "./park-time";
+
+/**
+ * Ceiling on parallel work in the sync jobs. Each unit is one Groq call plus
+ * one database write, and these run for up to 365 dates.
+ */
+const SYNC_CONCURRENCY = 5;
 
 // All date arithmetic uses UTC so results are timezone-independent.
 // DateContext dates are stored as midnight UTC; getDate()/getMonth() would
@@ -48,8 +56,7 @@ export async function syncDateContext(
   }
 
   const fetchedAt = new Date();
-  await Promise.all(
-    toSync.map((s) => {
+  const upserts = await mapWithConcurrency(toSync, SYNC_CONCURRENCY, (s) => {
       const d = new Date(s.date);
       const isHoliday = isHolidayDate(d);
       const isSchoolBreak = isSchoolBreakDate(d);
@@ -84,10 +91,19 @@ export async function syncDateContext(
           weatherFetchedAt: fetchedAt,
         },
       });
-    })
-  );
+  });
 
-  return { synced: toSync.length, skipped: freshDates.size };
+  // Report what actually landed. Promise.all would have thrown on the first
+  // failed upsert and discarded the outcome of every other one.
+  const failed = upserts.filter((r) => r.status === "rejected");
+  if (failed.length > 0) {
+    console.error(
+      `syncDateContext: ${failed.length}/${toSync.length} upserts failed`,
+      (failed[0] as PromiseRejectedResult).reason
+    );
+  }
+
+  return { synced: toSync.length - failed.length, skipped: freshDates.size };
 }
 
 export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number }> {
@@ -118,21 +134,31 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
 
   if (pending.length === 0) return { adjusted: 0 };
 
-  const dateKeys = pending.map((c) => c.date);
+  // DateContext.date is midnight UTC standing for a park-local date, while
+  // DailyForecast.forecastFor is a 30-minute slot inside that day. The previous
+  // `forecastFor: { in: dateKeys }` was exact timestamp equality, so it matched
+  // only the single slot per day landing on 00:00 UTC (5pm Pacific) — every
+  // other slot was invisible, and days without that slot silently fell back to
+  // a hardcoded score of 50. Query the whole span instead.
+  const pendingKeys = pending.map((c) => c.date.toISOString().slice(0, 10)).sort();
+  const spanStart = parkDateRangeUtc(pendingKeys[0]).start;
+  const spanEnd = parkDateRangeUtc(pendingKeys[pendingKeys.length - 1]).endExclusive;
+
   const forecasts = await prisma.dailyForecast.findMany({
-    where: { forecastFor: { in: dateKeys } },
+    where: { forecastFor: { gte: spanStart, lt: spanEnd } },
     select: { forecastFor: true, crowdScore: true },
   });
+
   const crowdByDate = new Map<string, number[]>();
   for (const f of forecasts) {
-    const key = f.forecastFor.toISOString().slice(0, 10);
+    // Group by park-local date. A UTC-date slice would file a 8pm Pacific slot
+    // under the following calendar day.
+    const key = parkDateKey(f.forecastFor);
     if (!crowdByDate.has(key)) crowdByDate.set(key, []);
     crowdByDate.get(key)!.push(f.crowdScore);
   }
 
-  let adjusted = 0;
-  await Promise.all(
-    pending.map(async (ctx) => {
+  const outcomes = await mapWithConcurrency(pending, SYNC_CONCURRENCY, async (ctx) => {
       const dateKey = ctx.date.toISOString().slice(0, 10);
       const scores = crowdByDate.get(dateKey);
       const mlCrowdScore =
@@ -155,9 +181,15 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
         where: { id: ctx.id },
         data: { groqAdjustment: result.adjustment, groqReasoning: result.reasoning, groqAdjustedAt: new Date() },
       });
-      adjusted++;
-    })
-  );
+  });
 
-  return { adjusted };
+  const failed = outcomes.filter((r) => r.status === "rejected");
+  if (failed.length > 0) {
+    console.error(
+      `syncGroqAdjustments: ${failed.length}/${pending.length} updates failed`,
+      (failed[0] as PromiseRejectedResult).reason
+    );
+  }
+
+  return { adjusted: outcomes.length - failed.length };
 }

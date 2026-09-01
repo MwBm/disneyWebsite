@@ -5,6 +5,7 @@ import { fetchLiveRides } from "@/lib/queue-times";
 import { getCrowdScoreForDate } from "@/lib/forecast";
 import { buildChatSystemPrompt } from "@/lib/groq";
 import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+import { GROQ_CHAT_MODEL } from "@/lib/groq-models";
 
 /** This route spends money on every request, so it is metered per client. */
 const RATE_LIMIT = { limit: 10, windowMs: 60_000 };
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
   const groq = getGroqClient();
 
   const stream = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
+    model: GROQ_CHAT_MODEL,
     max_tokens: 600,
     stream: true,
     messages: [

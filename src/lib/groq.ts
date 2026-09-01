@@ -1,6 +1,7 @@
 import Groq from "groq-sdk";
 import { crowdLabel } from "./crowd";
 import { format } from "date-fns";
+import { GROQ_TEXT_MODEL } from "./groq-models";
 
 /**
  * Clamp a value parsed out of an LLM response into [min, max].
@@ -55,7 +56,7 @@ export async function narrateForecast(
     .join(", ");
 
   const msg = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: GROQ_TEXT_MODEL,
     max_tokens: 200,
     messages: [
       {
@@ -105,7 +106,7 @@ export async function narrateForecastNoDataWithScore(
   const groq = getGroqClient();
   const dateStr = format(date, "EEEE, MMMM d, yyyy");
   const msg = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: GROQ_TEXT_MODEL,
     max_tokens: 300,
     response_format: { type: "json_object" },
     messages: [
@@ -136,7 +137,7 @@ Return ONLY valid JSON: {"score": <integer 0-100>, "narration": "<2-3 sentences>
 export async function estimateDowCrowdScores(): Promise<Map<number, number>> {
   const groq = getGroqClient();
   const msg = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: GROQ_TEXT_MODEL,
     max_tokens: 120,
     response_format: { type: "json_object" },
     messages: [
@@ -194,7 +195,7 @@ export async function adjustCrowdScore(
     const groq = getGroqClient();
     const eventStr = ctx.specialEvent ? `specialEvent="${ctx.specialEvent}"` : "specialEvent=none";
     const msg = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: GROQ_TEXT_MODEL,
       max_tokens: 80,
       response_format: { type: "json_object" },
       messages: [
@@ -213,7 +214,10 @@ Return ONLY valid JSON: {"adjustment": <integer -35 to 35>, "reasoning": "<one s
     const adjustment = clampParsedNumber(parsed.adjustment, { min: -35, max: 35, fallback: 0 });
     const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
     return { adjustment, reasoning: reasoning || null };
-  } catch {
+  } catch (err) {
+    // A failed adjustment must not fail the sync, but silence here is how a
+    // dead model went unnoticed.
+    console.error("adjustCrowdScore failed", err);
     return { adjustment: 0, reasoning: null };
   }
 }
@@ -231,7 +235,7 @@ export async function buildItinerary(
     .join("\n");
 
   const msg = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: GROQ_TEXT_MODEL,
     max_tokens: 800,
     messages: [
       {

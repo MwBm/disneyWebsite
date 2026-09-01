@@ -47,6 +47,13 @@ const STATUS_MESSAGES = [
 
 type StarDef = { size: number; top: number; left: number; dur: number; delay: number; op: number };
 
+/** Shortest the overlay stays up, so it reads as intentional, not a flicker. */
+const MIN_VISIBLE_MS = 450;
+/** Hard ceiling, in case something below never finishes. */
+const MAX_VISIBLE_MS = 2500;
+/** Fade-out duration; must match the CSS transition below. */
+const FADE_MS = 300;
+
 export default function LoadingScreen() {
   const [visible, setVisible] = useState(true);
   const [progress, setProgress] = useState(0);
@@ -109,15 +116,32 @@ export default function LoadingScreen() {
     clearInterval(factInterval.current);
     setProgress(100);
     setDoneText(true);
-    setTimeout(() => setVisible(false), 800);
+    setTimeout(() => setVisible(false), FADE_MS);
   }, []);
 
-  // Expose finishLoading + auto-dismiss
+  // Dismiss as soon as the browser has actually painted, with a short floor so
+  // the overlay does not flash on a fast load.
+  //
+  // This used to be a flat `setTimeout(dismiss, 3000)` plus an 800ms fade, so
+  // every page load was blocked for ~3.8s no matter how quickly the data
+  // arrived — with warm APIs answering in 0.1–0.8s, the loading screen was the
+  // slowest part of the app. `window.finishLoading` was provided as an escape
+  // hatch and nothing ever called it.
   useEffect(() => {
     (window as Window & { finishLoading?: () => void }).finishLoading = dismiss;
-    const timer = setTimeout(dismiss, 3000);
+
+    const floor = setTimeout(() => {
+      // requestAnimationFrame fires after the next paint, so by here the page
+      // underneath is genuinely rendered.
+      requestAnimationFrame(() => dismiss());
+    }, MIN_VISIBLE_MS);
+
+    // Backstop: if something below never settles, the overlay still goes away.
+    const backstop = setTimeout(dismiss, MAX_VISIBLE_MS);
+
     return () => {
-      clearTimeout(timer);
+      clearTimeout(floor);
+      clearTimeout(backstop);
       delete (window as Window & { finishLoading?: () => void }).finishLoading;
     };
   }, [dismiss]);
@@ -142,7 +166,7 @@ export default function LoadingScreen() {
         opacity: visible ? 1 : 0,
         visibility: visible ? "visible" : "hidden",
         pointerEvents: visible ? "auto" : "none",
-        transition: "opacity 0.8s ease, visibility 0.8s ease",
+        transition: `opacity ${FADE_MS}ms ease, visibility ${FADE_MS}ms ease`,
       }}
     >
       {/* Star field */}

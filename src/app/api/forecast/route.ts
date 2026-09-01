@@ -92,7 +92,11 @@ export async function GET(req: NextRequest) {
       let crowdNarration: string | null = null;
       try {
         crowdNarration = await narrateForecast(syntheticCrowdScore, syntheticForecasts, date);
-      } catch { /* non-fatal */ }
+      } catch (err) {
+        // Non-fatal, but never silent: a bare catch here hid the fact that
+        // every narration call was 404ing on a retired Groq model.
+        console.error("narrateForecast failed (historical path)", err);
+      }
 
       return cachedJson({
         date: parsed.data.date,
@@ -112,7 +116,9 @@ export async function GET(req: NextRequest) {
       const groqResult = await narrateForecastNoDataWithScore(date);
       crowdScore = groqResult.score;
       crowdNarration = groqResult.narration;
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      console.error("narrateForecastNoDataWithScore failed", err);
+    }
 
     return cachedJson({
       date: parsed.data.date,
@@ -140,8 +146,10 @@ export async function GET(req: NextRequest) {
   if (crowdScore !== null) {
     try {
       crowdNarration = await narrateForecast(crowdScore, mappedForecasts, date);
-    } catch {
-      // Non-fatal — Claude narration is a nice-to-have
+    } catch (err) {
+      // Narration is a nice-to-have, so the forecast still returns — but the
+      // failure gets logged rather than vanishing.
+      console.error("narrateForecast failed (ml path)", err);
     }
   }
 

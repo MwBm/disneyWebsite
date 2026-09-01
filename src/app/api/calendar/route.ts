@@ -69,8 +69,10 @@ export async function GET(req: NextRequest) {
             create: { date: today, groqDowEstimate: Object.fromEntries(groqDow) },
           });
         }
-      } catch {
-        // non-fatal — days stay null
+      } catch (err) {
+        // Non-fatal — days stay null — but logged. This catch previously hid
+        // every estimateDowCrowdScores failure, including a retired model.
+        console.error("estimateDowCrowdScores failed", err);
       }
     }
 
