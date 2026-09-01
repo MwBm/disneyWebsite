@@ -9,3 +9,8 @@ __pycache__/
 venv*/
 dist/
 .DS_Store
+.playwright-mcp/
+tsconfig.tsbuildinfo
+playwright-report/
+test-results/
+.original.md

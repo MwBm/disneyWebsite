@@ -7,11 +7,8 @@ managed by collect.py (30-min job). This script owns the future 30-day window.
 import logging
 import os
 import sys
-import uuid
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
-import numpy as np
 import psycopg
 
 from collect import (
@@ -19,6 +16,7 @@ from collect import (
     attach_cross_ride_features,
     build_forecast_slots,
     build_prediction_lag_features,
+    compute_cross_ride_profile,
     compute_lag_features,
     fetch_date_contexts,
     fetch_history,
@@ -28,7 +26,7 @@ from collect import (
     park_hour,
     upsert_forecasts,
 )
-from model import HEADLINER_RIDE_IDS, _compute_crowd_score, predict_for_ride, train_ride_models
+from model import _compute_crowd_score, predict_for_ride, resolve_headliner_ids, train_ride_models
 from schemas import DateContext, LagFeatures
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -67,7 +65,10 @@ def main() -> int:
                     for r in history
                 ]
                 history = compute_lag_features(history)
-                history = attach_cross_ride_features(history, HEADLINER_RIDE_IDS)
+                headliner_ids = resolve_headliner_ids(history)
+                history = attach_cross_ride_features(history, headliner_ids)
+                cross_ride_profile = compute_cross_ride_profile(history)
+                logger.info("Resolved %d headliner rides", len(headliner_ids))
 
                 trained_models = train_ride_models(history)
                 logger.info("Trained %d ride models", len(trained_models))
@@ -81,7 +82,9 @@ def main() -> int:
                 # Generate full 30-day forecast window
                 slots = build_forecast_slots(now, days=FORECAST_DAYS)
                 date_contexts = fetch_date_contexts(conn, slots)
-                lag_map = build_prediction_lag_features(conn, list(trained_models.keys()), slots)
+                lag_map = build_prediction_lag_features(
+                    conn, list(trained_models.keys()), slots, cross_ride_profile
+                )
 
                 # Batch-predict per ride
                 all_ride_forecasts: dict[tuple[int, datetime], object] = {}

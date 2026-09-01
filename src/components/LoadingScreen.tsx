@@ -47,12 +47,31 @@ const STATUS_MESSAGES = [
 
 type StarDef = { size: number; top: number; left: number; dur: number; delay: number; op: number };
 
+/** Shortest the overlay stays up, so it reads as intentional, not a flicker. */
+export const MIN_VISIBLE_MS = 450;
+/** Fade-out duration; must match the CSS transition below. */
+export const FADE_MS = 300;
+
 export default function LoadingScreen() {
   const [visible, setVisible] = useState(true);
   const [progress, setProgress] = useState(0);
   const [statusIndex, setStatusIndex] = useState(0);
-  const [factIndex, setFactIndex] = useState(0);
-  const [stars, setStars] = useState<StarDef[]>([]);
+  // Seeded in the initialiser, not an effect. Safe because this component is
+  // mounted client-only (see LoadingScreenMount) — there is no server render
+  // for these random values to disagree with.
+  const [factIndex, setFactIndex] = useState(() =>
+    Math.floor(Math.random() * FACTS.length)
+  );
+  const [stars] = useState<StarDef[]>(() =>
+    Array.from({ length: 80 }, () => ({
+      size: Math.random() * 2.5 + 1,
+      top: Math.random() * 100,
+      left: Math.random() * 100,
+      dur: +(Math.random() * 3 + 2).toFixed(1),
+      delay: +(Math.random() * 4).toFixed(1),
+      op: +(Math.random() * 0.5 + 0.3).toFixed(2),
+    }))
+  );
   const [doneText, setDoneText] = useState(false);
 
   const progressRef = useRef(0);
@@ -60,25 +79,6 @@ export default function LoadingScreen() {
   const dismissedRef = useRef(false);
   const progressInterval = useRef<ReturnType<typeof setInterval>>();
   const factInterval = useRef<ReturnType<typeof setInterval>>();
-
-  // Generate stars client-side only
-  useEffect(() => {
-    setStars(
-      Array.from({ length: 80 }, () => ({
-        size: Math.random() * 2.5 + 1,
-        top: Math.random() * 100,
-        left: Math.random() * 100,
-        dur: +(Math.random() * 3 + 2).toFixed(1),
-        delay: +(Math.random() * 4).toFixed(1),
-        op: +(Math.random() * 0.5 + 0.3).toFixed(2),
-      }))
-    );
-  }, []);
-
-  // Randomize starting fact client-side only (avoids hydration mismatch)
-  useEffect(() => {
-    setFactIndex(Math.floor(Math.random() * FACTS.length));
-  }, []);
 
   // Fact rotation
   useEffect(() => {
@@ -114,13 +114,25 @@ export default function LoadingScreen() {
     clearInterval(factInterval.current);
     setProgress(100);
     setDoneText(true);
-    setTimeout(() => setVisible(false), 800);
+    setTimeout(() => setVisible(false), FADE_MS);
   }, []);
 
-  // Expose finishLoading + auto-dismiss
+  // Dismiss as soon as the browser has actually painted, with a short floor so
+  // the overlay does not flash on a fast load.
+  //
+  // This used to be a flat `setTimeout(dismiss, 3000)` plus an 800ms fade, so
+  // every page load was blocked for ~3.8s no matter how quickly the data
+  // arrived — with warm APIs answering in 0.1–0.8s, the loading screen was the
+  // slowest part of the app. `window.finishLoading` was provided as an escape
+  // hatch and nothing ever called it.
   useEffect(() => {
     (window as Window & { finishLoading?: () => void }).finishLoading = dismiss;
-    const timer = setTimeout(dismiss, 3000);
+
+    // A plain timeout, deliberately: requestAnimationFrame does not fire in a
+    // background tab, so a visitor who switches away during load would come
+    // back to an overlay still sitting there.
+    const timer = setTimeout(dismiss, MIN_VISIBLE_MS);
+
     return () => {
       clearTimeout(timer);
       delete (window as Window & { finishLoading?: () => void }).finishLoading;
@@ -147,7 +159,7 @@ export default function LoadingScreen() {
         opacity: visible ? 1 : 0,
         visibility: visible ? "visible" : "hidden",
         pointerEvents: visible ? "auto" : "none",
-        transition: "opacity 0.8s ease, visibility 0.8s ease",
+        transition: `opacity ${FADE_MS}ms ease, visibility ${FADE_MS}ms ease`,
       }}
     >
       {/* Star field */}

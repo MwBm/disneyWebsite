@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
+import { crowdBgOpacity, crowdColor, crowdLabelText, crowdLegend } from "@/lib/crowd";
+import { weatherEmoji, weatherLabel, type WeatherDay } from "@/lib/weather";
 
 type DayScore = {
   date: string;
@@ -12,63 +14,7 @@ type DayScore = {
   isHoliday: boolean;
 };
 
-type WeatherDay = {
-  date: string;
-  weatherCode: number;
-  tempMax: number;
-  tempMin: number;
-  precipProb: number;
-};
-
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function crowdColor(score: number | null): string {
-  if (score === null) return "#1e2235";
-  if (score <= 30) return "#22c55e";
-  if (score <= 55) return "#f0c060";
-  if (score <= 75) return "#fb923c";
-  return "#ef4444";
-}
-
-function crowdLabel(score: number | null): string {
-  if (score === null) return "No data";
-  if (score <= 30) return "Low";
-  if (score <= 55) return "Moderate";
-  if (score <= 75) return "Busy";
-  return "Very Busy";
-}
-
-function crowdBgOpacity(score: number | null): number {
-  if (score === null) return 0;
-  if (score <= 30) return 0.12;
-  if (score <= 55) return 0.15;
-  if (score <= 75) return 0.18;
-  return 0.22;
-}
-
-function weatherEmoji(code: number): string {
-  if (code === 0) return "☀️";
-  if (code <= 2) return "🌤️";
-  if (code === 3) return "☁️";
-  if (code <= 48) return "🌫️";
-  if (code <= 55) return "🌦️";
-  if (code <= 67) return "🌧️";
-  if (code <= 77) return "❄️";
-  if (code <= 82) return "🌦️";
-  return "⛈️";
-}
-
-function weatherLabel(code: number): string {
-  if (code === 0) return "Clear";
-  if (code <= 2) return "Partly cloudy";
-  if (code === 3) return "Overcast";
-  if (code <= 48) return "Foggy";
-  if (code <= 55) return "Drizzle";
-  if (code <= 67) return "Rainy";
-  if (code <= 77) return "Snow";
-  if (code <= 82) return "Showers";
-  return "Thunderstorm";
-}
 
 const CalendarIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -163,53 +109,55 @@ export default function CalendarPage() {
   const [weather, setWeather] = useState<Map<string, WeatherDay>>(new Map());
 
   useEffect(() => {
-    fetch(
-      "https://api.open-meteo.com/v1/forecast?latitude=33.8121&longitude=-117.9190" +
-      "&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
-      "&temperature_unit=fahrenheit&timezone=America%2FLos_Angeles&forecast_days=16"
-    )
-      .then(r => r.json())
-      .then(data => {
-        const map = new Map<string, WeatherDay>();
-        const dates: string[] = data.daily?.time ?? [];
-        dates.forEach((date: string, i: number) => {
-          map.set(date, {
-            date,
-            weatherCode: data.daily.weathercode[i],
-            tempMax: Math.round(data.daily.temperature_2m_max[i]),
-            tempMin: Math.round(data.daily.temperature_2m_min[i]),
-            precipProb: data.daily.precipitation_probability_max[i],
-          });
-        });
-        setWeather(map);
+    fetch("/api/weather")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`weather ${r.status}`))))
+      .then((data: { days?: WeatherDay[] }) => {
+        setWeather(new Map((data.days ?? []).map((d) => [d.date, d])));
       })
-      .catch(() => {});
-  }, []);
-
-  const load = useCallback(async (y: number, m: number) => {
-    setLoading(true);
-    setSelected(null);
-    try {
-      const res = await fetch(`/api/calendar?year=${y}&month=${m}`);
-      const data = await res.json();
-      setDays(data.days ?? []);
-    } catch {
-      setDays([]);
-    } finally {
-      setLoading(false);
-    }
+      .catch(() => setWeather(new Map()));
   }, []);
 
   useEffect(() => {
-    load(year, month);
-  }, [year, month, load]);
+    // The fetch lives inline rather than behind a useCallback so that no
+    // setState runs synchronously in the effect body — every setState here is
+    // after an await. `loading` starts true and the month handlers set it, so
+    // the spinner still appears the instant a month changes.
+    //
+    // AbortController also fixes a race the previous version had: clicking
+    // through months quickly could let a slower earlier response resolve last
+    // and overwrite the month actually on screen.
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/calendar?year=${year}&month=${month}`, {
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        setDays(data.days ?? []);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setDays([]);
+      } finally {
+        // An aborted request was superseded; its cleanup must not clear the
+        // spinner the newer request just turned on.
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [year, month]);
 
   function prevMonth() {
+    setLoading(true);
+    setSelected(null);
     if (month === 1) { setYear(y => y - 1); setMonth(12); }
     else setMonth(m => m - 1);
   }
 
   function nextMonth() {
+    setLoading(true);
+    setSelected(null);
     if (month === 12) { setYear(y => y + 1); setMonth(1); }
     else setMonth(m => m + 1);
   }
@@ -265,9 +213,9 @@ export default function CalendarPage() {
       {!loading && avgScore !== null && (
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Monthly Average", value: `${avgScore}/100`, sub: crowdLabel(avgScore), color: crowdColor(avgScore) },
-            { label: "Best Day", value: bestDay ? format(parseISO(bestDay.date), "EEE, MMM d") : "—", sub: bestDay ? `${bestDay.crowdScore}/100 · ${crowdLabel(bestDay.crowdScore)}` : "", color: crowdColor(bestDay?.crowdScore ?? null) },
-            { label: "Busiest Day", value: worstDay ? format(parseISO(worstDay.date), "EEE, MMM d") : "—", sub: worstDay ? `${worstDay.crowdScore}/100 · ${crowdLabel(worstDay.crowdScore)}` : "", color: crowdColor(worstDay?.crowdScore ?? null) },
+            { label: "Monthly Average", value: `${avgScore}/100`, sub: crowdLabelText(avgScore), color: crowdColor(avgScore) },
+            { label: "Best Day", value: bestDay ? format(parseISO(bestDay.date), "EEE, MMM d") : "—", sub: bestDay ? `${bestDay.crowdScore}/100 · ${crowdLabelText(bestDay.crowdScore)}` : "", color: crowdColor(bestDay?.crowdScore ?? null) },
+            { label: "Busiest Day", value: worstDay ? format(parseISO(worstDay.date), "EEE, MMM d") : "—", sub: worstDay ? `${worstDay.crowdScore}/100 · ${crowdLabelText(worstDay.crowdScore)}` : "", color: crowdColor(worstDay?.crowdScore ?? null) },
           ].map(({ label, value, sub, color }) => (
             <div
               key={label}
@@ -288,6 +236,7 @@ export default function CalendarPage() {
         <div className="flex items-center justify-between px-6 py-4 border-b border-space-700">
           <button
             onClick={prevMonth}
+            aria-label="Previous month"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-warm-700 hover:text-orange-400 hover:bg-space-800 transition-colors"
           >
             <ChevronLeft />
@@ -300,6 +249,7 @@ export default function CalendarPage() {
           </div>
           <button
             onClick={nextMonth}
+            aria-label="Next month"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-warm-700 hover:text-orange-400 hover:bg-space-800 transition-colors"
           >
             <ChevronRight />
@@ -413,7 +363,7 @@ export default function CalendarPage() {
                             className="text-[0.6rem] font-medium uppercase tracking-wide leading-none"
                             style={{ color, opacity: cell.source === "groq" ? 0.55 : 0.75 }}
                           >
-                            {crowdLabel(score)}
+                            {crowdLabelText(score)}
                           </span>
                         </div>
                       ) : (
@@ -430,7 +380,7 @@ export default function CalendarPage() {
                             {wx && (
                               <span
                                 className="text-[0.65rem] leading-none"
-                                title={`${weatherLabel(wx.weatherCode)} · ${wx.tempMax}°/${wx.tempMin}°F`}
+                                title={`${weatherLabel(wx.weatherCode)} · ${wx.tempHigh}°/${wx.tempLow}°F`}
                               >
                                 {weatherEmoji(wx.weatherCode)}
                               </span>
@@ -520,7 +470,7 @@ export default function CalendarPage() {
                         <span>{weatherEmoji(wx.weatherCode)}</span>
                         <span>{weatherLabel(wx.weatherCode)}</span>
                         <span className="text-warm-700">·</span>
-                        <span>{wx.tempMax}°<span className="text-warm-500">/{wx.tempMin}°F</span></span>
+                        <span>{wx.tempHigh}°<span className="text-warm-500">/{wx.tempLow}°F</span></span>
                         {wx.precipProb > 0 && (
                           <>
                             <span className="text-warm-700">·</span>
@@ -541,12 +491,12 @@ export default function CalendarPage() {
               {/* Score breakdown */}
               {selected.crowdScore !== null && (
                 <div className="mt-3 grid grid-cols-4 gap-2">
-                  {[
-                    { label: "Low", range: "≤30", color: "#22c55e", active: selected.crowdScore <= 30 },
-                    { label: "Moderate", range: "31–55", color: "#f0c060", active: selected.crowdScore > 30 && selected.crowdScore <= 55 },
-                    { label: "Busy", range: "56–75", color: "#fb923c", active: selected.crowdScore > 55 && selected.crowdScore <= 75 },
-                    { label: "Very Busy", range: "76+", color: "#ef4444", active: selected.crowdScore > 75 },
-                  ].map(({ label, range, color, active }) => (
+                  {crowdLegend().map(({ label, range, color }) => ({
+                    label,
+                    range,
+                    color,
+                    active: label === crowdLabelText(selected.crowdScore),
+                  })).map(({ label, range, color, active }) => (
                     <div
                       key={label}
                       className="rounded-lg p-2 text-center transition-all"
@@ -580,12 +530,10 @@ export default function CalendarPage() {
 
       {/* Legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center pb-2">
-        {[
-          { label: "Low (≤30)", color: "#22c55e" },
-          { label: "Moderate (31–55)", color: "#f0c060" },
-          { label: "Busy (56–75)", color: "#fb923c" },
-          { label: "Very Busy (76+)", color: "#ef4444" },
-        ].map(({ label, color }) => (
+        {crowdLegend().map(({ label, range, color }) => ({
+          label: `${label} (${range})`,
+          color,
+        })).map(({ label, color }) => (
           <div key={label} className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color, opacity: 0.8 }} />
             <span className="text-xs text-warm-500">{label}</span>

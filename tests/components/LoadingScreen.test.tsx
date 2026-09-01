@@ -5,7 +5,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
-import LoadingScreen from "@/components/LoadingScreen";
+import LoadingScreen, { FADE_MS, MIN_VISIBLE_MS } from "@/components/LoadingScreen";
 
 // Required for React 18 act() in jsdom
 // @ts-expect-error - global flag
@@ -53,35 +53,59 @@ describe("LoadingScreen", () => {
     unmount(container, root);
   });
 
-  it("transitions to hidden after finishLoading() + 800ms", () => {
+  it("transitions to hidden after finishLoading() + the fade", () => {
     const { container, root } = mountLoadingScreen();
 
     act(() => {
       (window as WindowWithFinish).finishLoading?.();
     });
 
-    // Before the 800ms dismiss timeout — still visible (opacity 1, just animating out)
+    // Mid-fade — still visible, just animating out.
     const overlay = container.firstElementChild as HTMLElement;
     expect(overlay.style.opacity).toBe("1");
 
     act(() => {
-      jest.advanceTimersByTime(800);
+      jest.advanceTimersByTime(FADE_MS);
     });
 
     expect(overlay.style.visibility).toBe("hidden");
     unmount(container, root);
   });
 
-  it("auto-dismisses after 3 seconds", () => {
+  it("auto-dismisses shortly after mount, not after several seconds", () => {
+    // Regression guard. This was `setTimeout(dismiss, 3000)` plus an 800ms
+    // fade, so the overlay covered every page for ~3.8s no matter how fast the
+    // data arrived — with warm APIs answering in well under a second, it was
+    // the slowest thing in the app.
     const { container, root } = mountLoadingScreen();
     const overlay = container.firstElementChild as HTMLElement;
 
     act(() => {
-      jest.advanceTimersByTime(3000);
+      jest.advanceTimersByTime(MIN_VISIBLE_MS + FADE_MS);
     });
 
+    expect(overlay.style.visibility).toBe("hidden");
+    unmount(container, root);
+  });
+
+  it("stays up briefly rather than flashing on a fast load", () => {
+    const { container, root } = mountLoadingScreen();
+    const overlay = container.firstElementChild as HTMLElement;
+
     act(() => {
-      jest.advanceTimersByTime(800);
+      jest.advanceTimersByTime(MIN_VISIBLE_MS - 50);
+    });
+
+    expect(overlay.style.visibility).toBe("visible");
+    unmount(container, root);
+  });
+
+  it("is fully gone well within one second", () => {
+    const { container, root } = mountLoadingScreen();
+    const overlay = container.firstElementChild as HTMLElement;
+
+    act(() => {
+      jest.advanceTimersByTime(1000);
     });
 
     expect(overlay.style.visibility).toBe("hidden");

@@ -1,8 +1,10 @@
 import type { Config } from "jest";
 
 const config: Config = {
-  preset: "ts-jest",
   testEnvironment: "node",
+  transform: {
+    "^.+\\.tsx?$": ["ts-jest", { tsconfig: "./tsconfig.test.json" }],
+  },
   testMatch: [
     "**/tests/api/**/*.test.ts",
     "**/tests/lib/**/*.test.ts",
@@ -13,9 +15,6 @@ const config: Config = {
     "^next/font/google$": "<rootDir>/tests/__mocks__/next-font-google.ts",
   },
   setupFiles: ["<rootDir>/tests/setup.ts"],
-  globals: {
-    "ts-jest": { tsconfig: "./tsconfig.test.json" },
-  },
 };
 
 export default config;

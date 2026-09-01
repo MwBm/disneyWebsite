@@ -1,52 +1,153 @@
+import { GET } from "@/app/api/accuracy/route";
 import { prisma } from "@/lib/db";
 
 const mockQueryRaw = prisma.$queryRaw as jest.Mock;
 
-describe("accuracy route logic", () => {
-  beforeEach(() => jest.clearAllMocks());
+beforeEach(() => jest.clearAllMocks());
 
-  it("computes MAE correctly from raw rows", async () => {
-    const rows = [
-      { rideId: 1, rideName: "Space Mountain", predictedFor: new Date("2026-04-01T10:00:00Z"), predictedWait: 40, actualWait: 35, absError: 5 },
-      { rideId: 1, rideName: "Space Mountain", predictedFor: new Date("2026-04-01T11:00:00Z"), predictedWait: 50, actualWait: 65, absError: 15 },
-    ];
-    mockQueryRaw.mockResolvedValueOnce(rows);
+/**
+ * The route issues two aggregate queries in parallel: summary, then per-ride.
+ * Postgres does the maths now, so these tests assert the route's handling of
+ * what comes back rather than re-testing the arithmetic in JavaScript.
+ */
+function mockAggregates(summary: unknown[], perRide: unknown[]) {
+  mockQueryRaw.mockResolvedValueOnce(summary).mockResolvedValueOnce(perRide);
+}
 
-    const errors = rows.map((r) => Number(r.absError));
-    const mae = errors.reduce((a, b) => a + b, 0) / errors.length;
-    expect(mae).toBe(10);
+const summaryRow = {
+  mae: 7.5,
+  within5: 0.42,
+  within10: 0.71,
+  within15: 0.88,
+  totalPredictions: 1234,
+};
+
+function perRideRow(overrides: Record<string, unknown> = {}) {
+  return {
+    rideId: 1,
+    rideName: "Space Mountain",
+    landName: "Tomorrowland",
+    mae: 6.2,
+    within10: 0.8,
+    sampleCount: 300,
+    ...overrides,
+  };
+}
+
+describe("accuracy route — empty state", () => {
+  it("returns nulls when the window contains no matched predictions", async () => {
+    mockAggregates([{ ...summaryRow, mae: null, totalPredictions: 0 }], []);
+
+    expect(await (await GET()).json()).toEqual({ summary: null, perRide: [] });
   });
 
-  it("returns empty summary when no rows", async () => {
-    mockQueryRaw.mockResolvedValueOnce([]);
-    const rows: unknown[] = [];
-    expect(rows.length).toBe(0);
+  it("returns nulls when the summary query yields no row at all", async () => {
+    mockAggregates([], []);
+
+    expect(await (await GET()).json()).toEqual({ summary: null, perRide: [] });
+  });
+});
+
+describe("accuracy route — summary", () => {
+  it("passes the aggregated statistics through", async () => {
+    mockAggregates([summaryRow], []);
+
+    const { summary } = await (await GET()).json();
+    expect(summary).toEqual({
+      mae: 7.5,
+      within5: 0.42,
+      within10: 0.71,
+      within15: 0.88,
+      totalPredictions: 1234,
+    });
   });
 
-  it("excludes rows where isOpen would be false (query-level filter)", () => {
-    // The SQL filters isOpen = true — verify our JOIN condition is correct in spirit
-    const allRows = [
-      { rideId: 1, rideName: "Pirates", predictedWait: 20, actualWait: 0, absError: 20, isOpen: false },
-      { rideId: 2, rideName: "Haunted Mansion", predictedWait: 30, actualWait: 28, absError: 2, isOpen: true },
-    ];
-    const openOnly = allRows.filter((r) => r.isOpen);
-    expect(openOnly).toHaveLength(1);
-    expect(openOnly[0].rideName).toBe("Haunted Mansion");
+  it("coerces the BigInt count Postgres returns for COUNT(*)", async () => {
+    // JSON.stringify throws on BigInt, so an uncoerced count 500s the route.
+    mockAggregates([{ ...summaryRow, totalPredictions: BigInt(1234) }], []);
+
+    const res = await GET();
+    const { summary } = await res.json();
+    expect(res.status).toBe(200);
+    expect(summary.totalPredictions).toBe(1234);
+    expect(typeof summary.totalPredictions).toBe("number");
+  });
+});
+
+describe("accuracy route — per-ride", () => {
+  it("maps each aggregated ride row", async () => {
+    mockAggregates([summaryRow], [perRideRow()]);
+
+    const { perRide } = await (await GET()).json();
+    expect(perRide).toEqual([
+      {
+        rideId: 1,
+        rideName: "Space Mountain",
+        landName: "Tomorrowland",
+        parkName: "Disneyland",
+        mae: 6.2,
+        within10: 0.8,
+        sampleCount: 300,
+      },
+    ]);
   });
 
-  it("per-ride breakdown groups by rideId correctly", () => {
-    const rows = [
-      { rideId: 1, rideName: "Space Mountain", absError: 10 },
-      { rideId: 1, rideName: "Space Mountain", absError: 20 },
-      { rideId: 2, rideName: "Matterhorn", absError: 5 },
-    ];
-    const map: Record<number, number[]> = {};
-    for (const r of rows) {
-      map[r.rideId] = map[r.rideId] ?? [];
-      map[r.rideId].push(r.absError);
-    }
-    expect(map[1]).toEqual([10, 20]);
-    expect(map[2]).toEqual([5]);
-    expect(map[1].reduce((a, b) => a + b) / map[1].length).toBe(15);
+  it("coerces BigInt ride ids and sample counts", async () => {
+    mockAggregates(
+      [summaryRow],
+      [perRideRow({ rideId: BigInt(42), sampleCount: BigInt(17) })]
+    );
+
+    const { perRide } = await (await GET()).json();
+    expect(perRide[0].rideId).toBe(42);
+    expect(perRide[0].sampleCount).toBe(17);
+  });
+
+  it("preserves the ordering the SQL produced rather than re-sorting", async () => {
+    mockAggregates(
+      [summaryRow],
+      [perRideRow({ rideId: 2, mae: 3 }), perRideRow({ rideId: 1, mae: 9 })]
+    );
+
+    const { perRide } = await (await GET()).json();
+    expect(perRide.map((r: { rideId: number }) => r.rideId)).toEqual([2, 1]);
+  });
+
+  it.each([
+    ["Cars Land", "Disney California Adventure"],
+    ["Avengers Campus", "Disney California Adventure"],
+    ["Pixar Pier", "Disney California Adventure"],
+    ["San Fransokyo Square", "Disney California Adventure"],
+    ["Tomorrowland", "Disneyland"],
+    ["New Orleans Square", "Disneyland"],
+    ["Brand New Land", "Disneyland"],
+  ])("attributes land %s to %s", async (landName, expected) => {
+    mockAggregates([summaryRow], [perRideRow({ landName })]);
+
+    const { perRide } = await (await GET()).json();
+    expect(perRide[0].parkName).toBe(expected);
+  });
+});
+
+describe("accuracy route — response shape", () => {
+  it("sets a CDN cache header", async () => {
+    mockAggregates([summaryRow], []);
+
+    expect((await GET()).headers.get("Cache-Control")).toContain("s-maxage=1800");
+  });
+
+  it("no longer returns a raw rows array", async () => {
+    // Those ~45k rows moved to /api/accuracy/rides/[rideId], which returns the
+    // 48 the chart actually draws.
+    mockAggregates([summaryRow], [perRideRow()]);
+
+    expect(await (await GET()).json()).not.toHaveProperty("rows");
+  });
+
+  it("runs both aggregate queries, not one row-level query", async () => {
+    mockAggregates([summaryRow], [perRideRow()]);
+
+    await GET();
+    expect(mockQueryRaw).toHaveBeenCalledTimes(2);
   });
 });

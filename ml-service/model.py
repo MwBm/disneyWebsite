@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Tuple, NamedTuple
 import numpy as np
 import xgboost as xgb
 from datetime import datetime, timezone
+from sklearn.model_selection import TimeSeriesSplit
 from zoneinfo import ZoneInfo
 
 from schemas import DateContext, LagFeatures, RideForecast, RideHistory
@@ -13,6 +14,9 @@ from schemas import DateContext, LagFeatures, RideForecast, RideHistory
 logger = logging.getLogger(__name__)
 
 MIN_SAMPLES = 200  # rides with fewer training records fall back to hourly means
+FALLBACK_CONFIDENCE = 0.3  # used whenever no walk-forward CV estimate exists
+WALK_FORWARD_SPLITS = 4  # expanding-window CV folds; see _train_ride_model
+HEADLINER_TOP_FRACTION = 0.25  # top quartile by mean wait when config lists none
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../src/lib/ride-config.json")
 
@@ -123,44 +127,92 @@ _XGB_PARAMS = dict(
 )
 
 
+def _build_matrix(recs: List[RideHistory]) -> Tuple[np.ndarray, np.ndarray]:
+    X = np.array(
+        [_extract_features(r.recorded_at, r.context, r.lag_features) for r in recs],
+        dtype=float,
+    )
+    y = np.array([r.wait_time for r in recs], dtype=float)
+    return X, y
+
+
+def walk_forward_folds(n_samples: int, n_splits: int = WALK_FORWARD_SPLITS):
+    """Yield (train_idx, val_idx) for an expanding-window walk-forward split.
+
+    Fold k trains on everything before validation block k and validates on that
+    block, so every validation set lies strictly in the future of its training
+    set — and there are several of them. A single chronological 80/20 holdout
+    gives that property exactly once, at one point in time, which makes its MAE
+    hostage to whatever happened to be in the last 20% of the data.
+
+    Returns [] when there are too few samples to form even one fold; callers
+    must treat that as "no CV estimate available", not "zero error".
+    """
+    n_splits = min(n_splits, n_samples - 1)
+    if n_splits < 1:
+        return []
+    return list(TimeSeriesSplit(n_splits=n_splits).split(np.arange(n_samples)))
+
+
 def _train_ride_model(
     records: List[RideHistory],
     global_mean: float,
 ) -> Tuple[xgb.XGBRegressor, float, float]:
-    """Walk-forward CV for honest MAE, then train final model on all data.
+    """Expanding-window walk-forward CV for honest MAE, then final fit on all data.
 
-    Returns (model, confidence, cv_mae_minutes).
+    Returns (model, confidence, cv_mae_minutes). cv_mae is the mean across folds.
     """
     sorted_recs = sorted(records, key=lambda r: r.recorded_at)
-    split = int(len(sorted_recs) * 0.8)
-    train_recs = sorted_recs[:split]
-    val_recs = sorted_recs[split:]
-
-    def _build_matrix(recs: List[RideHistory]) -> Tuple[np.ndarray, np.ndarray]:
-        X = np.array(
-            [_extract_features(r.recorded_at, r.context, r.lag_features) for r in recs],
-            dtype=float,
-        )
-        y = np.array([r.wait_time for r in recs], dtype=float)
-        return X, y
-
-    # CV pass — train on first 80%, measure error on last 20%
-    cv_mae = 0.0
-    if val_recs:
-        X_tr, y_tr = _build_matrix(train_recs)
-        X_val, y_val = _build_matrix(val_recs)
-        cv_model = xgb.XGBRegressor(**_XGB_PARAMS)
-        cv_model.fit(X_tr, y_tr)
-        cv_mae = float(np.mean(np.abs(cv_model.predict(X_val) - y_val)))
-
-    # Final model trained on all data
     X_all, y_all = _build_matrix(sorted_recs)
+
+    fold_maes: List[float] = []
+    for train_idx, val_idx in walk_forward_folds(len(sorted_recs)):
+        cv_model = xgb.XGBRegressor(**_XGB_PARAMS)
+        cv_model.fit(X_all[train_idx], y_all[train_idx])
+        fold_maes.append(
+            float(np.mean(np.abs(cv_model.predict(X_all[val_idx]) - y_all[val_idx])))
+        )
+    # Final model trained on all data
     final_model = xgb.XGBRegressor(**_XGB_PARAMS)
     final_model.fit(X_all, y_all)
 
+    if not fold_maes:
+        # No fold was possible, so there is no validation evidence at all.
+        # Deriving confidence from cv_mae=0.0 would report 1.0 — maximum
+        # confidence from zero validation — straight into the UI.
+        return final_model, FALLBACK_CONFIDENCE, 0.0
+
+    cv_mae = float(np.mean(fold_maes))
     denom = max(global_mean, 1.0)
     confidence = float(np.clip(1.0 - cv_mae / denom, 0.0, 1.0))
     return final_model, confidence, cv_mae
+
+
+def resolve_headliner_ids(
+    history: List[RideHistory],
+    configured: frozenset = HEADLINER_RIDE_IDS,
+) -> frozenset:
+    """Headliner ride IDs, from config when set, otherwise derived from the data.
+
+    `headlinerRideIds` in ride-config.json is empty, which made is_headliner_open
+    a constant 0.0 for every training row — a dead feature occupying a slot in
+    the 23-feature vector. Deriving the top quartile by mean wait keeps the
+    feature informative without hardcoding queue-times.com ride IDs that nobody
+    can verify by reading the config.
+    """
+    if configured:
+        return configured
+
+    waits: Dict[int, List[float]] = {}
+    for r in history:
+        if r.is_open:
+            waits.setdefault(r.ride_id, []).append(float(r.wait_time))
+    if not waits:
+        return frozenset()
+
+    ranked = sorted(waits.items(), key=lambda kv: -float(np.mean(kv[1])))
+    take = max(1, int(len(ranked) * HEADLINER_TOP_FRACTION))
+    return frozenset(ride_id for ride_id, _ in ranked[:take])
 
 
 def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
@@ -181,7 +233,7 @@ def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
 
         if len(records) < MIN_SAMPLES:
             logger.info("Ride %d: fallback (only %d samples, need %d)", ride_id, len(records), MIN_SAMPLES)
-            result[ride_id] = TrainedModel(None, 0.3, 0.0, hour_means, global_mean)
+            result[ride_id] = TrainedModel(None, FALLBACK_CONFIDENCE, 0.0, hour_means, global_mean)
         else:
             model, confidence, cv_mae = _train_ride_model(records, float(global_mean))
             logger.info("Ride %d: trained, CV MAE=%.1f min, confidence=%.2f", ride_id, cv_mae, confidence)

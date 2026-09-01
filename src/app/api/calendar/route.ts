@@ -5,8 +5,14 @@ import { getCrowdScoresForMonth } from "@/lib/forecast";
 import { estimateDowCrowdScores } from "@/lib/groq";
 import { prisma } from "@/lib/db";
 import { parkDateDow } from "@/lib/park-time";
+import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+import { cachedJson } from "@/lib/http";
 
-export const revalidate = 3600;
+/** Seconds the CDN may serve a cached month. */
+const CACHE_SECONDS = 3600;
+
+/** Backstop for the Groq day-of-week estimate on the missing-days path. */
+const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 
 const QuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2030),
@@ -14,6 +20,14 @@ const QuerySchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
+  const limit = checkRateLimit(clientKey(req), RATE_LIMIT);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
+    );
+  }
+
   const { searchParams } = req.nextUrl;
   const parsed = QuerySchema.safeParse({
     year: searchParams.get("year"),
@@ -55,8 +69,10 @@ export async function GET(req: NextRequest) {
             create: { date: today, groqDowEstimate: Object.fromEntries(groqDow) },
           });
         }
-      } catch {
-        // non-fatal — days stay null
+      } catch (err) {
+        // Non-fatal — days stay null — but logged. This catch previously hid
+        // every estimateDowCrowdScores failure, including a retired model.
+        console.error("estimateDowCrowdScores failed", err);
       }
     }
 
@@ -66,8 +82,8 @@ export async function GET(req: NextRequest) {
       const score = groqDow.get(dow);
       return score !== undefined ? { ...day, crowdScore: score, source: "groq" as const } : day;
     });
-    return NextResponse.json({ year, month, days: filledDays });
+    return cachedJson({ year, month, days: filledDays }, CACHE_SECONDS);
   }
 
-  return NextResponse.json({ year, month, days });
+  return cachedJson({ year, month, days }, CACHE_SECONDS);
 }

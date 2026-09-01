@@ -277,17 +277,50 @@ def test_cv_mae_bounded_confidence():
         assert 0.0 <= tm.confidence <= 1.0
 
 
-def test_cv_split_is_temporal():
-    """Walk-forward CV: validation records must all be later than training records."""
-    from model import _train_ride_model
-    records = _make_records_with_lags(1, 300, base_wait=40)
-    sorted_recs = sorted(records, key=lambda r: r.recorded_at)
-    split = int(len(sorted_recs) * 0.8)
-    train_recs = sorted_recs[:split]
-    val_recs = sorted_recs[split:]
+def test_walk_forward_produces_multiple_folds():
+    """Walk-forward CV must be several folds, not a single 80/20 holdout."""
+    from model import WALK_FORWARD_SPLITS, walk_forward_folds
 
-    # Every validation timestamp must be >= every training timestamp at the split boundary
-    assert all(v.recorded_at >= train_recs[-1].recorded_at for v in val_recs)
+    folds = walk_forward_folds(300)
+    assert len(folds) == WALK_FORWARD_SPLITS
+
+
+def test_walk_forward_every_validation_index_is_after_its_training_set():
+    """The defining property: no fold may validate on data it trained on or before."""
+    from model import walk_forward_folds
+
+    for train_idx, val_idx in walk_forward_folds(300):
+        assert len(train_idx) > 0 and len(val_idx) > 0
+        assert max(train_idx) < min(val_idx)
+        assert not set(train_idx) & set(val_idx)
+
+
+def test_walk_forward_training_window_expands():
+    """Each successive fold trains on strictly more history than the last."""
+    from model import walk_forward_folds
+
+    sizes = [len(train_idx) for train_idx, _ in walk_forward_folds(300)]
+    assert sizes == sorted(sizes)
+    assert sizes[0] < sizes[-1]
+
+
+def test_walk_forward_degrades_gracefully_on_tiny_input():
+    """Too few samples to fold must yield no folds rather than raising."""
+    from model import walk_forward_folds
+
+    assert walk_forward_folds(1) == []
+    assert walk_forward_folds(0) == []
+    assert len(walk_forward_folds(3)) >= 1
+
+
+def test_cv_mae_is_mean_across_folds_not_a_single_split():
+    """cv_mae must reflect the multi-fold estimate produced by _train_ride_model."""
+    from model import _train_ride_model
+
+    records = _make_records_with_lags(1, 300, base_wait=40)
+    _, confidence, cv_mae = _train_ride_model(records, 40.0)
+    assert cv_mae > 0.0
+    assert 0.0 <= confidence <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -407,3 +440,18 @@ def test_crowd_score_formula_constants():
     assert CROWD_MAX_WAIT == config["crowdMaxWait"]
     assert CROWD_EXPECTED_RIDES == config["crowdExpectedRides"]
     assert TIER_MULTIPLIER_STEP == pytest.approx(config["tierMultiplierStep"])
+
+
+def test_no_cv_folds_does_not_yield_maximum_confidence():
+    """Zero validation evidence must not report confidence 1.0.
+
+    Guards the path where cv_mae would default to 0.0 and the confidence
+    formula (1 - cv_mae/mean) would read that as a perfect model.
+    """
+    from model import FALLBACK_CONFIDENCE, _train_ride_model
+
+    records = _make_records_with_lags(1, 2, base_wait=40)[:1]
+    _, confidence, cv_mae = _train_ride_model(records, 40.0)
+    assert confidence == pytest.approx(FALLBACK_CONFIDENCE)
+    assert confidence < 1.0
+    assert cv_mae == 0.0

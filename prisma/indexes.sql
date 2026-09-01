@@ -9,3 +9,21 @@
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "HourlyWaitSummary_rideId_month_idx"
   ON "HourlyWaitSummary" ("rideId", (EXTRACT(MONTH FROM date)::int));
+
+-- Functional index for the historical day-of-week fallback in
+-- getHistoricalMeansForDate (src/lib/forecast.ts).
+--
+-- That query filters on EXTRACT(DOW FROM recordedAt AT TIME ZONE 'UTC'
+-- AT TIME ZONE 'America/Los_Angeles'), which the plain "recordedAt" index
+-- cannot serve, so it sequentially scanned the whole table on every request
+-- that fell through to the historical path.
+--
+-- The expression must be written exactly as the query writes it, or the
+-- planner will not match it.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "WaitTimeRecord_park_dow_hour_idx"
+  ON "WaitTimeRecord" (
+    (EXTRACT(DOW  FROM ("recordedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles'))),
+    (EXTRACT(HOUR FROM ("recordedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles'))),
+    "rideId"
+  )
+  WHERE "isOpen" = true;

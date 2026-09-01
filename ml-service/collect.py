@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from model import (
     HEADLINER_RIDE_IDS,
     predict_for_ride,
+    resolve_headliner_ids,
     train_ride_models,
     _compute_crowd_score,
 )
@@ -237,7 +238,11 @@ def compute_lag_features(history: list[RideHistory]) -> list[RideHistory]:
             if w is not None:
                 week_waits.append(w)
 
-        rolling_mean = float(np.mean(week_waits)) if week_waits else r.wait_time
+        # Imputing r.wait_time here would leak the label into the feature: for
+        # every row with no prior-week history the model could read the answer
+        # off rolling_7d_mean. Use 0.0, which is also what the prediction path
+        # imputes (build_prediction_lag_features) — train and serve must agree.
+        rolling_mean = float(np.mean(week_waits)) if week_waits else 0.0
         rolling_std = float(np.std(week_waits)) if len(week_waits) > 1 else 0.0
 
         existing = r.lag_features or LagFeatures()
@@ -287,6 +292,37 @@ def attach_cross_ride_features(
     return enriched
 
 
+def compute_cross_ride_profile(
+    history: list[RideHistory],
+) -> dict[int, tuple[float, float]]:
+    """Park hour -> (mean pct_rides_open, mean is_headliner_open) seen in training.
+
+    Future slots have no live open/closed data, so the prediction path has to
+    impute these two features. Imputing a constant 1.0 feeds the model a value
+    it rarely saw while training (rides break down; the park is not fully open
+    at 8am), which is train/serve skew: the same feature carries a different
+    distribution at inference than it did at fit time. Imputing the training
+    mean for that hour keeps both sides on the same distribution.
+
+    Requires history already enriched by attach_cross_ride_features.
+    """
+    by_hour: dict[int, list[tuple[float, float]]] = defaultdict(list)
+    for r in history:
+        lag = r.lag_features
+        if lag is None:
+            continue
+        hour = r.recorded_at.astimezone(PARK_TZ).hour
+        by_hour[hour].append((lag.pct_rides_open, lag.is_headliner_open))
+
+    return {
+        hour: (
+            float(np.mean([p for p, _ in vals])),
+            float(np.mean([h for _, h in vals])),
+        )
+        for hour, vals in by_hour.items()
+    }
+
+
 def fetch_date_contexts(conn, dates: list[datetime]) -> dict[str, DateContext]:
     unique_strs = list({park_date_key(d) for d in dates})
     if not unique_strs:
@@ -315,16 +351,42 @@ def fetch_date_contexts(conn, dates: list[datetime]) -> dict[str, DateContext]:
     return result
 
 
+def _impute_cross_ride(
+    profile: dict[int, tuple[float, float]] | None,
+    hour: int,
+) -> tuple[float, float]:
+    """Cross-ride feature values for a future slot at `hour`.
+
+    Falls back to the profile's overall mean for an hour never seen in training
+    (e.g. an early slot on a day the park opens earlier than usual), and only
+    then to neutral constants.
+    """
+    if not profile:
+        return 1.0, 1.0 if HEADLINER_RIDE_IDS else 0.0
+    if hour in profile:
+        return profile[hour]
+    return (
+        float(np.mean([p for p, _ in profile.values()])),
+        float(np.mean([h for _, h in profile.values()])),
+    )
+
+
 def build_prediction_lag_features(
     conn,
     ride_ids: list[int],
     slots: list[datetime],
+    cross_ride_profile: dict[int, tuple[float, float]] | None = None,
 ) -> dict[tuple[int, str, int], LagFeatures]:
     """Fetch historical lag features from HourlyWaitSummary for future prediction slots.
 
     For each (ride_id, slot), looks up the 7-day and 14-day prior waits and
-    computes a rolling 7-day mean/std. pct_rides_open and is_headliner_open
-    default to 1.0 (assume all rides open for future predictions).
+    computes a rolling 7-day mean/std.
+
+    pct_rides_open and is_headliner_open cannot be observed for a future slot.
+    Pass `cross_ride_profile` (from compute_cross_ride_profile) to impute them
+    with the training mean for that park hour. Without it they fall back to
+    neutral constants, which is the skew this parameter exists to avoid — so
+    production callers should always pass it.
     """
     if not ride_ids or not slots:
         return {}
@@ -366,16 +428,14 @@ def build_prediction_lag_features(
             ]
             rolling_mean = float(np.mean(week_waits)) if week_waits else 0.0
             rolling_std = float(np.std(week_waits)) if len(week_waits) > 1 else 0.0
-            # When HEADLINER_RIDE_IDS is empty, training always sees is_headliner_open=0.0
-            # (attach_cross_ride_features never sets it True without IDs configured).
-            # Prediction must match — using 1.0 here would feed a value the model never saw.
+            pct_open, headliner_open = _impute_cross_ride(cross_ride_profile, h)
             result[(ride_id, date_str, h)] = LagFeatures(
                 lag_7d_wait=lag_7d,
                 lag_14d_wait=lag_14d,
                 rolling_7d_mean=rolling_mean,
                 rolling_7d_std=rolling_std,
-                pct_rides_open=1.0,
-                is_headliner_open=1.0 if HEADLINER_RIDE_IDS else 0.0,
+                pct_rides_open=pct_open,
+                is_headliner_open=headliner_open,
             )
 
     return result
@@ -482,7 +542,9 @@ def main() -> int:
 
                 # Enrich with lag and cross-ride features
                 history = compute_lag_features(history)
-                history = attach_cross_ride_features(history, HEADLINER_RIDE_IDS)
+                headliner_ids = resolve_headliner_ids(history)
+                history = attach_cross_ride_features(history, headliner_ids)
+                cross_ride_profile = compute_cross_ride_profile(history)
 
                 trained_models = train_ride_models(history)
                 logger.info("Trained %d ride models", len(trained_models))
@@ -493,7 +555,9 @@ def main() -> int:
                 date_contexts = fetch_date_contexts(conn, slots)
 
                 # Fetch lag features for prediction slots from HourlyWaitSummary
-                lag_map = build_prediction_lag_features(conn, list(trained_models.keys()), slots)
+                lag_map = build_prediction_lag_features(
+                    conn, list(trained_models.keys()), slots, cross_ride_profile
+                )
 
                 # Batch-predict per ride (one XGBoost call per ride for all slots)
                 all_ride_forecasts: dict[tuple[int, datetime], RideForecast] = {}

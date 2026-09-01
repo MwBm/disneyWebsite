@@ -9,28 +9,76 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 
 type Row = {
-  rideId: number;
-  rideName: string;
   predictedFor: string;
   predictedWait: number;
   actualWait: number;
   absError: number;
 };
 
-export default function AccuracyChart({ rows, rideName }: { rows: Row[]; rideName: string }) {
-  const rideRows = rows
-    .filter((r) => r.rideName === rideName)
-    .sort((a, b) => a.predictedFor.localeCompare(b.predictedFor))
-    .slice(-48);
+/**
+ * Points come from /api/accuracy/rides/[rideId], already filtered to this ride,
+ * limited and ordered by Postgres. Previously the parent fetched every joined
+ * row for the whole 30-day window and this component filtered and sliced it
+ * down to 48 in the browser.
+ */
+export default function AccuracyChart({
+  rideId,
+  rideName,
+}: {
+  rideId: number;
+  rideName: string;
+}) {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const data = rideRows.map((r) => ({
+  useEffect(() => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/accuracy/rides/${rideId}`, {
+          signal: controller.signal,
+        });
+        const body = await res.json();
+        setRows(res.ok ? body.rows ?? [] : []);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setRows([]);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+
+    // Clicking through ride cards quickly must not let an earlier response
+    // paint over the ride now selected.
+    return () => controller.abort();
+  }, [rideId]);
+
+  const data = rows.map((r) => ({
     date: format(parseISO(r.predictedFor), "MM/dd HH:mm"),
     Predicted: r.predictedWait,
     Actual: r.actualWait,
   }));
+
+  if (loading) {
+    return (
+      <div className="h-[240px] flex items-center justify-center text-warm-700 text-sm">
+        Loading {rideName || "chart"}…
+      </div>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <div className="h-[240px] flex items-center justify-center text-warm-700 text-sm">
+        No matched predictions for {rideName} in the last 30 days.
+      </div>
+    );
+  }
 
   return (
     <ResponsiveContainer width="100%" height={240}>

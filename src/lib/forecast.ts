@@ -69,6 +69,18 @@ export type HistoricalMean = {
 
 export const ML_FORECAST_DAYS = 30;
 
+/**
+ * How far back the historical day-of-week fallback reads.
+ *
+ * The query filters on a computed park-local timezone expression, which no
+ * plain column index can serve, and it previously had no time bound at all —
+ * so it sequentially scanned the whole of WaitTimeRecord on every request that
+ * fell through to the historical path. Two years is enough seasonality while
+ * keeping the scan bounded; prisma/indexes.sql adds the matching functional
+ * index.
+ */
+export const HISTORICAL_LOOKBACK_YEARS = 2;
+
 export type DayCrowdScore = {
   date: string;
   crowdScore: number | null;
@@ -209,6 +221,7 @@ export async function getHistoricalMeansForDate(date: Date | string): Promise<Hi
     FROM "WaitTimeRecord"
     WHERE
       "isOpen" = true
+      AND "recordedAt" >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
       AND EXTRACT(DOW FROM ${PARK_LOCAL_RECORDED_AT}) = ${dow}
     GROUP BY "rideId", "rideName", "landName", EXTRACT(HOUR FROM ${PARK_LOCAL_RECORDED_AT})
     ORDER BY "rideId", hour

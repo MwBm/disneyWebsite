@@ -255,3 +255,149 @@ def test_main_exits_nonzero_without_db_url(monkeypatch):
     monkeypatch.delenv("DIRECT_URL", raising=False)
     from collect import main
     assert main() == 1
+
+
+# ---------------------------------------------------------------------------
+# Train/serve skew tests
+#
+# Training observes pct_rides_open / is_headliner_open directly; a future slot
+# cannot. These cover the imputation that keeps both sides on one distribution.
+# ---------------------------------------------------------------------------
+
+def _slot_records(hour_utc: int, open_flags: list[bool], day: int = 15):
+    slot = datetime(2026, 6, day, hour_utc, 0, tzinfo=timezone.utc)
+    return [
+        RideHistory(
+            ride_id=i + 1, ride_name=f"R{i + 1}", land_name="Land",
+            wait_time=30, is_open=flag, recorded_at=slot,
+        )
+        for i, flag in enumerate(open_flags)
+    ]
+
+
+def test_cross_ride_profile_averages_by_park_hour():
+    from collect import compute_cross_ride_profile
+
+    # 14:00 UTC = 07:00 Pacific, 22:00 UTC = 15:00 Pacific
+    morning = attach_cross_ride_features(
+        _slot_records(14, [True, False, False, False]), frozenset({1})
+    )
+    afternoon = attach_cross_ride_features(
+        _slot_records(22, [True, True, True, True]), frozenset({1})
+    )
+    profile = compute_cross_ride_profile(morning + afternoon)
+
+    assert profile[7][0] == pytest.approx(0.25)
+    assert profile[15][0] == pytest.approx(1.0)
+
+
+def test_cross_ride_profile_ignores_records_without_lag_features():
+    from collect import compute_cross_ride_profile
+
+    raw = _slot_records(22, [True, True])  # never passed through attach_*
+    assert compute_cross_ride_profile(raw) == {}
+
+
+def test_impute_uses_training_mean_not_a_constant_one():
+    """The skew this fixes: training saw 0.25 open at 7am, prediction must not send 1.0."""
+    from collect import _impute_cross_ride
+
+    profile = {7: (0.25, 0.0), 15: (1.0, 1.0)}
+    assert _impute_cross_ride(profile, 7) == (0.25, 0.0)
+    assert _impute_cross_ride(profile, 15) == (1.0, 1.0)
+
+
+def test_impute_falls_back_to_overall_mean_for_an_unseen_hour():
+    from collect import _impute_cross_ride
+
+    profile = {10: (0.5, 0.0), 14: (1.0, 1.0)}
+    pct, headliner = _impute_cross_ride(profile, 23)
+    assert pct == pytest.approx(0.75)
+    assert headliner == pytest.approx(0.5)
+
+
+def test_impute_without_a_profile_returns_neutral_constants():
+    from collect import _impute_cross_ride
+
+    pct, _ = _impute_cross_ride(None, 12)
+    assert pct == pytest.approx(1.0)
+    assert _impute_cross_ride({}, 12)[0] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Label-leakage guard
+# ---------------------------------------------------------------------------
+
+def test_rolling_mean_does_not_leak_the_label_when_no_prior_week_exists():
+    """rolling_7d_mean must never be imputed with the record's own wait_time.
+
+    Doing so hands the model the answer for every row lacking 7-day history,
+    which on a young dataset is most of them.
+    """
+    lone = RideHistory(
+        ride_id=1, ride_name="R1", land_name="Land",
+        wait_time=77, is_open=True,
+        recorded_at=datetime(2026, 6, 15, 20, 0, tzinfo=timezone.utc),
+    )
+    enriched = compute_lag_features([lone])
+    assert enriched[0].lag_features.rolling_7d_mean != 77.0
+    assert enriched[0].lag_features.rolling_7d_mean == pytest.approx(0.0)
+
+
+def test_rolling_mean_still_uses_real_history_when_present():
+    base = datetime(2026, 6, 15, 20, 0, tzinfo=timezone.utc)
+    records = [
+        RideHistory(
+            ride_id=1, ride_name="R1", land_name="Land",
+            wait_time=w, is_open=True, recorded_at=base - timedelta(days=d),
+        )
+        for d, w in [(3, 20), (5, 40), (0, 99)]
+    ]
+    enriched = compute_lag_features(records)
+    target = next(r for r in enriched if r.recorded_at == base)
+    assert target.lag_features.rolling_7d_mean == pytest.approx(30.0)
+
+
+# ---------------------------------------------------------------------------
+# Headliner resolution
+# ---------------------------------------------------------------------------
+
+def test_resolve_headliner_ids_prefers_explicit_config():
+    from model import resolve_headliner_ids
+
+    history = _slot_records(22, [True, True, True, True])
+    assert resolve_headliner_ids(history, frozenset({99})) == frozenset({99})
+
+
+def test_resolve_headliner_ids_derives_top_quartile_by_mean_wait():
+    from model import resolve_headliner_ids
+
+    slot = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+    waits = {1: 90, 2: 70, 3: 20, 4: 10, 5: 5, 6: 3, 7: 2, 8: 1}
+    history = [
+        RideHistory(
+            ride_id=rid, ride_name=f"R{rid}", land_name="Land",
+            wait_time=w, is_open=True, recorded_at=slot,
+        )
+        for rid, w in waits.items()
+    ]
+    assert resolve_headliner_ids(history, frozenset()) == frozenset({1, 2})
+
+
+def test_resolve_headliner_ids_ignores_closed_records():
+    from model import resolve_headliner_ids
+
+    slot = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+    history = [
+        RideHistory(ride_id=1, ride_name="Closed", land_name="L",
+                    wait_time=999, is_open=False, recorded_at=slot),
+        RideHistory(ride_id=2, ride_name="Open", land_name="L",
+                    wait_time=50, is_open=True, recorded_at=slot),
+    ]
+    assert resolve_headliner_ids(history, frozenset()) == frozenset({2})
+
+
+def test_resolve_headliner_ids_on_empty_history():
+    from model import resolve_headliner_ids
+
+    assert resolve_headliner_ids([], frozenset()) == frozenset()
