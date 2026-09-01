@@ -48,11 +48,9 @@ const STATUS_MESSAGES = [
 type StarDef = { size: number; top: number; left: number; dur: number; delay: number; op: number };
 
 /** Shortest the overlay stays up, so it reads as intentional, not a flicker. */
-const MIN_VISIBLE_MS = 450;
-/** Hard ceiling, in case something below never finishes. */
-const MAX_VISIBLE_MS = 2500;
+export const MIN_VISIBLE_MS = 450;
 /** Fade-out duration; must match the CSS transition below. */
-const FADE_MS = 300;
+export const FADE_MS = 300;
 
 export default function LoadingScreen() {
   const [visible, setVisible] = useState(true);
@@ -130,18 +128,13 @@ export default function LoadingScreen() {
   useEffect(() => {
     (window as Window & { finishLoading?: () => void }).finishLoading = dismiss;
 
-    const floor = setTimeout(() => {
-      // requestAnimationFrame fires after the next paint, so by here the page
-      // underneath is genuinely rendered.
-      requestAnimationFrame(() => dismiss());
-    }, MIN_VISIBLE_MS);
-
-    // Backstop: if something below never settles, the overlay still goes away.
-    const backstop = setTimeout(dismiss, MAX_VISIBLE_MS);
+    // A plain timeout, deliberately: requestAnimationFrame does not fire in a
+    // background tab, so a visitor who switches away during load would come
+    // back to an overlay still sitting there.
+    const timer = setTimeout(dismiss, MIN_VISIBLE_MS);
 
     return () => {
-      clearTimeout(floor);
-      clearTimeout(backstop);
+      clearTimeout(timer);
       delete (window as Window & { finishLoading?: () => void }).finishLoading;
     };
   }, [dismiss]);

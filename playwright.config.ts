@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Port 3100, not 3000.
@@ -29,4 +29,16 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "on-first-retry",
   },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        // Use the full Chromium build rather than the separate
+        // chrome-headless-shell download, so `npx playwright install chromium`
+        // alone is enough to run the suite.
+        channel: "chromium",
+      },
+    },
+  ],
 });
