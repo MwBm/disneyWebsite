@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { waitColor } from "@/lib/crowd";
 
 type Ride = {
   rideId: number;
@@ -27,11 +28,32 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
-function waitColor(minutes: number) {
-  if (minutes <= 20) return "#22c55e";
-  if (minutes <= 45) return "#f59e0b";
-  if (minutes <= 75) return "#f97316";
-  return "#ef4444";
+/**
+ * Declared at module scope, not inside the table body: a component created
+ * during render is a new component type on every render, so React unmounts and
+ * remounts every header cell each time the table re-renders.
+ */
+function Header({
+  k,
+  label,
+  sort,
+  asc,
+  onSort,
+}: {
+  k: SortKey;
+  label: string;
+  sort: SortKey;
+  asc: boolean;
+  onSort: (key: SortKey) => void;
+}) {
+  return (
+    <th
+      onClick={() => onSort(k)}
+      className="text-left px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide cursor-pointer select-none hover:text-orange-400 transition-colors"
+    >
+      {label} {sort === k ? (asc ? "↑" : "↓") : ""}
+    </th>
+  );
 }
 
 export default function RidePredictionTable({ rides }: { rides: Ride[] }) {
@@ -50,25 +72,14 @@ export default function RidePredictionTable({ rides }: { rides: Ride[] }) {
     return asc ? cmp : -cmp;
   }), [rides, sort, asc]);
 
-  function Header({ k, label }: { k: SortKey; label: string }) {
-    return (
-      <th
-        onClick={() => toggleSort(k)}
-        className="text-left px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide cursor-pointer select-none hover:text-orange-400 transition-colors"
-      >
-        {label} {sort === k ? (asc ? "↑" : "↓") : ""}
-      </th>
-    );
-  }
-
   return (
     <div className="overflow-x-auto rounded-2xl border border-space-700 shadow-sm neon">
       <table className="w-full text-sm">
         <thead className="bg-cream-200">
           <tr>
-            <Header k="rideName" label="Ride" />
-            <Header k="landName" label="Land" />
-            <Header k="predictedWait" label="Predicted Wait" />
+            <Header k="rideName" label="Ride" sort={sort} asc={asc} onSort={toggleSort} />
+            <Header k="landName" label="Land" sort={sort} asc={asc} onSort={toggleSort} />
+            <Header k="predictedWait" label="Predicted Wait" sort={sort} asc={asc} onSort={toggleSort} />
             <th className="text-left px-4 py-3 text-xs font-medium text-warm-700 uppercase tracking-wide">
               Confidence
             </th>

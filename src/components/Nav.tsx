@@ -51,8 +51,14 @@ export default function Nav() {
     return () => window.removeEventListener("keydown", handler);
   }, [open]);
 
-  // Close on route change
-  useEffect(() => { setOpen(false); }, [pathname]);
+  // Close on route change. Adjusting state during render is React's documented
+  // alternative to an effect that immediately sets state — it avoids the extra
+  // render pass an effect would cause.
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
+    setOpen(false);
+  }
 
   return (
     <nav

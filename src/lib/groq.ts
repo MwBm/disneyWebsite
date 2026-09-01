@@ -2,6 +2,28 @@ import Groq from "groq-sdk";
 import { crowdLabel } from "./crowd";
 import { format } from "date-fns";
 
+/**
+ * Clamp a value parsed out of an LLM response into [min, max].
+ *
+ * The obvious form of this, `Number(v) || fallback`, is wrong: `||` fires on
+ * any falsy value and 0 is falsy, so a model that correctly answers "score: 0"
+ * — a closed park, a dead Tuesday in January — had that rewritten to the
+ * fallback of 50. Uses ?? semantics via an explicit finite check instead.
+ */
+export function clampParsedNumber(
+  value: unknown,
+  { min, max, fallback }: { min: number; max: number; fallback: number }
+): number {
+  // Number("") and Number("   ") are both 0, which would turn an empty field
+  // into a real score. Only a string with actual content is worth coercing.
+  const coercible =
+    typeof value === "number" ||
+    (typeof value === "string" && value.trim().length > 0);
+  const n = coercible ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.round(Math.max(min, Math.min(max, n)));
+}
+
 function getGroqClient() {
   const apiKey = process.env.GROQ_API_KEY;
 
@@ -103,8 +125,8 @@ Return ONLY valid JSON: {"score": <integer 0-100>, "narration": "<2-3 sentences>
   try {
     const parsed = JSON.parse(content);
     return {
-      score: Math.round(Math.max(0, Math.min(100, Number(parsed.score) || 50))),
-      narration: String(parsed.narration || ""),
+      score: clampParsedNumber(parsed.score, { min: 0, max: 100, fallback: 50 }),
+      narration: typeof parsed.narration === "string" ? parsed.narration : "",
     };
   } catch {
     return { score: 50, narration: "" };
@@ -126,12 +148,24 @@ export async function estimateDowCrowdScores(): Promise<Map<number, number>> {
   });
 
   const content = msg.choices[0]?.message?.content ?? "{}";
-  const parsed = JSON.parse(content);
+
+  // An unguarded JSON.parse here threw all the way out to the calendar route,
+  // whose bare catch left every day null with nothing logged.
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    return new Map<number, number>();
+  }
+  if (typeof parsed !== "object" || parsed === null) return new Map<number, number>();
+
   const map = new Map<number, number>();
   for (let d = 0; d <= 6; d++) {
     const val = parsed[String(d)];
-    if (typeof val === "number") {
-      map.set(d, Math.round(Math.max(0, Math.min(100, val))));
+    // A day the model omitted stays absent rather than being invented; only a
+    // usable number is admitted.
+    if (typeof val === "number" && Number.isFinite(val)) {
+      map.set(d, clampParsedNumber(val, { min: 0, max: 100, fallback: 0 }));
     }
   }
   return map;
@@ -176,8 +210,9 @@ Return ONLY valid JSON: {"adjustment": <integer -35 to 35>, "reasoning": "<one s
     });
     const content = msg.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(content);
-    const adjustment = Math.round(Math.max(-35, Math.min(35, Number(parsed.adjustment) || 0)));
-    return { adjustment, reasoning: String(parsed.reasoning || "") || null };
+    const adjustment = clampParsedNumber(parsed.adjustment, { min: -35, max: 35, fallback: 0 });
+    const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
+    return { adjustment, reasoning: reasoning || null };
   } catch {
     return { adjustment: 0, reasoning: null };
   }

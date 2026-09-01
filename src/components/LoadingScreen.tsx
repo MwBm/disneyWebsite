@@ -51,8 +51,22 @@ export default function LoadingScreen() {
   const [visible, setVisible] = useState(true);
   const [progress, setProgress] = useState(0);
   const [statusIndex, setStatusIndex] = useState(0);
-  const [factIndex, setFactIndex] = useState(0);
-  const [stars, setStars] = useState<StarDef[]>([]);
+  // Seeded in the initialiser, not an effect. Safe because this component is
+  // mounted client-only (see LoadingScreenMount) — there is no server render
+  // for these random values to disagree with.
+  const [factIndex, setFactIndex] = useState(() =>
+    Math.floor(Math.random() * FACTS.length)
+  );
+  const [stars] = useState<StarDef[]>(() =>
+    Array.from({ length: 80 }, () => ({
+      size: Math.random() * 2.5 + 1,
+      top: Math.random() * 100,
+      left: Math.random() * 100,
+      dur: +(Math.random() * 3 + 2).toFixed(1),
+      delay: +(Math.random() * 4).toFixed(1),
+      op: +(Math.random() * 0.5 + 0.3).toFixed(2),
+    }))
+  );
   const [doneText, setDoneText] = useState(false);
 
   const progressRef = useRef(0);
@@ -60,25 +74,6 @@ export default function LoadingScreen() {
   const dismissedRef = useRef(false);
   const progressInterval = useRef<ReturnType<typeof setInterval>>();
   const factInterval = useRef<ReturnType<typeof setInterval>>();
-
-  // Generate stars client-side only
-  useEffect(() => {
-    setStars(
-      Array.from({ length: 80 }, () => ({
-        size: Math.random() * 2.5 + 1,
-        top: Math.random() * 100,
-        left: Math.random() * 100,
-        dur: +(Math.random() * 3 + 2).toFixed(1),
-        delay: +(Math.random() * 4).toFixed(1),
-        op: +(Math.random() * 0.5 + 0.3).toFixed(2),
-      }))
-    );
-  }, []);
-
-  // Randomize starting fact client-side only (avoids hydration mismatch)
-  useEffect(() => {
-    setFactIndex(Math.floor(Math.random() * FACTS.length));
-  }, []);
 
   // Fact rotation
   useEffect(() => {

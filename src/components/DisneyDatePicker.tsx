@@ -15,21 +15,28 @@ function parseLocalDate(iso: string): Date {
   return new Date(y, m - 1, d);
 }
 
+function monthStartFromValue(value: string): Date {
+  const [y, m] = value.split("-").map(Number);
+  return new Date(y, m - 1, 1);
+}
+
 export default function DisneyDatePicker({ value, onChange, label }: Props) {
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [viewMonth, setViewMonth] = useState(() => {
-    const [y, m] = value.split("-").map(Number);
-    return new Date(y, m - 1, 1);
-  });
+  const [viewMonth, setViewMonth] = useState(() => monthStartFromValue(value));
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // viewMonth follows `value` but is also moved by the prev/next buttons, so it
+  // is state seeded from a prop. Resetting it during render when the prop
+  // changes is React's documented pattern; an effect that set it would render
+  // the old month once before correcting itself.
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    setLastValue(value);
+    setViewMonth(monthStartFromValue(value));
+  }
 
   const date = parseLocalDate(value);
   const today = format(new Date(), "yyyy-MM-dd");
-
-  useEffect(() => {
-    const [y, m] = value.split("-").map(Number);
-    setViewMonth(new Date(y, m - 1, 1));
-  }, [value]);
 
   useEffect(() => {
     function handler(e: MouseEvent) {
