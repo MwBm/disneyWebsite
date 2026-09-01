@@ -3,7 +3,9 @@ import { test, expect } from "@playwright/test";
 test.describe("Home — Crowd Forecast", () => {
   test("date picker and forecast button render", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator('input[type="date"]')).toBeVisible();
+    // DisneyDatePicker is a button-based picker, not a native date input; the
+    // previous `input[type="date"]` selector matched nothing.
+    await expect(page.getByRole("button", { name: /change date/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /forecast/i })).toBeVisible();
   });
 
@@ -39,17 +41,21 @@ test.describe("Wait Times page", () => {
     await expect(
       page.getByRole("heading", { name: /Wait Time Predictions/i })
     ).toBeVisible();
-    await expect(page.locator('input[type="date"]')).toBeVisible();
+    await expect(page.getByRole("button", { name: /change date/i })).toBeVisible();
   });
 
   test("accepts a date from the query string", async ({ page }) => {
     await page.goto("/wait-times?date=2026-07-04");
-    await expect(page.locator('input[type="date"]')).toHaveValue("2026-07-04");
+    await expect(
+      page.getByRole("button", { name: /change date, currently July 4, 2026/i })
+    ).toBeVisible();
   });
 
   test("falls back to a valid date when the query string is nonsense", async ({ page }) => {
     await page.goto("/wait-times?date=not-a-date");
-    await expect(page.locator('input[type="date"]')).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+    await expect(
+      page.getByRole("button", { name: /change date, currently \w+ \d{1,2}, \d{4}/i })
+    ).toBeVisible();
   });
 
   test("resolves to a terminal state rather than hanging on the spinner", async ({ page }) => {

@@ -103,6 +103,9 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
           <button
             type="button"
             onClick={() => setCalendarOpen((o) => !o)}
+            aria-label={`Change date, currently ${format(date, "MMMM d, yyyy")}`}
+            aria-expanded={calendarOpen}
+            aria-haspopup="dialog"
             className="flex-1 flex flex-col items-center gap-0 py-0.5 rounded-lg hover:bg-white/5 transition-colors px-1"
           >
             <span className="text-[9px] text-warm-600 tracking-[0.18em] uppercase font-semibold">
