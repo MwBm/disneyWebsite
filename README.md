@@ -1,5 +1,7 @@
 # Disneyland Trip Planner
 
+[![CI](https://github.com/MwBm/disneyWebsite/actions/workflows/ci.yml/badge.svg)](https://github.com/MwBm/disneyWebsite/actions/workflows/ci.yml)
+
 Crowd-level predictor, per-ride wait time forecaster, and historical accuracy tracker for Disneyland. Data collected on demand from queue-times.com via GitHub Actions. AI narration and post-process crowd adjustment via Groq (Llama 3.3).
 
 ## Stack
@@ -16,6 +18,7 @@ Crowd-level predictor, per-ride wait time forecaster, and historical accuracy tr
 | Route         | Purpose                                            |
 | ------------- | -------------------------------------------------- |
 | `/`           | Date picker → crowd score (0–100) + AI forecast    |
+| `/wait-times` | Per-ride predicted wait times for a selected date  |
 | `/accuracy`   | Historical predicted vs. actual wait time accuracy |
 | `/chat`       | Streaming AI chat assistant with live park context |
 | `/calendar`   | Monthly crowd calendar view                        |
@@ -29,6 +32,23 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+## Tests
+
+```bash
+npx tsc --noEmit                       # types
+npm run lint                           # eslint
+npm test                               # jest — 300+ unit and route tests
+npm run build                          # must succeed without a database
+
+cd ml-service && python -m pytest -q   # ML service
+
+npx playwright install chromium        # one-time, per machine
+npm run test:e2e                       # browser e2e on port 3100
+```
+
+CI runs everything except e2e on every push — see
+[docs/runbook-tests.md](docs/runbook-tests.md).
 
 ## Environment Variables
 
@@ -48,10 +68,12 @@ For GitHub Actions, add repo secrets (Settings → Secrets and variables → Act
 | -------------- | ----------------------------------------------------------------- |
 | `DATABASE_URL` | Supabase direct URL (port 5432, `?sslmode=require`)               |
 | `CRON_SECRET`  | Same value as `CRON_SECRET` in Vercel env                         |
-
-`CRON_SECRET` is required, not optional: `/api/cron/*` and `/api/admin/*` return
-500 when it is unset rather than allowing the request through.
 | `APP_URL`      | Your Vercel deployment URL (e.g. `https://your-app.vercel.app`)   |
+
+`CRON_SECRET` is required, not optional. `/api/cron/*` and `/api/admin/*` return
+500 when it is unset rather than letting the request through — an earlier version
+compared against `` `Bearer ${process.env.CRON_SECRET}` ``, which authenticated
+anyone sending the literal header `Bearer undefined`.
 
 ## Docs
 
@@ -70,11 +92,13 @@ For GitHub Actions, add repo secrets (Settings → Secrets and variables → Act
 ```
 Browser
   └── Next.js (Vercel)
+        ├── /wait-times        ← per-ride predicted waits for a date
         ├── /api/forecast      ← reads DailyForecast from DB; applies Groq adjustment
         ├── /api/calendar      ← monthly crowd scores from DailyForecast + HourlyWaitSummary
         ├── /api/accuracy      ← JOIN Prediction × WaitTimeRecord
         ├── /api/chat          ← Groq streaming + live context (rate-limited, 10 req/min per IP)
-        ├── /api/live          ← live wait times (revalidate 300s)
+        ├── /api/live          ← live wait times (CDN-cached 300s)
+        ├── /api/weather       ← 16-day Anaheim forecast (CDN-cached 1h)
         └── /api/admin/date-context  ← DateContext inspection (Bearer CRON_SECRET)
 
 GitHub Actions (daily 06:00 UTC)
@@ -100,5 +124,5 @@ GitHub Actions (monthly, 1st at 10:00 UTC)
         ├── ThemeParks.wiki (park hours + LLMP price → tier)
         ├── Open-Meteo (16-day weather forecast for Anaheim)
         ├── Climatological fallback (beyond 16-day window)
-        └── Groq adjuster (post-processes XGBoost crowd score ± 20 points)
+        └── Groq adjuster (post-processes XGBoost crowd score, bounded ±35)
 ```

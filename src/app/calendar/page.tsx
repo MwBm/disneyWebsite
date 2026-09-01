@@ -236,6 +236,7 @@ export default function CalendarPage() {
         <div className="flex items-center justify-between px-6 py-4 border-b border-space-700">
           <button
             onClick={prevMonth}
+            aria-label="Previous month"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-warm-700 hover:text-orange-400 hover:bg-space-800 transition-colors"
           >
             <ChevronLeft />
@@ -248,6 +249,7 @@ export default function CalendarPage() {
           </div>
           <button
             onClick={nextMonth}
+            aria-label="Next month"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-warm-700 hover:text-orange-400 hover:bg-space-800 transition-colors"
           >
             <ChevronRight />

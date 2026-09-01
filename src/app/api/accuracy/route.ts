@@ -1,7 +1,21 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { cachedJson } from "@/lib/http";
 
-export const revalidate = 1800;
+/**
+ * Dynamic, not prerendered.
+ *
+ * This route takes no search params, so Next prerendered it at build time —
+ * which ran this query against the production database during `next build` and
+ * made a live DB a hard build dependency. A deploy (or any CI) without database
+ * reachability failed with ECONNREFUSED before it could finish.
+ *
+ * It also baked a 30-day accuracy window into the build output. The window
+ * moves every day, so the correct shape is a dynamic route with a CDN cache
+ * header, matching /api/forecast and /api/calendar.
+ */
+export const dynamic = "force-dynamic";
+
+const CACHE_SECONDS = 1800;
 
 const DCA_LANDS = new Set([
   "Avengers Campus",
@@ -50,7 +64,7 @@ export async function GET() {
   `;
 
   if (rows.length === 0) {
-    return NextResponse.json({ summary: null, perRide: [], rows: [] });
+    return cachedJson({ summary: null, perRide: [], rows: [] }, CACHE_SECONDS);
   }
 
   // Summary stats
@@ -101,9 +115,9 @@ export async function GET() {
     absError: Number(r.absError),
   }));
 
-  return NextResponse.json({
+  return cachedJson({
     summary: { mae, within5, within10, within15, totalPredictions: rows.length },
     perRide,
     rows: serializedRows,
-  });
+  }, CACHE_SECONDS);
 }
