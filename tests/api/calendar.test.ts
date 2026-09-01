@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/calendar/route";
 import { prisma } from "@/lib/db";
+import { _resetRateLimits } from "@/lib/rate-limit";
 import * as groqLib from "@/lib/groq";
 import * as forecastLib from "@/lib/forecast";
 
@@ -14,6 +15,8 @@ jest.mock("@/lib/groq", () => ({
 jest.mock("@/lib/forecast", () => ({
   getCrowdScoresForMonth: jest.fn(),
 }));
+
+beforeEach(() => _resetRateLimits());
 
 function makeReq(year: number, month: number) {
   return new NextRequest(new URL(`http://localhost/api/calendar?year=${year}&month=${month}`));

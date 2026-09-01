@@ -4,6 +4,10 @@ import Groq from "groq-sdk";
 import { fetchLiveRides } from "@/lib/queue-times";
 import { getCrowdScoreForDate } from "@/lib/forecast";
 import { buildChatSystemPrompt } from "@/lib/groq";
+import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+
+/** This route spends money on every request, so it is metered per client. */
+const RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 
 function getGroqClient() {
   const apiKey = process.env.GROQ_API_KEY;
@@ -25,6 +29,23 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // Cheapest rejections first: config, then quota, then payload shape — none of
+  // them should pay for the upstream fetches below.
+  if (!process.env.GROQ_API_KEY) {
+    return NextResponse.json(
+      { error: "Chat is unavailable: GROQ_API_KEY is not configured" },
+      { status: 503 }
+    );
+  }
+
+  const limit = checkRateLimit(clientKey(req), RATE_LIMIT);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
+    );
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(body);
 
@@ -63,8 +84,12 @@ export async function POST(req: NextRequest) {
           const text = chunk.choices[0]?.delta?.content ?? "";
           if (text) controller.enqueue(encoder.encode(text));
         }
-      } finally {
         controller.close();
+      } catch (err) {
+        // Must error() the stream, not close() it. A close() after a mid-stream
+        // failure looks exactly like a complete response to the browser, so the
+        // user silently reads a truncated answer as if it were finished.
+        controller.error(err);
       }
     },
   });

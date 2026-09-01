@@ -6,8 +6,17 @@ import { deriveCrowdScore, HISTORICAL_FALLBACK_CONFIDENCE } from "@/lib/crowd";
 import { parseISO, isValid } from "date-fns";
 import { parkDateRangeUtc } from "@/lib/park-time";
 import { prisma } from "@/lib/db";
+import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+import { cachedJson } from "@/lib/http";
 
-export const revalidate = 1800;
+/** Seconds the CDN may serve a cached forecast for a given date. */
+const CACHE_SECONDS = 1800;
+
+/**
+ * Every cache miss here can cost a Groq call, and the date is caller-supplied,
+ * so enumerating dates bypasses the cache entirely. The limit is the backstop.
+ */
+const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 
 const QuerySchema = z.object({
   date: z
@@ -17,6 +26,14 @@ const QuerySchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
+  const limit = checkRateLimit(clientKey(req), RATE_LIMIT);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
+    );
+  }
+
   const { searchParams } = req.nextUrl;
   const parsed = QuerySchema.safeParse({ date: searchParams.get("date") });
 
@@ -77,7 +94,7 @@ export async function GET(req: NextRequest) {
         crowdNarration = await narrateForecast(syntheticCrowdScore, syntheticForecasts, date);
       } catch { /* non-fatal */ }
 
-      return NextResponse.json({
+      return cachedJson({
         date: parsed.data.date,
         crowdScore: syntheticCrowdScore,
         crowdNarration,
@@ -85,7 +102,7 @@ export async function GET(req: NextRequest) {
         source: "historical",
         dataQualityOk,
         lastCollectedAt,
-      });
+      }, CACHE_SECONDS);
     }
 
     // No data at all — Groq general estimate (score + narration in one call)
@@ -97,7 +114,7 @@ export async function GET(req: NextRequest) {
       crowdNarration = groqResult.narration;
     } catch { /* non-fatal */ }
 
-    return NextResponse.json({
+    return cachedJson({
       date: parsed.data.date,
       crowdScore,
       crowdNarration,
@@ -105,7 +122,7 @@ export async function GET(req: NextRequest) {
       source: "groq",
       dataQualityOk,
       lastCollectedAt,
-    });
+    }, CACHE_SECONDS);
   }
 
   const mappedForecasts = forecasts.map((f) => ({
@@ -128,7 +145,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
+  return cachedJson({
     date: parsed.data.date,
     crowdScore,
     groqAdjustment: groqAdjustment !== 0 ? groqAdjustment : undefined,
@@ -138,5 +155,5 @@ export async function GET(req: NextRequest) {
     source: "ml",
     dataQualityOk,
     lastCollectedAt,
-  });
+  }, CACHE_SECONDS);
 }

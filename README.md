@@ -6,7 +6,7 @@ Crowd-level predictor, per-ride wait time forecaster, and historical accuracy tr
 
 | Layer              | Tech                                                           |
 | ------------------ | -------------------------------------------------------------- |
-| Frontend + API     | Next.js 14 (App Router, TypeScript) — Vercel                   |
+| Frontend + API     | Next.js 16 (App Router, TypeScript) — Vercel                   |
 | Data + ML pipeline | Python 3.11 + XGBoost — GitHub Actions (daily + manual dispatch) |
 | Database           | Supabase (PostgreSQL) via Prisma                               |
 | AI                 | Groq API (`llama-3.3-70b-versatile`)                           |
@@ -16,7 +16,6 @@ Crowd-level predictor, per-ride wait time forecaster, and historical accuracy tr
 | Route         | Purpose                                            |
 | ------------- | -------------------------------------------------- |
 | `/`           | Date picker → crowd score (0–100) + AI forecast    |
-| `/wait-times` | Per-ride predicted wait times for a selected date  |
 | `/accuracy`   | Historical predicted vs. actual wait time accuracy |
 | `/chat`       | Streaming AI chat assistant with live park context |
 | `/calendar`   | Monthly crowd calendar view                        |
@@ -49,6 +48,9 @@ For GitHub Actions, add repo secrets (Settings → Secrets and variables → Act
 | -------------- | ----------------------------------------------------------------- |
 | `DATABASE_URL` | Supabase direct URL (port 5432, `?sslmode=require`)               |
 | `CRON_SECRET`  | Same value as `CRON_SECRET` in Vercel env                         |
+
+`CRON_SECRET` is required, not optional: `/api/cron/*` and `/api/admin/*` return
+500 when it is unset rather than allowing the request through.
 | `APP_URL`      | Your Vercel deployment URL (e.g. `https://your-app.vercel.app`)   |
 
 ## Docs
@@ -71,14 +73,15 @@ Browser
         ├── /api/forecast      ← reads DailyForecast from DB; applies Groq adjustment
         ├── /api/calendar      ← monthly crowd scores from DailyForecast + HourlyWaitSummary
         ├── /api/accuracy      ← JOIN Prediction × WaitTimeRecord
-        ├── /api/chat          ← Groq streaming + live context
-        └── /api/live          ← live wait times (revalidate 300s)
+        ├── /api/chat          ← Groq streaming + live context (rate-limited, 10 req/min per IP)
+        ├── /api/live          ← live wait times (revalidate 300s)
+        └── /api/admin/date-context  ← DateContext inspection (Bearer CRON_SECRET)
 
 GitHub Actions (daily 06:00 UTC)
   └── ml-service/train.py
         ├── Full history: WaitTimeRecord (raw window) + HourlyWaitSummary
         ├── Attach DateContext + lag features + cross-ride features
-        ├── XGBoost per-ride model with walk-forward CV (23 features)
+        ├── XGBoost per-ride model, expanding-window walk-forward CV (23 features)
         └── Supabase (upsert 30-day DailyForecast + log CollectRun)
 
 GitHub Actions (manual dispatch)

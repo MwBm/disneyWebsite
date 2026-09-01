@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/forecast/route";
 import { prisma } from "@/lib/db";
+import { _resetRateLimits } from "@/lib/rate-limit";
 import * as groqLib from "@/lib/groq";
 
 const mockForecastFindMany = prisma.dailyForecast.findMany as jest.Mock;
@@ -11,6 +12,8 @@ jest.mock("@/lib/groq", () => ({
   narrateForecast: jest.fn().mockResolvedValue("Test narration"),
   narrateForecastNoDataWithScore: jest.fn().mockResolvedValue({ score: 55, narration: "No data narration" }),
 }));
+
+beforeEach(() => _resetRateLimits());
 
 function makeReq(date: string) {
   return new NextRequest(new URL(`http://localhost/api/forecast?date=${date}`));

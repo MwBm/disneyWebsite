@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireBearer } from "@/lib/auth";
 
 export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
+  const denied = requireBearer(req);
+  if (denied) return denied;
+
   const { searchParams } = req.nextUrl;
-  const days = Math.min(Number(searchParams.get("days") ?? 90), 365);
+  // Non-numeric input (?days=abc) yields NaN, which propagates through the date
+  // arithmetic below and reaches Prisma as an Invalid Date. Clamp explicitly.
+  const requestedDays = Number(searchParams.get("days") ?? 90);
+  const days = Number.isFinite(requestedDays)
+    ? Math.min(Math.max(Math.trunc(requestedDays), 1), 365)
+    : 90;
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const end = new Date(start.getTime() + days * 86_400_000);
