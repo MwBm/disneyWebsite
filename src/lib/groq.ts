@@ -43,16 +43,16 @@ type RideForecast = {
 
 export async function narrateForecast(
   crowdScore: number,
-  forecasts: RideForecast[],
+  forecasts: { rideName: string; peakWait: number }[],
   date: Date
 ): Promise<string> {
   const groq = getGroqClient();
   const { label } = crowdLabel(crowdScore);
   const dateStr = format(date, "MMMM d, yyyy");
   const top5 = [...forecasts]
-    .sort((a, b) => b.predictedWait - a.predictedWait)
+    .sort((a, b) => b.peakWait - a.peakWait)
     .slice(0, 5)
-    .map((f) => `${f.rideName} (~${f.predictedWait} min)`)
+    .map((f) => `${f.rideName} (peak ~${f.peakWait} min)`)
     .join(", ");
 
   const msg = await groq.chat.completions.create({

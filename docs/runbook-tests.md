@@ -32,14 +32,14 @@ Prisma is mocked globally in `tests/setup.ts`, so no test touches a database.
 Route tests mock the **lib boundary**, not Prisma:
 
 ```ts
-jest.mock("@/lib/forecast", () => ({ getForecastForDate: jest.fn(), ... }));
+jest.mock("@/lib/forecast-queries", () => ({ getRideForecastsForDate: jest.fn(), ... }));
 ```
 
-Mocking `prisma.$queryRaw` from a route test does not work. `getForecastForDate`
-and `getHistoricalMeansForDate` both go through that single mock, so a test
-cannot make one return ML rows and the other return historical rows — the
-fallback branch becomes untestable. `tests/lib/forecast.test.ts` is where the
-Prisma-level behaviour of those functions is covered.
+Mocking `prisma.$queryRaw` from a route test does not work: every raw query
+goes through that one mock, so a test cannot give the ML read and the
+historical read different rows. The SQL lives in `src/lib/forecast-queries.ts`
+so routes and `forecast.ts` can mock each query separately; the SQL itself is
+tested against Postgres (below).
 
 ### Coverage map
 
@@ -54,9 +54,12 @@ Prisma-level behaviour of those functions is covered.
 | LLM response parsing and clamping | `tests/lib/groq.test.ts` |
 | Holiday + school-break calendar | `tests/lib/date-context.test.ts` |
 | Park-local date/time conversion | `tests/lib/park-time.test.ts` |
-| Monthly crowd aggregation | `tests/lib/forecast.test.ts` |
+| Monthly crowd aggregation, per-date score | `tests/lib/forecast.test.ts` |
+| Forecast query parameters + number coercion | `tests/lib/forecast-queries.test.ts` |
+| Groq sync: daily ML scores per pending date | `tests/lib/sync-groq-adjustments.test.ts` |
+| **Forecast SQL on real Postgres** (Pacific-day bounds, DST, rounding, weekday filters, job enum) | `tests/integration/forecast-queries.test.ts` |
 | Accuracy table filter/sort | `tests/lib/accuracy-filters.test.ts` |
-| `/api/forecast` — ML, historical, Groq, validation, caching, 429 | `tests/api/forecast.test.ts` |
+| `/api/forecast` — one avg/peak row per ride on every path, Groq adjustment, validation, caching, 429 | `tests/api/forecast.test.ts` |
 | `/api/calendar` | `tests/api/calendar.test.ts` |
 | `/api/accuracy` — MAE, buckets, per-ride, BigInt coercion | `tests/api/accuracy.test.ts` |
 | Components | `tests/components/*.test.tsx` |
@@ -96,7 +99,17 @@ python -m pytest -q                    # unit tests; integration tests are desel
 python -m pytest tests/test_model.py -v
 ```
 
-### Integration tests (`tests/integration/`, real Postgres)
+### Web SQL integration tests (Jest, real Postgres)
+
+`jest.integration.config.ts` runs `tests/integration/*.test.ts` without the
+global Prisma mock, against `TEST_DATABASE_URL` (localhost only; skipped when
+unset, required in CI):
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/disney_test npm run test:integration
+```
+
+### ML integration tests (`ml-service/tests/integration/`, real Postgres)
 
 Marked `integration` and excluded by default (`pytest.ini`). They cover what mocks
 can't: real SQL, transactions and rollback, the `JobKind` enum cast, archive

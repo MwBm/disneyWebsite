@@ -45,21 +45,30 @@ Throws `QueueTimesError` on network failure or invalid response shape. Callers (
 
 ---
 
-## `forecast.ts` — DB Read Helpers
+## `forecast-queries.ts` — SQL reads
+
+Every aggregate happens in Postgres; each returned row costs egress. Unit tests mock this module, and `tests/integration/forecast-queries.test.ts` runs every query against real Postgres.
 
 | Function / Export | Returns |
 |---|---|
-| `getForecastForDate(date)` | `DailyForecast[]` for a given date |
-| `getCrowdScoreForDate(date)` | Average `crowdScore` across all rides for date |
-| `getRecentCollectRuns(n)` | Last `n` `CollectRun` rows (for data-quality indicator) |
-| `getHistoricalMeansForDate(date)` | Same-DOW hour-means from `WaitTimeRecord` (historical fallback) |
-| `getCrowdScoresForMonth(year, month)` | Full month of `DayCrowdScore` for calendar view |
-| `resolveCrowdScore({forecasts, ctx, historicalMeans})` | Pick best crowd score from available sources (ML → historical → null) |
-| `ML_FORECAST_DAYS` | Constant: `30` — the ML forecast horizon |
-| `DayCrowdScore` | `{ date, crowdScore, source, tier, specialEvent, isHoliday }` |
-| `HistoricalMean` | `{ rideId, rideName, hour, avgWait }` |
+| `getRideForecastsForDate(date)` | `RideDayForecast[]`: one per ride, `avgWait`/`peakWait`/`mlConfidence` over the Pacific day |
+| `getDailyMlCrowdScores(start, endExclusive)` | `Map<"YYYY-MM-DD", score>`: rounded mean `crowdScore` per Pacific date |
+| `getHistoricalRideWaitsForDate(date)` | `HistoricalRideWaits[]`: per-ride avg/peak of typical hourly waits on that weekday, last 2 years of `HourlyWaitSummary`, 08:00 onwards |
+| `getHistoricalDowMeanWaits(month)` | `Map<dow, meanWait>` for the month, last year weighted 2× |
+| `getRecentCollectRuns(n)` | Last `n` `CollectRun` rows with `job = 'collect'` |
+| `FORECAST_FIRST_LOCAL_HOUR` | `8`: must match `PARK_CLOSED_LOCAL_HOURS` in `ml-service/pipeline.py` (a pytest checks) |
 
-`getCrowdScoresForMonth` sources per day (in priority order): ML forecasts → same-DOW historical means from `HourlyWaitSummary` → `"unavailable"` beyond ML window.
+## `forecast.ts` — Crowd-score logic
+
+| Function / Export | Returns |
+|---|---|
+| `getCrowdScoreForDate(date)` | Mean ML crowd score for the Pacific date, or null |
+| `getCrowdScoresForMonth(year, month)` | Full month of `DayCrowdScore` for the calendar view |
+| `resolveCrowdScore({ mlScore, historicalScore, groqScore, isBeyondWindow })` | Best available score: ML → historical → Groq; `"unavailable"` beyond the window |
+| `ML_FORECAST_DAYS` | `30`, the ML forecast horizon |
+| `DayCrowdScore` | `{ date, crowdScore, source, tier, specialEvent, isHoliday }` |
+
+`rate-limit.ts` also exports `rateLimitResponse(req, config)`: the 429 `NextResponse` for an over-limit client, or null. Every rate-limited route uses it.
 
 ---
 

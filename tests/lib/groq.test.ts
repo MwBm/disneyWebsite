@@ -279,3 +279,40 @@ describe("getGroqClient — missing key", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
+
+describe("narrateForecast — prompt", () => {
+  beforeEach(() => {
+    process.env.GROQ_API_KEY = "test-key";
+  });
+
+  it("lists the five rides with the highest peak wait, highest first", async () => {
+    const { narrateForecast } = await import("@/lib/groq");
+    respondWith("A busy day.");
+    const rides = [
+      { rideName: "Short Peak", peakWait: 10, avgWait: 9 },
+      { rideName: "Tallest Peak", peakWait: 95, avgWait: 30 },
+      { rideName: "Second", peakWait: 80, avgWait: 70 },
+      { rideName: "Third", peakWait: 60, avgWait: 55 },
+      { rideName: "Fourth", peakWait: 45, avgWait: 40 },
+      { rideName: "Fifth", peakWait: 40, avgWait: 35 },
+    ];
+
+    expect(await narrateForecast(72, rides, new Date("2026-07-04T19:00:00Z"))).toBe("A busy day.");
+
+    const prompt = mockCreate.mock.calls.at(-1)[0].messages[0].content as string;
+    expect(prompt).toContain(
+      "Top predicted waits: Tallest Peak (peak ~95 min), Second (peak ~80 min), Third (peak ~60 min), Fourth (peak ~45 min), Fifth (peak ~40 min)"
+    );
+    expect(prompt).not.toContain("Short Peak");
+    expect(prompt).toContain("Crowd score: 72/100");
+  });
+
+  it("does not reorder the caller's array", async () => {
+    const { narrateForecast } = await import("@/lib/groq");
+    respondWith("ok");
+    const rides = [{ rideName: "A", peakWait: 1 }, { rideName: "B", peakWait: 2 }];
+
+    await narrateForecast(10, rides, new Date());
+    expect(rides.map((r) => r.rideName)).toEqual(["A", "B"]);
+  });
+});

@@ -5,19 +5,13 @@ import { format, parseISO } from "date-fns";
 import DisneyDatePicker from "./DisneyDatePicker";
 import RidePredictionTable from "./RidePredictionTable";
 import { crowdLabel } from "@/lib/crowd";
+import type { RideDayForecast } from "@/lib/forecast-queries";
 
-type Ride = {
-  rideId: number;
-  rideName: string;
-  landName: string;
-  predictedWait: number;
-  mlConfidence: number;
-};
 
 type ForecastResponse = {
   date: string;
   crowdScore: number | null;
-  forecasts: Ride[];
+  forecasts: RideDayForecast[];
   source: "ml" | "historical" | "groq";
   dataQualityOk: boolean;
   lastCollectedAt: string | null;
@@ -25,8 +19,8 @@ type ForecastResponse = {
 
 /** How the numbers were produced, stated plainly rather than implied. */
 const SOURCE_NOTES: Record<ForecastResponse["source"], string> = {
-  ml: "Per-ride XGBoost predictions.",
-  historical: "No model output for this date — showing historical averages for this day of week.",
+  ml: "Per-ride XGBoost predictions, averaged and peaked over 8 AM–midnight.",
+  historical: "No model output for this date — showing typical waits for this day of week over the last two years.",
   groq: "No per-ride data for this date yet.",
 };
 

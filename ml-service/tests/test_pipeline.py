@@ -586,3 +586,14 @@ def test_generate_forecasts_upserts_one_row_per_ride_per_slot_without_committing
     # Writing is the last statement, and committing is the caller's job.
     assert conn.statements[-1] is upsert
     assert "commit" not in conn.events
+
+
+def test_web_historical_fallback_uses_the_same_first_hour_as_forecast_slots():
+    """src/lib/forecast-queries.ts averages history over the hours forecasts cover; the two must agree."""
+    import re
+    from pathlib import Path
+
+    ts = (Path(__file__).resolve().parents[2] / "src" / "lib" / "forecast-queries.ts").read_text()
+    first_hour = int(re.search(r"export const FORECAST_FIRST_LOCAL_HOUR = (\d+);", ts).group(1))
+    assert first_hour == min(set(range(24)) - PARK_CLOSED_LOCAL_HOURS)
+    assert PARK_CLOSED_LOCAL_HOURS == frozenset(range(first_hour))

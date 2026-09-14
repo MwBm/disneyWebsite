@@ -18,11 +18,13 @@ The cron pipeline lives in `ml-service/collect.py` and runs via GitHub Actions d
 
 **Query params:** `?date=YYYY-MM-DD` (required, Zod-validated)
 
-**Logic:**
-1. Fetch `DailyForecast` rows for date + `CollectRun` history + `DateContext.groqAdjustment`
-2. If ML forecasts exist: apply `groqAdjustment` to raw crowd score, narrate via Groq → `source: "ml"`
-3. If no ML forecasts but historical data exists: synthesize from `HourlyWaitSummary` same-DOW means → `source: "historical"`
-4. If no data at all: call Groq for general estimate → `source: "groq"`
+**Logic** (queries in `src/lib/forecast-queries.ts`, all aggregated in Postgres):
+1. In parallel: per-ride avg/peak for the Pacific date (`getRideForecastsForDate`), the date's mean ML crowd score (`getCrowdScoreForDate`), the last 3 **collect** runs, `DateContext.groqAdjustment`
+2. If ML forecasts exist: apply `groqAdjustment` to the crowd score (rounded, clamped 0–100), narrate via Groq → `source: "ml"`
+3. Else, if `HourlyWaitSummary` has history: per-ride avg/peak of typical waits on that weekday over the last 2 years, 08:00–23:00 only (`getHistoricalRideWaitsForDate`); crowd score from the mean of the rides' `avgWait` → `source: "historical"`
+4. Else: Groq general estimate → `source: "groq"`
+
+`forecasts` has **one entry per ride** on every path. Before September 2026 the ML path returned one arbitrary time slot per ride: `mlConfidence` tied across a ride's slots, so a `DISTINCT ON` picked any of them. The historical path returned one row per ride per hour.
 
 **Response (ML path):**
 ```json
@@ -37,9 +39,8 @@ The cron pipeline lives in `ml-service/collect.py` and runs via GitHub Actions d
       "rideId": 1,
       "rideName": "Matterhorn Bobsleds",
       "landName": "Fantasyland",
-      "forecastFor": "2025-07-04T20:00:00.000Z",
-      "predictedWait": 65,
-      "crowdScore": 87,
+      "avgWait": 48,
+      "peakWait": 65,
       "mlConfidence": 0.78
     }
   ],
@@ -51,7 +52,9 @@ The cron pipeline lives in `ml-service/collect.py` and runs via GitHub Actions d
 
 `groqAdjustment` and `groqReasoning` are omitted when adjustment is 0.
 
-**Response (historical path):** Same shape with `source: "historical"`, `crowdScore` derived from same-DOW wait means, `mlConfidence: 0.25` on each forecast.
+`avgWait` is the mean predicted wait over the day's forecast slots (08:00–23:30 Pacific); `peakWait` the highest. Narration lists the five highest peaks.
+
+**Response (historical path):** Same shape with `source: "historical"`, `mlConfidence: 0.25` on each ride, no Groq adjustment.
 
 **Response (groq path):** `forecasts: []`, `crowdScore` and `crowdNarration` from Groq general estimate, `source: "groq"`.
 

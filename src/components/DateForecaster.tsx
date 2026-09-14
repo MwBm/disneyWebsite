@@ -5,12 +5,13 @@ import { format, parseISO } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import CrowdMeter from "./CrowdMeter";
 import DisneyDatePicker from "./DisneyDatePicker";
+import type { RideDayForecast } from "@/lib/forecast-queries";
 
 type Forecast = {
   date: string;
   crowdScore: number | null;
   crowdNarration: string | null;
-  forecasts: { rideId: number; rideName: string; landName: string; predictedWait: number }[];
+  forecasts: RideDayForecast[];
   source: string;
   dataQualityOk: boolean;
   lastCollectedAt: string | null;

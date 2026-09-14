@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getForecastForDate, getRecentCollectRuns, getHistoricalMeansForDate } from "@/lib/forecast";
+import { getCrowdScoreForDate } from "@/lib/forecast";
+import {
+  getHistoricalRideWaitsForDate,
+  getRecentCollectRuns,
+  getRideForecastsForDate,
+  type RideDayForecast,
+} from "@/lib/forecast-queries";
 import { narrateForecast, narrateForecastNoDataWithScore } from "@/lib/groq";
 import { deriveCrowdScore, HISTORICAL_FALLBACK_CONFIDENCE } from "@/lib/crowd";
 import { parseISO, isValid } from "date-fns";
 import { parkDateRangeUtc } from "@/lib/park-time";
 import { prisma } from "@/lib/db";
-import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
 
 /** Seconds the CDN may serve a cached forecast for a given date. */
@@ -25,14 +31,15 @@ const QuerySchema = z.object({
     .refine((v) => isValid(parseISO(v)), { message: "Invalid date" }),
 });
 
+/**
+ * `forecasts` holds one entry per ride with its average and peak wait for the
+ * day, whichever source produced it. Both paths used to return something else:
+ * the ML path one arbitrary time slot per ride, the historical path one row
+ * per ride per hour.
+ */
 export async function GET(req: NextRequest) {
-  const limit = checkRateLimit(clientKey(req), RATE_LIMIT);
-  if (!limit.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Please slow down." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
-    );
-  }
+  const limited = rateLimitResponse(req, RATE_LIMIT);
+  if (limited) return limited;
 
   const { searchParams } = req.nextUrl;
   const parsed = QuerySchema.safeParse({ date: searchParams.get("date") });
@@ -46,8 +53,9 @@ export async function GET(req: NextRequest) {
 
   const dateKey = parsed.data.date;
   const date = parkDateRangeUtc(dateKey).start;
-  const [forecasts, recentRuns, dateCtx] = await Promise.all([
-    getForecastForDate(dateKey),
+  const [rides, mlCrowdScore, recentRuns, dateCtx] = await Promise.all([
+    getRideForecastsForDate(dateKey),
+    getCrowdScoreForDate(dateKey),
     getRecentCollectRuns(3),
     prisma.dateContext.findUnique({
       where: { date },
@@ -55,113 +63,81 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  const mlCrowdScore =
-    forecasts.length > 0
-      ? Math.round(forecasts.reduce((a, b) => a + b.crowdScore, 0) / forecasts.length)
-      : null;
-
-  const groqAdjustment = dateCtx?.groqAdjustment ?? 0;
-  const crowdScore =
-    mlCrowdScore !== null
-      ? Math.min(100, Math.max(0, Math.round(mlCrowdScore + groqAdjustment)))
-      : null;
-
   const dataQualityOk = recentRuns.length > 0 && recentRuns.some((r) => r.success);
   const lastCollectedAt = recentRuns[0]?.ranAt ?? null;
+  const status = { date: dateKey, dataQualityOk, lastCollectedAt };
 
-  if (forecasts.length === 0) {
-    const historicalMeans = await getHistoricalMeansForDate(dateKey);
-
-    if (historicalMeans.length > 0) {
-      const dayStart = parkDateRangeUtc(dateKey).start;
-      const syntheticForecasts = historicalMeans.map((m) => ({
-        rideId: m.rideId,
-        rideName: m.rideName,
-        landName: m.landName,
-        forecastFor: new Date(dayStart.getTime() + m.hour * 3_600_000).toISOString(),
-        predictedWait: m.meanWait,
-        crowdScore: 0,
-        mlConfidence: HISTORICAL_FALLBACK_CONFIDENCE,
-      }));
-
-      const avgWait =
-        syntheticForecasts.reduce((s, f) => s + f.predictedWait, 0) / syntheticForecasts.length;
-      const syntheticCrowdScore = deriveCrowdScore(avgWait);
-      syntheticForecasts.forEach((f) => (f.crowdScore = syntheticCrowdScore));
-
-      let crowdNarration: string | null = null;
-      try {
-        crowdNarration = await narrateForecast(syntheticCrowdScore, syntheticForecasts, date);
-      } catch (err) {
-        // Non-fatal, but never silent: a bare catch here hid the fact that
-        // every narration call was 404ing on a retired Groq model.
-        console.error("narrateForecast failed (historical path)", err);
-      }
-
-      return cachedJson({
-        date: parsed.data.date,
-        crowdScore: syntheticCrowdScore,
-        crowdNarration,
-        forecasts: syntheticForecasts,
-        source: "historical",
-        dataQualityOk,
-        lastCollectedAt,
-      }, CACHE_SECONDS);
-    }
-
-    // No data at all — Groq general estimate (score + narration in one call)
-    let crowdNarration: string | null = null;
-    let crowdScore: number | null = null;
-    try {
-      const groqResult = await narrateForecastNoDataWithScore(date);
-      crowdScore = groqResult.score;
-      crowdNarration = groqResult.narration;
-    } catch (err) {
-      console.error("narrateForecastNoDataWithScore failed", err);
-    }
+  if (rides.length > 0) {
+    const groqAdjustment = dateCtx?.groqAdjustment ?? 0;
+    const crowdScore =
+      mlCrowdScore !== null
+        ? Math.min(100, Math.max(0, Math.round(mlCrowdScore + groqAdjustment)))
+        : null;
 
     return cachedJson({
-      date: parsed.data.date,
+      ...status,
       crowdScore,
-      crowdNarration,
-      forecasts: [],
-      source: "groq",
-      dataQualityOk,
-      lastCollectedAt,
+      groqAdjustment: groqAdjustment !== 0 ? groqAdjustment : undefined,
+      groqReasoning: dateCtx?.groqReasoning ?? undefined,
+      crowdNarration: crowdScore !== null ? await narrate("ml path", crowdScore, rides, date) : null,
+      forecasts: rides,
+      source: "ml",
     }, CACHE_SECONDS);
   }
 
-  const mappedForecasts = forecasts.map((f) => ({
-    rideId: f.rideId,
-    rideName: f.rideName,
-    landName: f.landName,
-    forecastFor: f.forecastFor.toISOString(),
-    predictedWait: f.predictedWait,
-    crowdScore: f.crowdScore,
-    mlConfidence: f.mlConfidence,
-  }));
+  const historical = await getHistoricalRideWaitsForDate(dateKey);
+  if (historical.length > 0) {
+    const forecasts: RideDayForecast[] = historical.map((r) => ({
+      ...r,
+      mlConfidence: HISTORICAL_FALLBACK_CONFIDENCE,
+    }));
+    const meanAvgWait = forecasts.reduce((sum, r) => sum + r.avgWait, 0) / forecasts.length;
+    const crowdScore = deriveCrowdScore(meanAvgWait);
 
-  // Generate Claude narration for the crowd forecast
+    return cachedJson({
+      ...status,
+      crowdScore,
+      crowdNarration: await narrate("historical path", crowdScore, forecasts, date),
+      forecasts,
+      source: "historical",
+    }, CACHE_SECONDS);
+  }
+
+  // No data at all — Groq general estimate (score + narration in one call)
   let crowdNarration: string | null = null;
-  if (crowdScore !== null) {
-    try {
-      crowdNarration = await narrateForecast(crowdScore, mappedForecasts, date);
-    } catch (err) {
-      // Narration is a nice-to-have, so the forecast still returns — but the
-      // failure gets logged rather than vanishing.
-      console.error("narrateForecast failed (ml path)", err);
-    }
+  let crowdScore: number | null = null;
+  try {
+    const groqResult = await narrateForecastNoDataWithScore(date);
+    crowdScore = groqResult.score;
+    crowdNarration = groqResult.narration;
+  } catch (err) {
+    console.error("narrateForecastNoDataWithScore failed", err);
   }
 
   return cachedJson({
-    date: parsed.data.date,
+    ...status,
     crowdScore,
-    groqAdjustment: groqAdjustment !== 0 ? groqAdjustment : undefined,
-    groqReasoning: dateCtx?.groqReasoning ?? undefined,
     crowdNarration,
-    forecasts: mappedForecasts,
-    source: "ml",
-    dataQualityOk,
-    lastCollectedAt,
+    forecasts: [],
+    source: "groq",
   }, CACHE_SECONDS);
+}
+
+/**
+ * Narration is a nice-to-have: the forecast is returned without it, but a
+ * failure is logged, never swallowed. A bare catch once hid every narration
+ * call 404ing on a retired Groq model.
+ */
+async function narrate(
+  path: string,
+  crowdScore: number,
+  rides: RideDayForecast[],
+  date: Date
+): Promise<string | null> {
+  try {
+    return await narrateForecast(crowdScore, rides, date);
+  } catch (err) {
+    console.error(`narrateForecast failed (${path})`, err);
+    return null;
+  }
 }

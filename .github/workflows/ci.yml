@@ -73,7 +73,7 @@ jobs:
         run: python -m pytest -q
 
   ml-integration:
-    name: ML service — integration tests on Postgres 17
+    name: Integration tests on Postgres 17 (migrations, ml-service, web SQL)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -111,6 +111,12 @@ jobs:
 
       - name: Migrations produce exactly schema.prisma
         run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Web SQL integration tests
+        run: npm run test:integration
 
       - uses: actions/setup-python@v5
         with:
