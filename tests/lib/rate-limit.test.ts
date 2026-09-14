@@ -1,4 +1,4 @@
-import { checkRateLimit, clientKey, _resetRateLimits } from "@/lib/rate-limit";
+import { checkRateLimit, clientKey, rateLimitResponse, _resetRateLimits } from "@/lib/rate-limit";
 
 const CONFIG = { limit: 3, windowMs: 60_000 };
 const T0 = 1_700_000_000_000;
@@ -108,5 +108,34 @@ describe("clientKey", () => {
 
   it("ignores an empty x-forwarded-for and falls through", () => {
     expect(clientKey(req({ "x-forwarded-for": "", "x-real-ip": "9.9.9.9" }))).toBe("9.9.9.9");
+  });
+});
+
+describe("rateLimitResponse", () => {
+  function req(ip: string) {
+    return new Request("http://localhost/api/x", { headers: { "x-forwarded-for": ip } });
+  }
+
+  it("returns null while the client is under its limit", () => {
+    for (let i = 0; i < CONFIG.limit; i++) {
+      expect(rateLimitResponse(req("1.1.1.1"), CONFIG)).toBeNull();
+    }
+  });
+
+  it("returns a 429 with Retry-After and a JSON error once over the limit", async () => {
+    for (let i = 0; i < CONFIG.limit; i++) rateLimitResponse(req("1.1.1.1"), CONFIG);
+
+    const res = rateLimitResponse(req("1.1.1.1"), CONFIG)!;
+
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
+    expect(await res.json()).toEqual({ error: "Too many requests. Please slow down." });
+  });
+
+  it("counts each client separately", () => {
+    for (let i = 0; i < CONFIG.limit; i++) rateLimitResponse(req("1.1.1.1"), CONFIG);
+
+    expect(rateLimitResponse(req("1.1.1.1"), CONFIG)).not.toBeNull();
+    expect(rateLimitResponse(req("2.2.2.2"), CONFIG)).toBeNull();
   });
 });

@@ -5,7 +5,7 @@ import { getCrowdScoresForMonth } from "@/lib/forecast";
 import { estimateDowCrowdScores } from "@/lib/groq";
 import { prisma } from "@/lib/db";
 import { parkDateDow } from "@/lib/park-time";
-import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
 
 /** Seconds the CDN may serve a cached month. */
@@ -20,13 +20,8 @@ const QuerySchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
-  const limit = checkRateLimit(clientKey(req), RATE_LIMIT);
-  if (!limit.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Please slow down." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
-    );
-  }
+  const limited = rateLimitResponse(req, RATE_LIMIT);
+  if (limited) return limited;
 
   const { searchParams } = req.nextUrl;
   const parsed = QuerySchema.safeParse({

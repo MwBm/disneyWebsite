@@ -4,7 +4,7 @@ import Groq from "groq-sdk";
 import { fetchLiveRides } from "@/lib/queue-times";
 import { getCrowdScoreForDate } from "@/lib/forecast";
 import { buildChatSystemPrompt } from "@/lib/groq";
-import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { GROQ_CHAT_MODEL } from "@/lib/groq-models";
 
 /** This route spends money on every request, so it is metered per client. */
@@ -39,13 +39,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const limit = checkRateLimit(clientKey(req), RATE_LIMIT);
-  if (!limit.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Please slow down." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
-    );
-  }
+  const limited = rateLimitResponse(req, RATE_LIMIT);
+  if (limited) return limited;
 
   const body = await req.json().catch(() => null);
   const parsed = BodySchema.safeParse(body);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchWeatherForecast, FORECAST_HORIZON_DAYS } from "@/lib/weather";
-import { checkRateLimit, clientKey } from "@/lib/rate-limit";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
 
 /**
@@ -18,13 +18,8 @@ function isoDate(d: Date): string {
 }
 
 export async function GET(req: NextRequest) {
-  const limit = checkRateLimit(clientKey(req), RATE_LIMIT);
-  if (!limit.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Please slow down." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
-    );
-  }
+  const limited = rateLimitResponse(req, RATE_LIMIT);
+  if (limited) return limited;
 
   const start = new Date();
   const end = new Date(start.getTime() + (FORECAST_HORIZON_DAYS - 1) * 86_400_000);

@@ -9,6 +9,8 @@
  * `checkRateLimit` signature is the seam.
  */
 
+import { NextResponse } from "next/server";
+
 export type RateLimitConfig = {
   /** Max requests allowed inside the window. */
   limit: number;
@@ -86,4 +88,17 @@ export function clientKey(req: Request): string {
 /** Test-only: drop all tracked state. */
 export function _resetRateLimits(): void {
   hits.clear();
+}
+
+/**
+ * The 429 response for a client over `config`, or null when the request may
+ * proceed. Routes used to repeat this block verbatim.
+ */
+export function rateLimitResponse(req: Request, config: RateLimitConfig): NextResponse | null {
+  const result = checkRateLimit(clientKey(req), config);
+  if (result.allowed) return null;
+  return NextResponse.json(
+    { error: "Too many requests. Please slow down." },
+    { status: 429, headers: { "Retry-After": String(result.retryAfterSeconds) } }
+  );
 }
