@@ -5,14 +5,11 @@ Runs from GitHub Actions every Sunday. Safe to re-run: ON CONFLICT DO NOTHING
 means already-archived buckets are skipped without error.
 """
 
-import os
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import psycopg
-
-RAW_RETENTION_DAYS = 30
+from common import RAW_RETENTION_DAYS, connect, database_url_from_env
 
 
 def fetch_buckets_to_archive(cur, cutoff: datetime) -> list[tuple]:
@@ -91,16 +88,15 @@ def delete_archived_rows(cur, cutoff: datetime) -> int:
 
 
 def main() -> int:
-    db_url = os.environ.get("DATABASE_URL") or os.environ.get("DIRECT_URL")
+    db_url = database_url_from_env()
     if not db_url:
         print("ERROR: DATABASE_URL or DIRECT_URL must be set", file=sys.stderr)
         return 1
 
-    db_url = db_url.replace("?pgbouncer=true", "").replace("&pgbouncer=true", "")
     cutoff = datetime.now(timezone.utc) - timedelta(days=RAW_RETENTION_DAYS)
     print(f"Archiving WaitTimeRecord rows with windowedAt < {cutoff.date()}")
 
-    with psycopg.connect(db_url, autocommit=False) as conn:
+    with connect(db_url) as conn:
         try:
             with conn.cursor() as cur:
                 buckets = fetch_buckets_to_archive(cur, cutoff)
