@@ -144,7 +144,9 @@ def test_main_writes_wait_records_and_a_success_run(fake_db, queue_times):
     assert len(upsert.params) == 3
     windowed_at = upsert.params[0][6]
     assert windowed_at.minute in (0, 30) and windowed_at.second == 0 and windowed_at.microsecond == 0
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "collect"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success, error) == (3, True, None)
 
 
@@ -171,7 +173,9 @@ def test_main_logs_a_failure_when_queue_times_is_down(fake_db, queue_times):
     assert collect.main() == 1
 
     assert not any('INSERT INTO "WaitTimeRecord"' in s.sql for s in fake_db.statements)
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "collect"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success) == (0, False)
     assert "502" in error
 
@@ -183,7 +187,9 @@ def test_main_treats_zero_rides_as_a_failure(fake_db, queue_times):
     assert collect.main() == 1
 
     assert not any('INSERT INTO "WaitTimeRecord"' in s.sql for s in fake_db.statements)
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "collect"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success) == (0, False)
     assert "no rides" in error
 
@@ -197,5 +203,7 @@ def test_main_rolls_back_and_logs_when_the_upsert_fails(fake_db, queue_times):
     assert work_conn.events[-1] == "rollback"
     assert "commit" not in work_conn.events
     assert log_conn.autocommit is True
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "collect"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success, error) == (0, False, "deadlock detected")

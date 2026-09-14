@@ -21,7 +21,7 @@ def train(conn) -> int:
 
 
 def main() -> int:
-    return run_logged_job(train)
+    return run_logged_job("train", train)
 
 
 if __name__ == "__main__":

@@ -55,7 +55,9 @@ def test_main_logs_the_rows_generate_forecasts_wrote(monkeypatch, fake_db):
     assert now.tzinfo is not None
     [conn] = fake_db.connections
     assert conn.events[-1] == "commit"
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "train"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success, error) == (75_120, True, None)
 
 
@@ -77,5 +79,7 @@ def test_main_rolls_back_and_logs_when_forecasting_fails(monkeypatch, fake_db, e
     work_conn, log_conn = fake_db.connections
     assert work_conn.events == ["rollback"]
     assert log_conn.autocommit is True
-    [(_, _, rows, success, message)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "train"
+    rows, success, message = run["rows"], run["success"], run["error"]
     assert (rows, success, message) == (0, False, str(error))

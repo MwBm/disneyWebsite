@@ -151,14 +151,14 @@ def test_log_collect_run_inserts_one_row(fake_db):
     conn = fake_db.connect("x")
     before = datetime.now(timezone.utc)
 
-    log_collect_run(conn, 42, success=False, error_message="boom")
+    log_collect_run(conn, "train", 42, success=False, error_message="boom")
 
     [statement] = conn.statements
     assert statement.sql.startswith('INSERT INTO "CollectRun"')
-    run_id, ran_at, rows, success, error = statement.params
+    run_id, job, ran_at, rows, success, error = statement.params
     uuid.UUID(run_id)
     assert ran_at.tzinfo is not None and before <= ran_at <= datetime.now(timezone.utc)
-    assert (rows, success, error) == (42, False, "boom")
+    assert (job, rows, success, error) == ("train", 42, False, "boom")
 
 
 # ---------------------------------------------------------------------------
@@ -176,13 +176,13 @@ def _writes_rows(n: int):
 def test_run_logged_job_without_a_database_url_never_connects(monkeypatch, fake_db, capsys):
     monkeypatch.delenv("DATABASE_URL")
 
-    assert run_logged_job(_writes_rows(3)) == 1
+    assert run_logged_job("collect", _writes_rows(3)) == 1
     assert fake_db.connect_attempts == 0
     assert "DATABASE_URL or DIRECT_URL must be set" in capsys.readouterr().err
 
 
 def test_run_logged_job_success_logs_in_the_same_transaction(fake_db):
-    assert run_logged_job(_writes_rows(3)) == 0
+    assert run_logged_job("collect", _writes_rows(3)) == 0
 
     [conn] = fake_db.connections
     assert conn.autocommit is False
@@ -190,7 +190,9 @@ def test_run_logged_job_success_logs_in_the_same_transaction(fake_db):
     assert conn.sql[1].startswith('INSERT INTO "CollectRun"')
     # The success row commits together with the work, and only once.
     assert conn.events == ["execute", "execute", "commit"]
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "collect"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success, error) == (3, True, None)
     assert conn.closed
 
@@ -200,7 +202,7 @@ def test_run_logged_job_failure_rolls_back_and_logs_zero_rows(fake_db):
         _writes_rows(5)(conn)
         raise ValueError("model exploded")
 
-    assert run_logged_job(work) == 1
+    assert run_logged_job("collect", work) == 1
 
     work_conn, log_conn = fake_db.connections
     assert "commit" not in work_conn.events
@@ -208,7 +210,9 @@ def test_run_logged_job_failure_rolls_back_and_logs_zero_rows(fake_db):
     assert not any("CollectRun" in sql for sql in work_conn.sql)
     # The 5 rows were rolled back, so the failure row must not claim them.
     assert log_conn.autocommit is True
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "collect"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success, error) == (0, False, "model exploded")
 
 
@@ -217,7 +221,7 @@ def test_run_logged_job_rolls_back_when_the_success_log_itself_fails(fake_db):
 
     # The failure log hits the same broken table; the job must still exit 1
     # rather than raise and hide the original error.
-    assert run_logged_job(_writes_rows(2)) == 1
+    assert run_logged_job("collect", _writes_rows(2)) == 1
 
     work_conn, log_conn = fake_db.connections
     assert "commit" not in work_conn.events
@@ -228,11 +232,13 @@ def test_run_logged_job_rolls_back_when_the_success_log_itself_fails(fake_db):
 def test_run_logged_job_logs_when_the_first_connect_fails(fake_db):
     fake_db.connect_failures[0] = psycopg.OperationalError("connection timeout expired")
 
-    assert run_logged_job(_writes_rows(2)) == 1
+    assert run_logged_job("collect", _writes_rows(2)) == 1
 
     [log_conn] = fake_db.connections
     assert log_conn.autocommit is True
-    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    [run] = fake_db.collect_runs()
+    assert run["job"] == "collect"
+    rows, success, error = run["rows"], run["success"], run["error"]
     assert (rows, success, error) == (0, False, "connection timeout expired")
 
 
@@ -240,6 +246,46 @@ def test_run_logged_job_exits_1_when_every_connect_fails(fake_db):
     fake_db.connect_failures[0] = psycopg.OperationalError("down")
     fake_db.connect_failures[1] = psycopg.OperationalError("still down")
 
-    assert run_logged_job(_writes_rows(2)) == 1
+    assert run_logged_job("collect", _writes_rows(2)) == 1
     assert fake_db.connections == []
     assert fake_db.connect_attempts == 2
+
+
+# ---------------------------------------------------------------------------
+# Job names
+# ---------------------------------------------------------------------------
+
+def test_jobs_match_the_prisma_jobkind_enum():
+    """CollectRun.job is a Postgres enum generated from schema.prisma; drift fails every insert."""
+    import re
+    from pathlib import Path
+
+    schema = (Path(__file__).resolve().parents[2] / "prisma" / "schema.prisma").read_text()
+    body = re.search(r"enum JobKind \{(.*?)\}", schema, re.S).group(1)
+    enum_values = [line.split("//")[0].strip() for line in body.splitlines()]
+    assert tuple(v for v in enum_values if v) == common.JOBS
+
+
+def test_log_collect_run_rejects_an_unknown_job_before_touching_the_database(fake_db):
+    conn = fake_db.connect("x")
+
+    with pytest.raises(ValueError, match="unknown job 'cleanup'"):
+        log_collect_run(conn, "cleanup", 1, success=True)
+    assert conn.statements == []
+
+
+def test_run_logged_job_rejects_an_unknown_job_before_connecting(fake_db):
+    with pytest.raises(ValueError, match="unknown job 'Collect'"):
+        run_logged_job("Collect", _writes_rows(1))
+    assert fake_db.connect_attempts == 0
+
+
+@pytest.mark.parametrize("job", common.JOBS)
+def test_run_logged_job_records_the_job_on_success_and_failure(fake_db, job):
+    def fails(conn):
+        raise RuntimeError("nope")
+
+    assert run_logged_job(job, _writes_rows(1)) == 0
+    assert run_logged_job(job, fails) == 1
+
+    assert [(r["job"], r["success"]) for r in fake_db.collect_runs()] == [(job, True), (job, False)]
