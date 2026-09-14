@@ -97,3 +97,111 @@ def test_all_migrations_in_order_produce_the_jobkind_enum_python_expects(scratch
         "WHERE t.typname = 'JobKind' ORDER BY e.enumsortorder"
     ).fetchall()
     assert tuple(v for (v,) in values) == JOBS
+
+
+# ---------------------------------------------------------------------------
+# 20260914020000_lock_down_data_api
+# ---------------------------------------------------------------------------
+
+LOCKDOWN = "20260914020000_lock_down_data_api"
+
+
+@pytest.fixture
+def supabase_like_db(scratch_db):
+    """A scratch database with the grants Supabase gives its Data API roles.
+
+    Roles are cluster-wide, so they are created if missing and left in place.
+    """
+    scratch_db.execute(
+        """
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+        END $$;
+        """
+    )
+    for name in _migration_names():
+        if name == LOCKDOWN:
+            break
+        scratch_db.execute(_migration_sql(name))
+    # Exactly what production showed on 2026-09-13 (pg_default_acl and table grants).
+    scratch_db.execute("GRANT USAGE ON SCHEMA public TO anon, authenticated")
+    scratch_db.execute("GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated")
+    scratch_db.execute("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated")
+    scratch_db.execute(
+        'INSERT INTO "WaitTimeRecord" (id, "rideId", "rideName", "landName", "waitTime", "isOpen", "windowedAt") '
+        "VALUES ('w1', 1, 'R', 'L', 30, true, now())"
+    )
+    return scratch_db
+
+
+def _as_role(conn, role, sql):
+    conn.execute(f"SET ROLE {role}")
+    try:
+        return conn.execute(sql).fetchall()
+    finally:
+        conn.execute("RESET ROLE")
+
+
+def test_the_fixture_reproduces_the_exposure_before_the_lockdown(supabase_like_db):
+    assert _as_role(supabase_like_db, "anon", 'SELECT count(*) FROM "WaitTimeRecord"') == [(1,)]
+
+
+@pytest.mark.parametrize("role", ["anon", "authenticated"])
+def test_lockdown_denies_every_data_api_statement(supabase_like_db, role):
+    supabase_like_db.execute(_migration_sql(LOCKDOWN))
+
+    for sql in (
+        'SELECT count(*) FROM "WaitTimeRecord"',
+        'SELECT count(*) FROM "CollectRun"',
+        "INSERT INTO \"CollectRun\" (id, \"rowsUpserted\", success) VALUES ('x', 0, true) RETURNING id",
+        'DELETE FROM "DailyForecast" RETURNING id',
+    ):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            _as_role(supabase_like_db, role, sql)
+
+
+def test_lockdown_enables_rls_without_forcing_it_on_owners(supabase_like_db):
+    supabase_like_db.execute(_migration_sql(LOCKDOWN))
+
+    flags = supabase_like_db.execute(
+        "SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class c "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r'"
+    ).fetchall()
+    assert flags and all(rls and not forced for _, rls, forced in flags)
+
+
+def test_a_non_superuser_table_owner_still_sees_every_row(supabase_like_db):
+    """Production's postgres is not a superuser; owners bypass RLS unless it is FORCEd."""
+    supabase_like_db.execute(_migration_sql(LOCKDOWN))
+    supabase_like_db.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rls_test_owner') "
+        "THEN CREATE ROLE rls_test_owner NOSUPERUSER NOBYPASSRLS NOLOGIN; END IF; END $$"
+    )
+    supabase_like_db.execute('ALTER TABLE "WaitTimeRecord" OWNER TO rls_test_owner')
+
+    assert _as_role(supabase_like_db, "rls_test_owner", 'SELECT count(*) FROM "WaitTimeRecord"') == [(1,)]
+
+
+def test_rls_still_hides_rows_if_a_grant_is_added_back(supabase_like_db):
+    supabase_like_db.execute(_migration_sql(LOCKDOWN))
+    supabase_like_db.execute('GRANT SELECT ON "WaitTimeRecord" TO anon')
+
+    assert _as_role(supabase_like_db, "anon", 'SELECT count(*) FROM "WaitTimeRecord"') == [(0,)]
+
+
+def test_tables_created_after_the_lockdown_are_not_granted_to_the_api(supabase_like_db):
+    supabase_like_db.execute(_migration_sql(LOCKDOWN))
+    supabase_like_db.execute('CREATE TABLE "FutureTable" (id text PRIMARY KEY)')
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        _as_role(supabase_like_db, "anon", 'SELECT count(*) FROM "FutureTable"')
+
+
+def test_every_table_in_the_migrated_database_has_rls(pg):
+    """Guards future migrations: a new table without RLS would be open to the Data API."""
+    without_rls = pg.execute(
+        "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity"
+    ).fetchall()
+    assert without_rls == [], f"enable row level security on {without_rls}"

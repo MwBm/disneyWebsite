@@ -289,3 +289,32 @@ def test_run_logged_job_records_the_job_on_success_and_failure(fake_db, job):
     assert run_logged_job(job, fails) == 1
 
     assert [(r["job"], r["success"]) for r in fake_db.collect_runs()] == [(job, True), (job, False)]
+
+
+# ---------------------------------------------------------------------------
+# Retention constants
+# ---------------------------------------------------------------------------
+
+def test_forecasts_outlive_every_window_that_reads_them():
+    """archive.py deletes forecasts older than FORECAST_RETENTION_DAYS; the accuracy routes read back WINDOW_DAYS."""
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "src"
+    windows = {
+        path.relative_to(src).as_posix(): int(match.group(1))
+        for path in src.rglob("*.ts")
+        for match in [re.search(r"\bconst WINDOW_DAYS = (\d+);", path.read_text())]
+        if match
+    }
+    assert windows, "expected the accuracy routes to define WINDOW_DAYS"
+    for path, days in windows.items():
+        assert common.FORECAST_RETENTION_DAYS > days, f"{path} reads {days} days of forecasts"
+
+
+def test_forecast_retention_covers_the_raw_rows_it_is_compared_with():
+    assert common.FORECAST_RETENTION_DAYS >= common.RAW_RETENTION_DAYS
+
+
+def test_archive_grace_exceeds_the_weekly_schedule():
+    assert common.ARCHIVE_GRACE_DAYS > 7

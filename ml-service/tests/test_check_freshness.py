@@ -6,11 +6,12 @@ import psycopg
 import pytest
 
 import check_freshness
-from check_freshness import MAX_TRAIN_AGE, MIN_HORIZON, find_problems, in_check_window
+from check_freshness import MAX_RAW_AGE, MAX_TRAIN_AGE, MIN_HORIZON, find_problems, in_check_window
 
 NOON = datetime(2026, 9, 14, 12, 5, tzinfo=timezone.utc)
 HEALTHY_TRAIN = NOON - timedelta(hours=6)       # this morning's 06:00 UTC run
 HEALTHY_HORIZON = HEALTHY_TRAIN + timedelta(days=29)
+HEALTHY_OLDEST_RAW = NOON - timedelta(days=33)  # archive ran 3 days ago
 
 
 # ---------------------------------------------------------------------------
@@ -40,35 +41,35 @@ def test_in_check_window(now, expected):
 # ---------------------------------------------------------------------------
 
 def test_a_healthy_state_has_no_problems():
-    assert find_problems(HEALTHY_TRAIN, HEALTHY_HORIZON, NOON) == []
+    assert find_problems(HEALTHY_TRAIN, HEALTHY_HORIZON, HEALTHY_OLDEST_RAW, NOON) == []
 
 
 def test_one_missed_nightly_run_is_reported():
     yesterday = HEALTHY_TRAIN - timedelta(days=1)
-    problems = find_problems(yesterday, yesterday + timedelta(days=29), NOON)
+    problems = find_problems(yesterday, yesterday + timedelta(days=29), HEALTHY_OLDEST_RAW, NOON)
 
     assert len(problems) == 1
     assert "30 h ago" in problems[0] and "train.yml" in problems[0]
 
 
 def test_train_age_exactly_at_the_limit_is_not_a_problem():
-    assert find_problems(NOON - MAX_TRAIN_AGE, HEALTHY_HORIZON, NOON) == []
-    assert len(find_problems(NOON - MAX_TRAIN_AGE - timedelta(seconds=1), HEALTHY_HORIZON, NOON)) == 1
+    assert find_problems(NOON - MAX_TRAIN_AGE, HEALTHY_HORIZON, HEALTHY_OLDEST_RAW, NOON) == []
+    assert len(find_problems(NOON - MAX_TRAIN_AGE - timedelta(seconds=1), HEALTHY_HORIZON, HEALTHY_OLDEST_RAW, NOON)) == 1
 
 
 def test_horizon_exactly_at_the_minimum_is_not_a_problem():
-    assert find_problems(HEALTHY_TRAIN, NOON + MIN_HORIZON, NOON) == []
-    [problem] = find_problems(HEALTHY_TRAIN, NOON + MIN_HORIZON - timedelta(seconds=1), NOON)
+    assert find_problems(HEALTHY_TRAIN, NOON + MIN_HORIZON, HEALTHY_OLDEST_RAW, NOON) == []
+    [problem] = find_problems(HEALTHY_TRAIN, NOON + MIN_HORIZON - timedelta(seconds=1), HEALTHY_OLDEST_RAW, NOON)
     assert "days ahead (minimum 27)" in problem
 
 
 def test_a_train_run_that_succeeds_with_a_short_window_is_reported():
-    [problem] = find_problems(HEALTHY_TRAIN, NOON + timedelta(days=3), NOON)
+    [problem] = find_problems(HEALTHY_TRAIN, NOON + timedelta(days=3), HEALTHY_OLDEST_RAW, NOON)
     assert "3.0 days ahead" in problem
 
 
 def test_never_trained_and_empty_forecasts_reports_both():
-    problems = find_problems(None, None, NOON)
+    problems = find_problems(None, None, None, NOON)
     assert problems == [
         "No successful train run has ever been logged (CollectRun job='train').",
         "DailyForecast is empty.",
@@ -76,22 +77,22 @@ def test_never_trained_and_empty_forecasts_reports_both():
 
 
 def test_forecasts_already_in_the_past_are_reported():
-    [problem] = find_problems(HEALTHY_TRAIN, NOON - timedelta(days=2), NOON)
+    [problem] = find_problems(HEALTHY_TRAIN, NOON - timedelta(days=2), HEALTHY_OLDEST_RAW, NOON)
     assert "-2.0 days ahead" in problem
 
 
 def test_naive_database_timestamps_are_treated_as_utc():
     naive_train = HEALTHY_TRAIN.replace(tzinfo=None)
     naive_horizon = HEALTHY_HORIZON.replace(tzinfo=None)
-    assert find_problems(naive_train, naive_horizon, NOON) == []
+    assert find_problems(naive_train, naive_horizon, HEALTHY_OLDEST_RAW, NOON) == []
 
 
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
-def _seed(fake_db, last_train, horizon):
-    fake_db.results["SELECT max(\"ranAt\")"] = [(last_train, horizon)]
+def _seed(fake_db, last_train, horizon, oldest_raw=None):
+    fake_db.results["SELECT max(\"ranAt\")"] = [(last_train, horizon, oldest_raw)]
 
 
 def test_outside_the_window_it_skips_without_connecting(fake_db, capsys):
@@ -140,3 +141,31 @@ def test_missing_database_url_exits_one(monkeypatch, fake_db):
 
     assert check_freshness.main([], now=NOON) == 1
     assert fake_db.connect_attempts == 0
+
+
+# ---------------------------------------------------------------------------
+# Archive backlog
+# ---------------------------------------------------------------------------
+
+def test_raw_rows_just_inside_the_archive_grace_period_are_fine():
+    assert find_problems(HEALTHY_TRAIN, HEALTHY_HORIZON, NOON - MAX_RAW_AGE, NOON) == []
+
+
+def test_raw_rows_past_the_archive_grace_period_are_reported():
+    oldest = NOON - MAX_RAW_AGE - timedelta(seconds=1)
+    [problem] = find_problems(HEALTHY_TRAIN, HEALTHY_HORIZON, oldest, NOON)
+    assert "archive.yml" in problem and "limit 38" in problem
+
+
+def test_the_production_backlog_on_sep_14_2026_would_have_been_reported():
+    """Archive last ran Aug 23; the oldest raw row was from Jul 24."""
+    [problem] = find_problems(HEALTHY_TRAIN, HEALTHY_HORIZON, datetime(2026, 7, 24, 9, 30), NOON)
+    assert "52 days ago" in problem
+
+
+def test_an_empty_wait_time_table_is_not_an_archive_problem():
+    assert find_problems(HEALTHY_TRAIN, HEALTHY_HORIZON, None, NOON) == []
+
+
+def test_status_query_reads_the_oldest_raw_row():
+    assert 'SELECT min("windowedAt") FROM "WaitTimeRecord"' in check_freshness.STATUS_SQL

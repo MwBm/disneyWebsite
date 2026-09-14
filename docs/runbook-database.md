@@ -22,7 +22,7 @@ Raw data collected from queue-times.com each time `collect.py` runs.
 
 Unique constraint: `(rideId, windowedAt)` — deduplication key. Upsert uses `ON CONFLICT DO UPDATE`.
 
-Raw rows older than 30 days are aggregated to `HourlyWaitSummary` by the weekly archive job.
+Raw rows older than 30 days (cutoff truncated to the hour) are moved into `HourlyWaitSummary` by the weekly archive job, in one statement. Until then they are training data too: `train.py` reads every row in this table.
 
 ### `HourlyWaitSummary`
 Hourly aggregates of `WaitTimeRecord` after the 30-day raw retention window. Used as long-term ML training data alongside the raw 30-day window.
@@ -40,10 +40,10 @@ Hourly aggregates of `WaitTimeRecord` after the 30-day raw retention window. Use
 | `sampleCount` | Int | number of raw records averaged |
 | `isOpen` | Boolean | |
 
-Unique constraint: `(rideId, date, hour)`.
+Unique constraint: `(rideId, date, hour)`. When archive meets an existing bucket it merges: `avgWait` weighted by `sampleCount`, `peakWait` max, `sampleCount` summed, `isOpen` OR'd, latest names.
 
 ### `DailyForecast`
-Pre-computed predictions written only by `ml-service/train.py` (daily, 30-day window). Rows are upserted on `(rideId, forecastFor)`; nothing is deleted.
+Pre-computed predictions written only by `ml-service/train.py` (daily, 30-day window). Rows are upserted on `(rideId, forecastFor)`. `archive.py` deletes rows whose slot is more than 35 days old (`FORECAST_RETENTION_DAYS`). The accuracy pages read 30 days, joined to raw rows that only exist for 30. Before retention, 96% of this table (240k rows) was past slots nothing could read.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -97,6 +97,25 @@ One row per ml-service job run: `collect`, `train` or `archive`.
 `job` was added on 2026-09-13 (`20260913180000_collect_run_job`). Before that, train runs were logged here indistinguishably from collect runs; the migration backfills successful runs with ≥ 1,000 rows as `train` (collect wrote 50–59, train 65k+). Failed runs from before then can't be told apart and read as `collect`.
 
 `/api/forecast` reads only `job = 'collect'` runs for its data-quality flag. `ml-service/check_freshness.py` reads the latest successful `train` run. `JobKind` must match `JOBS` in `ml-service/common.py`; a unit test checks it.
+
+---
+
+## Data API lockdown (RLS)
+
+Supabase exposes `public` through its Data API as `anon`/`authenticated`, and by default grants them full access to everything `postgres` creates. Until migration `20260914020000_lock_down_data_api`, every table here (including `_prisma_migrations`) had RLS off and `anon` could SELECT, INSERT and DELETE.
+
+The migration enables RLS on every table with **no policies**, revokes all table/sequence/function privileges from `anon` and `authenticated`, and revokes `postgres`'s default privileges for them. The app is unaffected: Prisma and psycopg connect as `postgres`, which owns the tables and has BYPASSRLS (RLS is not FORCEd).
+
+- **New tables must enable RLS in their migration.** `tests/integration/test_migrations_db.py::test_every_table_in_the_migrated_database_has_rls` fails CI otherwise.
+- The Data API itself should be off: Dashboard → Project Settings → Data API → disable. That also covers anything `supabase_admin` creates, whose default privileges this migration can't change.
+
+Verify on production:
+
+```sql
+SET ROLE anon;
+SELECT count(*) FROM "WaitTimeRecord";   -- ERROR: permission denied
+RESET ROLE;
+```
 
 ---
 

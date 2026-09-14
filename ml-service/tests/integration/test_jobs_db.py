@@ -230,11 +230,127 @@ def test_archive_with_nothing_old_logs_a_zero_row_success(pg):
 
 
 # ---------------------------------------------------------------------------
+# archive: merge, renames, cutoff, retention
+# ---------------------------------------------------------------------------
+
+def _bucket(pg, ride_id):
+    return pg.execute(
+        'SELECT "rideName", "avgWait", "peakWait", "sampleCount", "isOpen" FROM "HourlyWaitSummary" WHERE "rideId" = %s',
+        (ride_id,),
+    ).fetchall()
+
+
+def test_archive_merges_into_an_existing_bucket_instead_of_dropping_rows(pg):
+    """The old ON CONFLICT DO NOTHING deleted these raw rows without counting them anywhere."""
+    pg.execute(
+        'INSERT INTO "HourlyWaitSummary" (id, "rideId", "rideName", "landName", date, hour, "avgWait", "peakWait", "sampleCount", "isOpen") '
+        "VALUES ('existing', 7, 'Old Name', 'Land', '2026-06-05', 3, 20.0, 25, 2, false)"
+    )
+    hour_start = datetime(2026, 6, 5, 3, 0, tzinfo=PT)
+    _insert_raw(pg, 7, hour_start + timedelta(minutes=30), 40)
+    _insert_raw(pg, 7, hour_start + timedelta(minutes=45), 60)
+
+    assert archive.main() == 0
+
+    # (20*2 + 40 + 60) / 4 = 35
+    assert _bucket(pg, 7) == [("Ride 7", 35.0, 60, 4, True)]
+    assert _count(pg, "WaitTimeRecord") == 0
+    assert _runs(pg) == [("archive", 1, True, None)]
+
+
+def test_archive_keeps_the_latest_name_when_a_ride_is_renamed_inside_an_hour(pg):
+    hour_start = datetime(2026, 6, 1, 15, 0, tzinfo=PT)
+    for minute, name in ((0, "Soarin' Over California"), (30, "Soarin' Around the World")):
+        naive = (hour_start + timedelta(minutes=minute)).astimezone(timezone.utc).replace(tzinfo=None)
+        pg.execute(
+            'INSERT INTO "WaitTimeRecord" (id, "rideId", "rideName", "landName", "waitTime", "isOpen", "windowedAt", "recordedAt") '
+            "VALUES (%s, 312, %s, 'Grizzly Peak', 50, true, %s, %s)",
+            (str(uuid.uuid4()), name, naive, naive),
+        )
+
+    assert archive.main() == 0
+
+    assert _bucket(pg, 312) == [("Soarin' Around the World", 50.0, 50, 2, True)]
+
+
+def test_archive_never_splits_the_hour_containing_the_cutoff(pg):
+    cutoff = archive.raw_cutoff(datetime.now(timezone.utc))
+    _insert_raw(pg, 1, cutoff - timedelta(minutes=30), 11)   # before the cutoff hour: archived
+    _insert_raw(pg, 2, cutoff, 22)                            # first half of the cutoff hour
+    _insert_raw(pg, 2, cutoff + timedelta(minutes=30), 33)    # second half of the cutoff hour
+
+    assert archive.main() == 0
+
+    assert _count(pg, "WaitTimeRecord", '"rideId" = 1') == 0
+    # If the clock crossed an hour mid-test both ride-2 rows are archived
+    # together; what must never happen is one row archived and one left behind.
+    assert _count(pg, "WaitTimeRecord", '"rideId" = 2') in (0, 2)
+
+
+def test_archive_deletes_forecasts_older_than_the_retention_window(pg):
+    now = datetime.now(timezone.utc)
+    for label, days_ago in (("expired", 36), ("kept-old", 34), ("kept-future", -5)):
+        pg.execute(
+            'INSERT INTO "DailyForecast" (id, "rideId", "rideName", "landName", "forecastFor", "predictedWait", "crowdScore", "mlConfidence") '
+            "VALUES (%s, 1, 'R', 'L', %s, 10, 10, 0.5)",
+            (label, (now - timedelta(days=days_ago)).replace(tzinfo=None)),
+        )
+
+    assert archive.main() == 0
+
+    remaining = {row[0] for row in pg.execute('SELECT id FROM "DailyForecast"').fetchall()}
+    assert remaining == {"kept-old", "kept-future"}
+
+
+# ---------------------------------------------------------------------------
+# training history reads
+# ---------------------------------------------------------------------------
+
+def test_training_history_includes_raw_rows_older_than_the_retention_window(pg):
+    """The fixed 30-day raw window lost Jul 24 - Aug 14 2026 while archive was disabled."""
+    from pipeline import fetch_training_history
+
+    now = datetime.now(timezone.utc)
+    _insert_raw(pg, 1, now - timedelta(days=45), 30)   # unarchived, older than 30 days
+    _insert_raw(pg, 1, now - timedelta(days=2), 40)
+
+    history = fetch_training_history(pg)
+
+    assert sorted(r.wait_time for r in history) == [30, 40]
+
+
+def test_training_history_uses_the_most_recent_name_across_both_tables(pg):
+    from pipeline import fetch_training_history
+
+    pg.execute(
+        'INSERT INTO "HourlyWaitSummary" (id, "rideId", "rideName", "landName", date, hour, "avgWait", "peakWait", "sampleCount", "isOpen") '
+        "VALUES ('h1', 312, 'Soarin'' Over California', 'Grizzly Peak', '2026-05-01', 12, 45.0, 50, 2, true)"
+    )
+    _insert_raw(pg, 312, datetime.now(timezone.utc) - timedelta(days=1), 55)
+    pg.execute('UPDATE "WaitTimeRecord" SET "rideName" = %s', ("Soarin' Around the World",))
+
+    history = fetch_training_history(pg)
+
+    assert {r.ride_name for r in history} == {"Soarin' Around the World"}
+    assert len(history) == 2
+
+
+def test_generate_forecasts_refuses_to_run_after_other_statements_in_its_transaction(pg):
+    """REPEATABLE READ can only be chosen first; a caller breaking that fails loudly."""
+    from pipeline import generate_forecasts
+
+    with pytest.raises(psycopg.errors.ActiveSqlTransaction):
+        with pg.transaction():
+            pg.execute("SELECT 1")
+            generate_forecasts(pg, datetime.now(timezone.utc), days=2)
+
+
+# ---------------------------------------------------------------------------
 # check_freshness
 # ---------------------------------------------------------------------------
 
 def test_fetch_status_on_an_empty_database(pg):
-    assert check_freshness.fetch_status(pg) == (None, None)
+    assert check_freshness.fetch_status(pg) == (None, None, None)
 
 
 def test_fetch_status_only_counts_successful_train_runs(pg):
@@ -254,5 +370,11 @@ def test_fetch_status_only_counts_successful_train_runs(pg):
             "VALUES (%s, 1, 'R', 'L', %s, 10, 10, 0.5)",
             (str(uuid.uuid4()), forecast_for),
         )
+    _insert_raw(pg, 1, datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc), 10)
+    _insert_raw(pg, 1, datetime(2026, 9, 13, 12, 0, tzinfo=timezone.utc), 10)
 
-    assert check_freshness.fetch_status(pg) == (base - timedelta(days=1), datetime(2026, 10, 12, 6, 30))
+    assert check_freshness.fetch_status(pg) == (
+        base - timedelta(days=1),
+        datetime(2026, 10, 12, 6, 30),
+        datetime(2026, 8, 20, 12, 0),
+    )

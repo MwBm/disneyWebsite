@@ -69,7 +69,14 @@ Dispatch with `check_freshness: true` to check immediately: `gh workflow run col
 
 **Trigger:** Every Sunday at 09:00 UTC (1–2am Pacific, outside park hours). Also manually dispatchable.
 
-Runs `python archive.py`. Aggregates `WaitTimeRecord` rows older than 30 days into `HourlyWaitSummary` (hourly averages per ride per day), then deletes the raw rows. Keeps training data footprint bounded while preserving multi-year signal.
+Runs `python archive.py`, logged as `CollectRun.job = 'archive'`. One transaction, entirely in Postgres; only two counts are read back.
+
+1. `DELETE … RETURNING` raw `WaitTimeRecord` rows older than the cutoff and aggregate them, in the same statement, into `HourlyWaitSummary` buckets keyed on (ride, park date, park hour). The latest ride name wins.
+2. Delete `DailyForecast` rows older than `FORECAST_RETENTION_DAYS` (35).
+
+The cutoff is `now − 30 days` **truncated to the hour**. It used to keep the seconds, so every run split one hour, and the rest of that hour was dropped the following week by `ON CONFLICT DO NOTHING`. Half-filled buckets on Jun 5, Jun 12 and Jun 19 2026 (the Friday cutoffs) are consistent with that. An existing bucket is now **merged** (sample-weighted average, max peak, summed count) instead of skipped.
+
+Training reads every unarchived raw row, so a late archive loses nothing, but it does grow train's daily read. `check_freshness.py` reports raw rows older than 38 days.
 
 **Required secret:** `DATABASE_URL`.
 

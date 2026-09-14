@@ -8,11 +8,11 @@ for why it no longer does.
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import numpy as np
 
-from common import PARK_TZ, WINDOW_MINUTES, RAW_RETENTION_DAYS, as_utc, park_date_key, park_hour
+from common import PARK_TZ, WINDOW_MINUTES, as_utc, park_date_key, park_hour
 from model import (
     HEADLINER_RIDE_IDS,
     _compute_crowd_score,
@@ -51,49 +51,79 @@ def build_forecast_slots(now: datetime, days: int = 1) -> list[datetime]:
     return slots
 
 
-def fetch_history(conn, since: datetime) -> list[RideHistory]:
-    sql = """
-        SELECT "rideId", "rideName", "landName", "waitTime", "isOpen", "recordedAt"
-        FROM "WaitTimeRecord"
-        WHERE "recordedAt" >= %s
-    """
+# The training reads carry ride IDs only. Names used to come back on every row —
+# about 45% of the bytes of train.py's largest read — although ~80 rides have
+# only ~80 name pairs. RIDE_NAMES_SQL returns one row per ride instead.
+RAW_HISTORY_SQL = 'SELECT "rideId", "waitTime", "isOpen", "recordedAt" FROM "WaitTimeRecord"'
+
+ARCHIVE_HISTORY_SQL = """
+    SELECT "rideId", "avgWait", "isOpen", date::date, hour
+    FROM "HourlyWaitSummary"
+    WHERE date >= NOW() - INTERVAL '3 years'
+"""
+
+# Latest name per ride across both tables; five rides have been renamed.
+RIDE_NAMES_SQL = """
+    SELECT DISTINCT ON ("rideId") "rideId", "rideName", "landName"
+    FROM (
+        SELECT "rideId", "rideName", "landName", "windowedAt" AS seen_at FROM "WaitTimeRecord"
+        UNION ALL
+        SELECT "rideId", "rideName", "landName", date + make_interval(hours => hour) FROM "HourlyWaitSummary"
+    ) AS sightings
+    ORDER BY "rideId", seen_at DESC
+"""
+
+
+def fetch_ride_names(conn) -> dict[int, tuple[str, str]]:
+    """rideId -> (rideName, landName), the most recently seen pair."""
     with conn.cursor() as cur:
-        cur.execute(sql, (since,))
+        cur.execute(RIDE_NAMES_SQL)
+        return {ride_id: (ride_name, land_name) for ride_id, ride_name, land_name in cur.fetchall()}
+
+
+def fetch_raw_history(conn, names: dict[int, tuple[str, str]]) -> list[RideHistory]:
+    with conn.cursor() as cur:
+        cur.execute(RAW_HISTORY_SQL)
         return [
             RideHistory(
-                ride_id=row[0], ride_name=row[1], land_name=row[2],
-                wait_time=row[3], is_open=row[4], recorded_at=as_utc(row[5]),
+                ride_id=ride_id, ride_name=names[ride_id][0], land_name=names[ride_id][1],
+                wait_time=wait_time, is_open=is_open, recorded_at=as_utc(recorded_at),
             )
-            for row in cur.fetchall()
+            for ride_id, wait_time, is_open, recorded_at in cur.fetchall()
         ]
 
 
-def fetch_hourly_archive(conn) -> list[RideHistory]:
-    """Pull all HourlyWaitSummary rows for ML training.
-
-    Each row represents one Pacific-local hour; recorded_at is rebuilt as UTC
-    for model feature extraction.
-    """
-    sql = """
-        SELECT "rideId", "rideName", "landName", "avgWait", "isOpen", date, hour
-        FROM "HourlyWaitSummary"
-        WHERE date >= NOW() - INTERVAL '3 years'
-    """
+def fetch_hourly_archive(conn, names: dict[int, tuple[str, str]]) -> list[RideHistory]:
+    """HourlyWaitSummary rows; each stands for one Pacific-local hour, rebuilt as UTC."""
     with conn.cursor() as cur:
-        cur.execute(sql)
-        rows = []
-        for row in cur.fetchall():
-            local_dt = row[5].replace(
-                hour=row[6], minute=0, second=0, microsecond=0, tzinfo=PARK_TZ,
+        cur.execute(ARCHIVE_HISTORY_SQL)
+        return [
+            RideHistory(
+                ride_id=ride_id, ride_name=names[ride_id][0], land_name=names[ride_id][1],
+                wait_time=round(avg_wait), is_open=is_open,
+                recorded_at=datetime.combine(park_date, time(hour), tzinfo=PARK_TZ).astimezone(timezone.utc),
             )
-            rows.append(
-                RideHistory(
-                    ride_id=row[0], ride_name=row[1], land_name=row[2],
-                    wait_time=round(row[3]), is_open=row[4],
-                    recorded_at=local_dt.astimezone(timezone.utc),
-                )
-            )
-        return rows
+            for ride_id, avg_wait, is_open, park_date, hour in cur.fetchall()
+        ]
+
+
+def fetch_training_history(conn) -> list[RideHistory]:
+    """Every unarchived raw row plus three years of hourly archive.
+
+    Raw rows are read with no time filter. archive.py removes a raw row in the
+    same statement that folds it into HourlyWaitSummary, so the two tables
+    never overlap and never leave a gap, however late archive runs. The fixed
+    30-day raw window this replaces silently dropped everything between the
+    last archive run and 30 days ago whenever archive fell behind — Jul 24 to
+    Aug 14 2026 while archive.yml was disabled.
+
+    The caller's transaction must be REPEATABLE READ (generate_forecasts sets
+    it): under READ COMMITTED an archive committing between these reads would
+    count the same rows once raw and once archived, or look up a ride name
+    that is not in the name snapshot.
+    """
+    names = fetch_ride_names(conn)
+    return fetch_raw_history(conn, names) + fetch_hourly_archive(conn, names)
 
 
 def compute_lag_features(history: list[RideHistory]) -> list[RideHistory]:
@@ -379,13 +409,13 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
         logger.info("No open forecast slots between %s and the end of the window", now)
         return 0
 
-    raw_history = fetch_history(conn, now - timedelta(days=RAW_RETENTION_DAYS))
-    archived_history = fetch_hourly_archive(conn)
-    history = raw_history + archived_history
-    logger.info(
-        "Loaded %d raw + %d archived = %d total records",
-        len(raw_history), len(archived_history), len(history),
-    )
+    # One snapshot for every read below; see fetch_training_history. This must be
+    # the transaction's first statement, which Postgres enforces loudly.
+    with conn.cursor() as cur:
+        cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+
+    history = fetch_training_history(conn)
+    logger.info("Loaded %d training records", len(history))
 
     # Attach DateContext (tier, weather, holiday) to training records
     training_contexts = fetch_date_contexts(conn, [r.recorded_at for r in history])

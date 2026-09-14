@@ -27,6 +27,18 @@ WINDOW_MINUTES = 30
 # Raw WaitTimeRecord rows older than this are rolled up into HourlyWaitSummary.
 RAW_RETENTION_DAYS = 30
 
+# DailyForecast rows for slots older than this are deleted by archive.py. The
+# accuracy pages compare the last 30 days of forecasts against raw
+# WaitTimeRecord rows, which only exist for RAW_RETENTION_DAYS, so older
+# forecasts can never be read; 5 extra days keep the whole window safe while an
+# archive run is late. tests/test_common.py pins both relationships.
+FORECAST_RETENTION_DAYS = 35
+
+# How long raw rows may outlive RAW_RETENTION_DAYS before check_freshness.py
+# reports that archive.yml has stopped. Archive runs weekly, so a healthy
+# backlog peaks just under 7 days.
+ARCHIVE_GRACE_DAYS = 8
+
 # Without a timeout an unreachable database hangs the job until GitHub Actions
 # kills it at timeout-minutes, and the failure is never logged to CollectRun.
 CONNECT_TIMEOUT_SECONDS = 15
