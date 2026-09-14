@@ -5,10 +5,10 @@ from typing import Dict, List, Optional, Tuple, NamedTuple
 
 import numpy as np
 import xgboost as xgb
-from datetime import datetime, timezone
+from datetime import datetime
 from sklearn.model_selection import TimeSeriesSplit
-from zoneinfo import ZoneInfo
 
+from common import PARK_TZ, as_utc
 from schemas import DateContext, LagFeatures, RideForecast, RideHistory
 
 logger = logging.getLogger(__name__)
@@ -29,8 +29,6 @@ CROWD_MAX_WAIT: int = _config["crowdMaxWait"]
 CROWD_EXPECTED_RIDES: int = _config["crowdExpectedRides"]
 TIER_MULTIPLIER_STEP: float = _config["tierMultiplierStep"]
 HEADLINER_RIDE_IDS: frozenset = frozenset(_config.get("headlinerRideIds", []))
-
-PARK_TZ = ZoneInfo("America/Los_Angeles")
 
 # Canonical feature order — tests reference these names, not positional indices.
 FEATURE_NAMES: List[str] = [
@@ -58,9 +56,7 @@ class TrainedModel(NamedTuple):
 
 
 def _park_time(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(PARK_TZ)
+    return as_utc(dt).astimezone(PARK_TZ)
 
 
 def _extract_features(
@@ -264,7 +260,22 @@ def predict_for_ride(
     contexts: List[Optional[DateContext]],
     lag_features_list: List[Optional[LagFeatures]],
 ) -> List[RideForecast]:
-    """Batch-predict all slots for one ride with a single XGBoost call."""
+    """Batch-predict all slots for one ride with a single XGBoost call.
+
+    An empty `slots` returns []. It used to reach XGBoost as np.array([]),
+    shape (0,), which XGBoost reads as one column and rejects with
+    "Check failed: ... (1 vs. 23)" — collect.py crashed on that every night at
+    06:30 UTC, when no open slot was left in the Pacific day.
+    """
+    if not (len(slots) == len(contexts) == len(lag_features_list)):
+        # zip() would silently truncate to the shortest list and return fewer
+        # forecasts than slots, misaligning every caller that zips them back.
+        raise ValueError(
+            f"slots, contexts and lag_features_list must be the same length; "
+            f"got {len(slots)}, {len(contexts)}, {len(lag_features_list)}"
+        )
+    if not slots:
+        return []
     if tm.model is None:
         return [
             RideForecast(

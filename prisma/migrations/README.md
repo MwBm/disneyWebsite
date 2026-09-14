@@ -4,12 +4,19 @@
 
 ```bash
 npx prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script \
-  > prisma/migrations/0_init/migration.sql
+  --output prisma/migrations/0_init/migration.sql
 ```
+
+Use `--output`, not a shell redirect. `prisma.config.ts` loads dotenv, which
+prints `◇ injected env …` banners to stdout — a `>` redirect captured two of
+them as the first lines of `0_init`, making it invalid SQL on any fresh
+database.
 
 The production database predates this directory — it was built with
 `prisma db push`, so its tables already exist and `0_init` must **not** be
-re-applied there. Mark it as already-applied once:
+re-applied there. It was marked as already-applied on 2026-09-13, after
+`prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma`
+reported no drift. For any other database built with `db push`, do the same:
 
 ```bash
 npx prisma migrate resolve --applied 0_init

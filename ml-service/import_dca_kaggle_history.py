@@ -12,17 +12,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
 import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-import psycopg
+from common import PARK_TZ, connect, database_url_from_env
 
-PARK_TZ = ZoneInfo("America/Los_Angeles")
 DATASET_SLUG = "tivory27/disney-california-adventure-wait-times"
 DEFAULT_CSV_NAME = "disney_wait_times.csv"
 CONFIG_PATH = Path(__file__).resolve().parent / "../src/lib/ride-config.json"
@@ -313,13 +310,12 @@ def main() -> int:
             print("Dry run only; no database rows inserted")
             return 0
 
-        db_url = os.environ.get("DATABASE_URL") or os.environ.get("DIRECT_URL")
+        db_url = database_url_from_env()
         if not db_url:
             print("ERROR: DATABASE_URL or DIRECT_URL must be set", file=sys.stderr)
             return 1
-        db_url = db_url.replace("?pgbouncer=true", "").replace("&pgbouncer=true", "")
 
-        with psycopg.connect(db_url, autocommit=False) as conn:
+        with connect(db_url) as conn:
             try:
                 inserted = insert_summaries(conn, summaries, args.batch_size)
                 conn.commit()
