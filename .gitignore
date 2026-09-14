@@ -14,3 +14,4 @@ tsconfig.tsbuildinfo
 playwright-report/
 test-results/
 .original.md
+coverage/
