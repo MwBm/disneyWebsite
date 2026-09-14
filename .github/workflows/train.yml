@@ -2,7 +2,7 @@ name: Daily Train + Forecast
 
 on:
   schedule:
-    - cron: "0 6 * * *"  # 06:00 UTC daily (10pm Pacific, before park opens)
+    - cron: "0 6 * * *"  # 06:00 UTC daily (11pm PDT / 10pm PST, after the parks close)
   workflow_dispatch:
 
 jobs:

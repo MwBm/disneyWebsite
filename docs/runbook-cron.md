@@ -7,7 +7,7 @@
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `train.yml` | Daily 06:00 UTC + dispatch | Full model retrain on all history, write 30-day forecast window |
-| `collect.yml` | Manual dispatch only | Fetch live waits, upsert WaitTimeRecord (no ML training) |
+| `collect.yml` | Dispatch every 30 min (cron-job.org) | Fetch live waits, upsert WaitTimeRecord (no reads, no ML training) |
 | `archive.yml` | Weekly Sunday 09:00 UTC | Archive WaitTimeRecord >30 days → HourlyWaitSummary |
 | `sync-date-context.yml` | Monthly 1st 10:00 UTC + dispatch | Sync tier/holiday/weather/Groq adjustment |
 | `import-dca-history.yml` | Manual dispatch only | One-time DCA Kaggle historical backfill |
@@ -16,7 +16,7 @@
 
 ## `train.yml` — Daily Model Training
 
-**Trigger:** Daily at 06:00 UTC (10 PM Pacific, before park opens). Also manually dispatchable. Timeout: 20 minutes.
+**Trigger:** Daily at 06:00 UTC (11 PM Pacific in summer, 10 PM in winter — after the parks close). Also manually dispatchable. Timeout: 20 minutes.
 
 Runs `python train.py`. Full pipeline:
 
@@ -33,36 +33,22 @@ Runs `python train.py`. Full pipeline:
 
 ## `collect.yml` — Data Collection
 
-**Trigger:** Manual dispatch only. Intended for on-demand intraday data collection (can be wired to a 30-min schedule via `cron-job.org` or a `schedule:` block).
+**Trigger:** `workflow_dispatch` only, fired every 30 minutes by a cron-job.org job (~48 runs/day). Timeout: 10 minutes.
 
-To enable automatic collection, add a `schedule` block to `collect.yml`:
-```yaml
-on:
-  schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch:
-```
+Do not replace cron-job.org with a `schedule:` block. GitHub disables scheduled workflows in public repositories after 60 days without repository activity (a dispatch doesn't count), which is how `train`, `archive` and `sync-date-context` all silently stopped in August 2026. Dispatch-triggered workflows are not affected.
 
-**What it does:** Fetch live waits + quick ML retrain to update **today's** intraday `DailyForecast` slots. Full 30-day window is owned by `train.yml`.
+**What it does:** records live waits. Nothing else — it reads nothing from the database and trains nothing.
 
 1. Checkout repo, setup Python 3.11 with pip cache
 2. `pip install -r ml-service/requirements.txt`
-3. Run `python collect.py`
+3. Run `python collect.py`:
+   1. `GET` queue-times.com for each park in `src/lib/ride-config.json`, dropping excluded rides
+   2. Upsert `WaitTimeRecord` (`ON CONFLICT (rideId, windowedAt)`), plus a `CollectRun` success row in the same transaction
+   3. On any error (queue-times down, zero rides, DB failure): roll back, log `CollectRun` with `success=false`, exit 1
 
-`collect.py` pipeline:
+Until September 2026 this job also reloaded the whole training history and retrained every model on each run, to refresh today's forecast slots. That read 20–28 MB per run and used 16.5 GB of the Supabase Free plan's 5 GB monthly egress quota, restricting the project. `train.yml` now owns all forecasts.
 
-1. Load park configs from `src/lib/ride-config.json`
-2. `GET` queue-times.com for each park, fetch live ride waits
-3. `INSERT ... ON CONFLICT` upsert each ride into `WaitTimeRecord`
-4. Pull training data: `WaitTimeRecord` (raw retention window) + all `HourlyWaitSummary`
-5. Attach `DateContext`, lag features, and cross-ride features to training records
-6. Train XGBoost model per ride on combined history
-7. Upsert `DailyForecast` rows for today's intraday slots
-8. Log result to `CollectRun`
-
-Job times out after 10 minutes. Errors logged to `CollectRun` with `success=false`.
-
-**Required secret:** `DATABASE_URL` (Supabase direct URL, port 5432, `?sslmode=require`).
+**Required secret:** `DATABASE_URL`.
 
 ---
 
@@ -132,7 +118,7 @@ pip install -r requirements.txt
 DATABASE_URL="$DIRECT_URL" python train.py
 ```
 
-**Locally (collect — intraday update):**
+**Locally (collect — one wait-time window):**
 ```bash
 cd ml-service
 DATABASE_URL="$DIRECT_URL" python collect.py

@@ -108,12 +108,10 @@ GitHub Actions (daily 06:00 UTC)
         ├── XGBoost per-ride model, expanding-window walk-forward CV (23 features)
         └── Supabase (upsert 30-day DailyForecast + log CollectRun)
 
-GitHub Actions (manual dispatch)
-  └── ml-service/collect.py
+GitHub Actions (dispatch every 30 min from cron-job.org)
+  └── ml-service/collect.py      ← writes only; never reads (Supabase egress quota)
         ├── queue-times.com (fetch live data for all parks)
-        ├── Supabase (upsert WaitTimeRecord)
-        ├── XGBoost quick retrain → today's intraday DailyForecast slots
-        └── Supabase (log CollectRun)
+        └── Supabase (upsert WaitTimeRecord + log CollectRun, one transaction)
 
 GitHub Actions (weekly Sunday 09:00 UTC)
   └── ml-service/archive.py

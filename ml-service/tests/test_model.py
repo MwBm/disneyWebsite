@@ -329,7 +329,7 @@ def test_cv_mae_is_mean_across_folds_not_a_single_split():
 
 def test_lag_7d_lookback_correct():
     """Lag features from compute_lag_features must reference exactly 7 days prior."""
-    from collect import compute_lag_features
+    from pipeline import compute_lag_features
 
     base_date = datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)
     date_7d_ago = base_date - timedelta(days=7)
@@ -353,7 +353,7 @@ def test_lag_7d_lookback_correct():
 
 def test_lag_features_zero_when_no_prior_data():
     """When no historical data exists 7/14 days prior, lags default to 0.0."""
-    from collect import compute_lag_features
+    from pipeline import compute_lag_features
 
     record = RideHistory(
         ride_id=99, ride_name="New Ride", land_name="Land",
@@ -368,7 +368,7 @@ def test_lag_features_zero_when_no_prior_data():
 
 def test_rolling_7d_mean_uses_prior_days_at_same_hour():
     """Rolling mean uses prior 7 calendar days at same hour, not same day-of-week."""
-    from collect import compute_lag_features
+    from pipeline import compute_lag_features
 
     base_date = datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)  # 7am Pacific
     records = [

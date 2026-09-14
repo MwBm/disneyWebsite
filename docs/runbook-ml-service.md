@@ -1,6 +1,6 @@
 # Runbook: Python ML Pipeline (`ml-service/`)
 
-Single-shot Python script. Run on demand from GitHub Actions (manual dispatch). Fetches live waits, upserts records, trains per-ride XGBoost models, writes 30-day forecasts. No HTTP server.
+Single-shot Python jobs run from GitHub Actions. `collect.py` (every 30 min) only records live waits; `train.py` (daily) trains per-ride XGBoost models and writes every `DailyForecast` row. No HTTP server.
 
 ---
 
@@ -11,10 +11,11 @@ cd ml-service
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-DATABASE_URL="$DIRECT_URL" python collect.py
+DATABASE_URL="$DIRECT_URL" python collect.py   # writes one WaitTimeRecord window
+DATABASE_URL="$DIRECT_URL" python train.py     # writes the 30-day forecast window
 ```
 
-Uses Supabase `DIRECT_URL` (port 5432) — pgbouncer query param is stripped automatically if present.
+Uses `DATABASE_URL`, else `DIRECT_URL`. Prisma-only query params (`pgbouncer`, `connection_limit`, `pool_timeout`, `schema`) are stripped by `common.normalize_db_url` so psycopg accepts the same secret. Supabase's direct host is IPv6-only; from a network without IPv6, use the pooler in session mode (port 5432).
 
 **Mac note:** XGBoost requires OpenMP. If you get a `libxgboost.dylib` load error, run `brew install libomp`.
 
@@ -24,8 +25,10 @@ Uses Supabase `DIRECT_URL` (port 5432) — pgbouncer query param is stripped aut
 
 | File | Purpose |
 |---|---|
-| `train.py` | Daily full-window job: load all history → train → write 30-day `DailyForecast` |
-| `collect.py` | 30-min intraday job: queue-times → DB upsert → quick ML retrain → today's slots |
+| `train.py` | Daily job: `pipeline.generate_forecasts` → 30-day `DailyForecast` window (the only writer of forecasts) |
+| `collect.py` | 30-min job: queue-times → `WaitTimeRecord` upsert → `CollectRun`. No reads, no ML |
+| `pipeline.py` | Training-data loading, lag/cross-ride features, forecast slot building and upsert |
+| `common.py` | Shared constants (`PARK_TZ`, `WINDOW_MINUTES`, `RAW_RETENTION_DAYS`), DB URL handling, `connect()`, `run_logged_job()` |
 | `model.py` | `train_ride_models(records)` + `predict_for_ride(tm, ride_id, slots, ...)` — XGBoost per ride |
 | `archive.py` | Aggregates `WaitTimeRecord` >30 days into `HourlyWaitSummary` |
 | `import_dca_kaggle_history.py` | One-time importer for the DCA Kaggle dataset → `HourlyWaitSummary` |
@@ -34,20 +37,29 @@ Uses Supabase `DIRECT_URL` (port 5432) — pgbouncer query param is stripped aut
 
 ---
 
-## Pipeline (`collect.py`)
+## Collection (`collect.py`)
 
-1. Load park configs from `src/lib/ride-config.json` (park URLs, excluded ride IDs, headliner IDs)
-2. `GET` queue-times.com for each park — flat list of rides with wait times
+1. Load park configs from `src/lib/ride-config.json` (park URLs, excluded ride IDs)
+2. `GET` queue-times.com for each park — flat list of rides with wait times. Zero rides across all parks is a failure: the API lists rides even while the parks are closed
 3. `INSERT ... ON CONFLICT (rideId, windowedAt) DO UPDATE` per ride → `WaitTimeRecord`
-4. Fetch training data: last `RAW_RETENTION_DAYS` of `WaitTimeRecord` + all `HourlyWaitSummary`
-5. Attach `DateContext` (tier, holiday, weather), lag features, and cross-ride features to each training record
-6. `train_ride_models(history)` — one XGBRegressor per ride (walk-forward CV)
-7. Build forecast slots (today's intraday window), fetch `DateContext` + lag map
-8. `predict_for_ride(tm, ride_id, slots, ...)` for each trained ride
-9. `upsert_forecasts()` → upsert `DailyForecast` rows (ON CONFLICT updates in place)
-10. `log_collect_run()` → insert `CollectRun` row with success/error
+4. Insert a `CollectRun` success row in the same transaction
 
-Errors caught at top level → logged to `CollectRun` with `success=false`, then exit 1 so GitHub fails the job.
+That is the whole job. It used to also reload the full training history and retrain on every run — ~20–28 MB read per run, 48 runs a day — which used 16.5 GB of Supabase's 5 GB monthly egress quota in September 2026. `tests/test_collect.py::test_main_runs_only_its_two_writes_and_never_reads` fails if a read creeps back in.
+
+## Forecasting (`train.py` → `pipeline.generate_forecasts`)
+
+1. Build 30 Pacific days of forecast slots. No slots → return 0 before any read
+2. Fetch training data: last `RAW_RETENTION_DAYS` of `WaitTimeRecord` + `HourlyWaitSummary` (3 years)
+3. Attach `DateContext` (tier, holiday, weather), lag features, and cross-ride features to each training record
+4. `train_ride_models(history)` — one XGBRegressor per ride (walk-forward CV). No models at all → raise, so an empty forecast is never reported as success
+5. Fetch `DateContext` + lag map for the slots, `predict_for_ride(...)` per ride
+6. `upsert_forecasts()` → upsert `DailyForecast` rows (ON CONFLICT updates in place)
+
+train.yml runs at 06:00 UTC (23:00 Pacific in summer), so each run writes tonight's last slots plus the next 29 full days; today's daytime slots come from the previous night's run.
+
+## Run logging (`common.run_logged_job`)
+
+Both jobs run inside `run_logged_job(work)`: one transaction for the work plus its `CollectRun` success row, so success is only recorded when the rows commit. Any exception rolls back and is logged on a fresh autocommit connection with `rowsUpserted=0` and the error message, then the job exits 1 so GitHub fails the run. Connections time out after `CONNECT_TIMEOUT_SECONDS` instead of hanging until the workflow timeout.
 
 ---
 
@@ -106,7 +118,7 @@ Walk-forward CV MAE → `confidence = 1 - cv_mae / global_mean`, clipped to [0.3
 
 ### Batch prediction
 
-`predict_for_ride(tm, ride_id, slots, contexts, lag_features_list)` — vectorized batch prediction over many slots for one ride. Used by both `train.py` and `collect.py`.
+`predict_for_ride(tm, ride_id, slots, contexts, lag_features_list)` — vectorized batch prediction over many slots for one ride, used by `pipeline.generate_forecasts`. Empty `slots` returns `[]` (it used to crash XGBoost with `1 vs. 23`); mismatched `slots`/`contexts`/`lag_features_list` lengths raise `ValueError` instead of being silently truncated by `zip`.
 
 ### Backward-compatible wrapper
 

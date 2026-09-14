@@ -1,35 +1,23 @@
-"""Tests for train.py — daily full-window training job."""
+"""Tests for train.py — the daily job that owns every DailyForecast row."""
+
+from datetime import datetime, timezone
 
 import pytest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
 
-from schemas import DateContext, RideHistory
-from model import MIN_SAMPLES
-
-
-def _make_history(ride_id: int, n: int, base_wait: int = 30):
-    return [
-        RideHistory(
-            ride_id=ride_id, ride_name=f"Ride {ride_id}", land_name="Land",
-            wait_time=base_wait + (i % 10), is_open=True,
-            recorded_at=datetime(2026, 1, 1, 12, tzinfo=timezone.utc) + timedelta(days=i % 60),
-        )
-        for i in range(n)
-    ]
+import train
+from common import PARK_TZ
+from pipeline import build_forecast_slots
 
 
-def test_train_main_exits_nonzero_without_db_url(monkeypatch):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.delenv("DIRECT_URL", raising=False)
-    from train import main
-    assert main() == 1
+def test_train_main_exits_nonzero_without_db_url(monkeypatch, fake_db):
+    monkeypatch.delenv("DATABASE_URL")
+
+    assert train.main() == 1
+    assert fake_db.connect_attempts == 0
 
 
 def test_forecast_slots_cover_30_days():
     """build_forecast_slots with days=30 must span 30 Pacific calendar days."""
-    from collect import build_forecast_slots, PARK_TZ
-
     now = datetime(2026, 6, 1, 18, 0, tzinfo=timezone.utc)
     slots = build_forecast_slots(now, days=30)
 
@@ -37,15 +25,57 @@ def test_forecast_slots_cover_30_days():
     assert len(park_dates) == 30
 
 
-def test_upsert_forecasts_called_with_all_slots():
-    """train.py must generate forecasts for all 30 days, not just today."""
-    from collect import build_forecast_slots, PARK_TZ
+def test_scheduled_run_time_still_produces_29_full_days():
+    """train.yml fires at 06:00 UTC — 23:00 PDT — so 'today' has only two slots left.
 
-    now = datetime(2026, 6, 1, 18, 0, tzinfo=timezone.utc)
-    slots_30 = build_forecast_slots(now, days=30)
-    slots_1 = build_forecast_slots(now, days=1)
+    Today's slots are therefore written by the previous night's run. That is
+    what lets collect.py stop producing forecasts without leaving a gap.
+    """
+    now = datetime(2026, 9, 14, 6, 0, tzinfo=timezone.utc)
+    slots = build_forecast_slots(now, days=train.FORECAST_DAYS)
 
-    # Daily job generates many more slots than 30-min collect
-    assert len(slots_30) > len(slots_1)
-    # At least 16 open hours × 2 slots/hr × ~30 days
-    assert len(slots_30) >= 900
+    today = [s for s in slots if s.astimezone(PARK_TZ).date().isoformat() == "2026-09-13"]
+    assert [s.astimezone(PARK_TZ).strftime("%H:%M") for s in today] == ["23:00", "23:30"]
+    assert len(slots) == 2 + 29 * 32
+
+
+def test_main_logs_the_rows_generate_forecasts_wrote(monkeypatch, fake_db):
+    calls = []
+
+    def fake_generate(conn, now, days):
+        calls.append((now, days))
+        return 75_120
+
+    monkeypatch.setattr(train, "generate_forecasts", fake_generate)
+
+    assert train.main() == 0
+
+    [(now, days)] = calls
+    assert days == 30
+    assert now.tzinfo is not None
+    [conn] = fake_db.connections
+    assert conn.events[-1] == "commit"
+    [(_, _, rows, success, error)] = fake_db.collect_run_rows()
+    assert (rows, success, error) == (75_120, True, None)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("No ride models trained from 0 history records; refusing to report success"),
+        ValueError("slots, contexts and lag_features_list must be the same length; got 3, 2, 3"),
+    ],
+)
+def test_main_rolls_back_and_logs_when_forecasting_fails(monkeypatch, fake_db, error):
+    def fake_generate(conn, now, days):
+        raise error
+
+    monkeypatch.setattr(train, "generate_forecasts", fake_generate)
+
+    assert train.main() == 1
+
+    work_conn, log_conn = fake_db.connections
+    assert work_conn.events == ["rollback"]
+    assert log_conn.autocommit is True
+    [(_, _, rows, success, message)] = fake_db.collect_run_rows()
+    assert (rows, success, message) == (0, False, str(error))
