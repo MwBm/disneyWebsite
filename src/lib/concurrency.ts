@@ -1,14 +1,8 @@
 /**
  * Run an async function over a list with a hard concurrency ceiling.
  *
- * `Promise.all(items.map(fn))` starts every task at once. On the date-context
- * cron that meant up to 365 simultaneous Groq requests and 365 simultaneous
- * writes through a pgbouncer pool. It also fails all-or-nothing: one rejected
- * write abandons the rest of the batch, and the caller sees a single error
- * instead of 364 successes and 1 failure.
- *
- * Results come back as settled outcomes in input order, so a caller can count
- * successes, log failures, and still make progress.
+ * Results come back as settled outcomes in input order, so one failure does not
+ * abandon the rest and a caller can count successes and log failures.
  */
 export async function mapWithConcurrency<T, R>(
   items: readonly T[],

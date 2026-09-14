@@ -65,8 +65,7 @@ export async function GET(req: NextRequest) {
           });
         }
       } catch (err) {
-        // Non-fatal — days stay null — but logged. This catch previously hid
-        // every estimateDowCrowdScores failure, including a retired model.
+        // Non-fatal: the missing days stay null.
         console.error("estimateDowCrowdScores failed", err);
       }
     }

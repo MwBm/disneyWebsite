@@ -6,8 +6,7 @@ import { NextResponse } from "next/server";
  * `export const revalidate = N` does nothing in a handler that reads
  * `req.nextUrl.searchParams` — reading them opts the route into dynamic
  * rendering, so the build marks it `ƒ` and the revalidate value is silently
- * ignored. That is how /api/forecast and /api/calendar ended up making an
- * uncached Groq call on every single request despite looking cached.
+ * ignored.
  *
  * A `Cache-Control` header is not ignored: Vercel's CDN caches the response
  * per full URL (so per date, per month), which is exactly the granularity

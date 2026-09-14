@@ -6,9 +6,7 @@ export type ParkName = "Disneyland" | "Disney California Adventure";
  * Lands belonging to Disney California Adventure.
  *
  * queue-times.com reports a land name per ride but not which park the land is
- * in, and the two parks share a `landName` column, so the mapping has to live
- * somewhere. It was previously inlined in the accuracy route while
- * ride-config.json separately defined both parks — this is that one place.
+ * in, and the two parks share a `landName` column.
  */
 const DCA_LANDS: ReadonlySet<string> = new Set([
   "Avengers Campus",

@@ -9,9 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ── Semantic tokens (CSS-variable-backed, theme-aware) ──────────────
-
-        // Preserve existing class names so components need zero changes
+        // ── Palette names mapped onto the theme's CSS variables ─────────────
         cream: {
           50:  "rgb(var(--color-bg)      / <alpha-value>)",
           100: "rgb(var(--color-bg)      / <alpha-value>)",
@@ -39,7 +37,7 @@ const config: Config = {
           500: "rgb(var(--color-amber) / <alpha-value>)",
         },
 
-        // ── New semantic shortcuts ──────────────────────────────────────────
+        // ── Semantic shortcuts ──────────────────────────────────────────────
         bg:      "rgb(var(--color-bg)      / <alpha-value>)",
         surface: "rgb(var(--color-surface) / <alpha-value>)",
         card:    "rgb(var(--color-card)    / <alpha-value>)",

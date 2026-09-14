@@ -3,9 +3,9 @@ import { fetchLiveRides } from "@/lib/queue-times";
 import { cachedJson } from "@/lib/http";
 
 /**
- * `export const revalidate` is inert here: fetchLiveRides calls fetch with
- * `next: { revalidate: 0 }`, which opts this route into dynamic rendering, so
- * every request reached queue-times.com. A Cache-Control header does apply.
+ * `export const revalidate` is inert here: fetchLiveRides uses
+ * `next: { revalidate: 0 }`, which makes the route dynamic. The Cache-Control
+ * header is what caches it.
  */
 const CACHE_SECONDS = 300;
 

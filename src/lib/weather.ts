@@ -1,11 +1,4 @@
-/**
- * Single source of truth for Anaheim weather.
- *
- * The calendar page used to fetch Open-Meteo directly from the browser with a
- * second set of coordinates (33.8121, -117.9190), a second response parser and
- * a second WeatherDay type. Two coordinates for one theme park is one too many,
- * so the fetch lives here and /api/weather serves it.
- */
+/** Single source of truth for Anaheim weather; /api/weather serves it to the browser. */
 export const ANAHEIM_LAT = 33.8366;
 export const ANAHEIM_LON = -117.9143;
 
@@ -93,8 +86,7 @@ export function climatologicalWeather(dateStr: string): WeatherDay {
   const month = parseInt(dateStr.slice(5, 7), 10);
   const n = ANAHEIM_MONTHLY_NORMALS[month];
 
-  // A malformed date string would index the record with NaN and crash on the
-  // non-null assertion this used to carry. Fall back to a mild default day.
+  // A malformed date string indexes the record with NaN; fall back to a mild day.
   if (!n) {
     return {
       date: dateStr, tempHigh: 75, tempLow: 55, precipMm: 0,

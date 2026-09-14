@@ -7,8 +7,7 @@ beforeEach(() => jest.clearAllMocks());
 
 /**
  * The route issues two aggregate queries in parallel: summary, then per-ride.
- * Postgres does the maths now, so these tests assert the route's handling of
- * what comes back rather than re-testing the arithmetic in JavaScript.
+ * Postgres does the maths, so these tests cover the route's handling of the rows.
  */
 function mockAggregates(summary: unknown[], perRide: unknown[]) {
   mockQueryRaw.mockResolvedValueOnce(summary).mockResolvedValueOnce(perRide);
@@ -136,9 +135,7 @@ describe("accuracy route — response shape", () => {
     expect((await GET()).headers.get("Cache-Control")).toContain("s-maxage=1800");
   });
 
-  it("no longer returns a raw rows array", async () => {
-    // Those ~45k rows moved to /api/accuracy/rides/[rideId], which returns the
-    // 48 the chart actually draws.
+  it("does not return a raw rows array", async () => {
     mockAggregates([summaryRow], [perRideRow()]);
 
     expect(await (await GET()).json()).not.toHaveProperty("rows");

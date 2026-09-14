@@ -2,12 +2,7 @@ import { getCrowdScoreForDate, getCrowdScoresForMonth, ML_FORECAST_DAYS, resolve
 import * as queries from "@/lib/forecast-queries";
 import { prisma } from "@/lib/db";
 
-/**
- * Crowd-score logic with each query mocked separately. Before the queries
- * moved to forecast-queries.ts, the ML and historical reads both went through
- * the one global prisma.$queryRaw mock, so a test could not give them
- * different rows.
- */
+/** Crowd-score logic with each query in forecast-queries.ts mocked separately. */
 jest.mock("@/lib/forecast-queries", () => ({
   getDailyMlCrowdScores: jest.fn(),
   getHistoricalDowMeanWaits: jest.fn(),

@@ -2,11 +2,7 @@ import type { Config } from "jest";
 
 /**
  * Real-Postgres tests for the SQL in src/lib. Unlike jest.config.ts this does
- * not load tests/setup.ts, which mocks Prisma for every unit test.
- *
- *   TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/disney_test npm run test:integration
- *
- * See docs/runbook-tests.md for starting a disposable database.
+ * not load tests/setup.ts, which mocks Prisma. See docs/runbook-tests.md.
  */
 const config: Config = {
   testEnvironment: "node",

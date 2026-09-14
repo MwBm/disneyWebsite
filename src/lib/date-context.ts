@@ -94,8 +94,6 @@ export async function syncDateContext(
       });
   });
 
-  // Report what actually landed. Promise.all would have thrown on the first
-  // failed upsert and discarded the outcome of every other one.
   const failed = upserts.filter((r) => r.status === "rejected");
   if (failed.length > 0) {
     console.error(
@@ -136,17 +134,12 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
   if (pending.length === 0) return { adjusted: 0 };
 
   // DateContext.date is midnight UTC standing for a park-local date, while
-  // DailyForecast.forecastFor is a 30-minute slot inside that day. The previous
-  // `forecastFor: { in: dateKeys }` was exact timestamp equality, so it matched
-  // only the single slot per day landing on 00:00 UTC (5pm Pacific) — every
-  // other slot was invisible, and days without that slot silently fell back to
-  // a hardcoded score of 50. Query the whole span instead.
+  // DailyForecast.forecastFor is a 30-minute slot inside that day, so match on
+  // the park-day span rather than on timestamps.
   const pendingKeys = pending.map((c) => c.date.toISOString().slice(0, 10)).sort();
   const spanStart = parkDateRangeUtc(pendingKeys[0]).start;
   const spanEnd = parkDateRangeUtc(pendingKeys[pendingKeys.length - 1]).endExclusive;
 
-  // Averaged per park-local date in Postgres. This used to pull every
-  // forecast slot of the span — up to a year of them — into Node.
   const crowdByDate = await getDailyMlCrowdScores(spanStart, spanEnd);
 
   const outcomes = await mapWithConcurrency(pending, SYNC_CONCURRENCY, async (ctx) => {

@@ -73,10 +73,6 @@ describe("LoadingScreen", () => {
   });
 
   it("auto-dismisses shortly after mount, not after several seconds", () => {
-    // Regression guard. This was `setTimeout(dismiss, 3000)` plus an 800ms
-    // fade, so the overlay covered every page for ~3.8s no matter how fast the
-    // data arrived — with warm APIs answering in well under a second, it was
-    // the slowest thing in the app.
     const { container, root } = mountLoadingScreen();
     const overlay = container.firstElementChild as HTMLElement;
 

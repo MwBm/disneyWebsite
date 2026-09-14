@@ -79,7 +79,6 @@ export default function Nav() {
           </span>
         </Link>
 
-        {/* Desktop links */}
         <ul className="hidden sm:flex gap-1">
           {links.map(({ href, label }) => (
             <li key={href}>
@@ -88,7 +87,6 @@ export default function Nav() {
           ))}
         </ul>
 
-        {/* Mobile hamburger */}
         <button
           className="sm:hidden flex flex-col gap-1.5 p-2 rounded-lg text-warm-700 hover:text-warm-900 hover:bg-cream-200/50 transition-colors"
           onClick={() => setOpen((v) => !v)}
@@ -107,7 +105,6 @@ export default function Nav() {
         </button>
       </div>
 
-      {/* Mobile menu */}
       {open && (
         <div className="sm:hidden border-t border-space-700 px-4 py-3" style={{ background: "var(--nav-bg)", backdropFilter: "blur(20px)" }}>
           <ul className="flex flex-col gap-1">

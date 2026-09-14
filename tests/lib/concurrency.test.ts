@@ -92,7 +92,6 @@ describe("mapWithConcurrency — the ceiling", () => {
 
 describe("mapWithConcurrency — failure isolation", () => {
   it("keeps going after a rejection instead of aborting the batch", async () => {
-    // Promise.all would have discarded every other result here.
     const out = await mapWithConcurrency([1, 2, 3], 2, async (n) => {
       if (n === 2) throw new Error("boom");
       return n;

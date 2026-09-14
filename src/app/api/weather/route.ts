@@ -7,8 +7,7 @@ import { cachedJson } from "@/lib/http";
  * The calendar's 16-day weather strip.
  *
  * Takes no parameters on purpose: one URL means one CDN cache entry serving
- * every visitor, and no way to enumerate ranges to force upstream calls. The
- * calendar previously called Open-Meteo from each visitor's browser.
+ * every visitor, and no way to enumerate ranges to force upstream calls.
  */
 const CACHE_SECONDS = 3600;
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
@@ -28,8 +27,6 @@ export async function GET(req: NextRequest) {
     const map = await fetchWeatherForecast(isoDate(start), isoDate(end));
     return cachedJson({ days: [...map.values()] }, CACHE_SECONDS);
   } catch (err) {
-    // Surfaced rather than swallowed: the client used to .catch(() => {}) this
-    // into a permanently empty map with nothing shown to the user.
     const message = err instanceof Error ? err.message : "Failed to fetch weather";
     return NextResponse.json({ error: message }, { status: 502 });
   }

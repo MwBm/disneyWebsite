@@ -1,14 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Port 3100, not 3000.
- *
- * With `reuseExistingServer` on and the default port, an unrelated dev server
- * already listening on 3000 gets silently reused — so the suite runs against
- * whatever code that server was started with, which can be days old. That
- * failure mode is near-impossible to spot from the test output: everything
- * simply behaves as if your changes were never made. A dedicated port plus a
- * fresh server every run removes the ambiguity.
+ * Port 3100, not 3000, so an unrelated dev server already on 3000 is never
+ * reused and the suite always runs against the current code.
  */
 const PORT = 3100;
 const BASE_URL = `http://127.0.0.1:${PORT}`;

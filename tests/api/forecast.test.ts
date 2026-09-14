@@ -122,7 +122,7 @@ describe("forecast route — ML path", () => {
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.crowdNarration).toBeNull();
-    // The forecast itself must survive — narration is a nice-to-have — and the failure is logged.
+    // The forecast must survive a narration failure, and the failure is logged.
     expect(body.forecasts).toHaveLength(2);
     expect(body.crowdScore).toBe(60);
     expect(consoleError).toHaveBeenCalledWith("narrateForecast failed (ml path)", expect.any(Error));

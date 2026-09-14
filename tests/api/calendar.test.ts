@@ -22,7 +22,6 @@ function makeReq(year: number, month: number) {
   return new NextRequest(new URL(`http://localhost/api/calendar?year=${year}&month=${month}`));
 }
 
-// All 31 days of May 2026 with ML data
 const allMlDays = Array.from({ length: 31 }, (_, i) => ({
   date: `2026-05-${String(i + 1).padStart(2, "0")}`,
   crowdScore: 50 + (i % 10),
@@ -32,7 +31,6 @@ const allMlDays = Array.from({ length: 31 }, (_, i) => ({
   isHoliday: false,
 }));
 
-// Mix: some ML, some null
 const daysWithGaps = allMlDays.map((d, i) =>
   i % 7 === 0 ? { ...d, crowdScore: null, source: null as null } : d
 );

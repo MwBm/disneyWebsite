@@ -2,8 +2,6 @@ import { clampParsedNumber } from "@/lib/groq";
 
 describe("clampParsedNumber — the falsy-zero bug", () => {
   it("keeps a legitimate 0 instead of substituting the fallback", () => {
-    // Regression guard for `Number(parsed.score) || 50`, which rewrote a
-    // correct score of 0 (closed park, dead January weekday) to dead average.
     expect(clampParsedNumber(0, { min: 0, max: 100, fallback: 50 })).toBe(0);
   });
 
@@ -161,8 +159,6 @@ describe("estimateDowCrowdScores", () => {
   });
 
   it("returns an empty map on malformed JSON instead of throwing", async () => {
-    // The unguarded JSON.parse here used to throw into the calendar route's
-    // bare catch, leaving every day null with nothing logged.
     const { estimateDowCrowdScores } = await import("@/lib/groq");
     respondWith("<html>rate limited</html>");
 

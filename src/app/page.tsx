@@ -1,7 +1,6 @@
 import DateForecaster from "@/components/DateForecaster";
 import Link from "next/link";
 
-// Ticket / entry pass — Forecast
 const TicketIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M2 9a1 1 0 0 1 1-1h18a1 1 0 0 1 1 1v1.5a2.5 2.5 0 0 0 0 5V17a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-1.5a2.5 2.5 0 0 0 0-5V9z"/>
@@ -9,7 +8,6 @@ const TicketIcon = () => (
   </svg>
 );
 
-// Hourglass — Wait Times
 const HourglassIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M5 2h14"/>
@@ -20,7 +18,6 @@ const HourglassIcon = () => (
   </svg>
 );
 
-// Compass — Trip Advisor
 const CompassIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="9"/>
@@ -29,7 +26,6 @@ const CompassIcon = () => (
   </svg>
 );
 
-// Hero sparkle
 const HeroSparkle = () => (
   <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor">
     <path d="M12 1.5C12 1.5 13.1 8.2 15.2 10.3C17.2 12.1 23 12 23 12C23 12 17.2 11.9 15.2 13.7C13.1 15.8 12 22.5 12 22.5C12 22.5 10.9 15.8 8.8 13.7C6.8 11.9 1 12 1 12C1 12 6.8 12.1 8.8 10.3C10.9 8.2 12 1.5 12 1.5Z" />

@@ -4,11 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * Shared bearer-token guard for privileged routes (cron + admin).
  *
- * Fails CLOSED: a missing or empty CRON_SECRET returns 500 rather than
- * authenticating every caller. The naive form of this check —
- * `header !== \`Bearer ${process.env.CRON_SECRET}\`` — compares against the
- * literal string "Bearer undefined" when the env var is unset, so anyone
- * sending that header is authorized.
+ * Fails closed: a missing or empty CRON_SECRET returns 500. Comparing against
+ * `Bearer ${process.env.CRON_SECRET}` directly would accept the literal header
+ * "Bearer undefined" whenever the env var is unset.
  */
 
 /** Length-safe, constant-time string compare. */

@@ -64,13 +64,7 @@ function WaitBadge({ minutes }: { minutes: number }) {
   );
 }
 
-/**
- * One row per ride: average and peak predicted wait across the day.
- *
- * This used to show a single "Predicted Wait" per ride that was, in effect, a
- * random time slot — a 2 PM wait for one ride next to an 11:30 PM wait for
- * another — and the historical fallback listed each ride once per hour.
- */
+/** One row per ride: average and peak predicted wait across the day. */
 export default function RidePredictionTable({ rides }: { rides: RideDayForecast[] }) {
   const [sort, setSort] = useState<SortKey>("peakWait");
   const [asc, setAsc] = useState(false);

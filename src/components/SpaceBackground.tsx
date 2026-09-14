@@ -14,7 +14,6 @@ interface Ripple {
   x: number; y: number; r: number; opacity: number; color: string;
 }
 
-// "Sunlit Kingdom" — golden dust floating in warm parchment air
 const PALETTE = [
   { r: 196, g: 144, b: 24  },  // rich gold
   { r: 212, g: 112, b: 26  },  // amber

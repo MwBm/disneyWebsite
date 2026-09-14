@@ -6,8 +6,7 @@ loadEnv({ path: resolve(process.cwd(), ".env.local") });
 loadEnv();
 
 const databaseUrl = process.env.DATABASE_URL;
-// Use direct connection for CLI/migrations to bypass pgbouncer prepared-statement limitations
-// Session-mode pgbouncer (port 5432) avoids prepared-statement conflicts for CLI/migrations
+// The Prisma CLI uses the session-mode pooler (5432); the transaction pooler (6543) breaks prepared statements.
 const directUrl = databaseUrl
   ?.replace("pooler.supabase.com:6543", "pooler.supabase.com:5432")
   ?.replace("?pgbouncer=true", "");

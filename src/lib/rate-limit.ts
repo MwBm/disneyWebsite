@@ -90,10 +90,7 @@ export function _resetRateLimits(): void {
   hits.clear();
 }
 
-/**
- * The 429 response for a client over `config`, or null when the request may
- * proceed. Routes used to repeat this block verbatim.
- */
+/** The 429 response for a client over `config`, or null when the request may proceed. */
 export function rateLimitResponse(req: Request, config: RateLimitConfig): NextResponse | null {
   const result = checkRateLimit(clientKey(req), config);
   if (result.allowed) return null;

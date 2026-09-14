@@ -123,9 +123,8 @@ export default function CalendarPage() {
     // after an await. `loading` starts true and the month handlers set it, so
     // the spinner still appears the instant a month changes.
     //
-    // AbortController also fixes a race the previous version had: clicking
-    // through months quickly could let a slower earlier response resolve last
-    // and overwrite the month actually on screen.
+    // Aborting keeps a slower earlier response from overwriting the month now
+    // on screen.
     const controller = new AbortController();
 
     (async () => {
@@ -179,7 +178,6 @@ export default function CalendarPage() {
 
   const todayStr = format(today, "yyyy-MM-dd");
 
-  // Month stats — exclude unavailable days from averages
   const scoredDays = days.filter(d => d.crowdScore !== null && d.source !== "unavailable");
   const avgScore = scoredDays.length
     ? Math.round(scoredDays.reduce((a, b) => a + (b.crowdScore ?? 0), 0) / scoredDays.length)
@@ -193,7 +191,6 @@ export default function CalendarPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-start gap-4">
         <div
           className="w-11 h-11 rounded-xl flex items-center justify-center text-orange-400 shrink-0"
@@ -209,7 +206,6 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* Month summary stats */}
       {!loading && avgScore !== null && (
         <div className="grid grid-cols-3 gap-3">
           {[
@@ -230,9 +226,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* Calendar card */}
       <div className="bg-space-card border border-space-700 rounded-2xl overflow-hidden neon neon-gold">
-        {/* Month nav */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-space-700">
           <button
             onClick={prevMonth}
@@ -256,7 +250,6 @@ export default function CalendarPage() {
           </button>
         </div>
 
-        {/* Day-of-week headers */}
         <div className="grid grid-cols-7 border-b border-space-700">
           {DAYS_OF_WEEK.map((d) => (
             <div key={d} className="py-2 text-center text-[0.65rem] font-medium uppercase tracking-widest text-warm-500">
@@ -265,7 +258,6 @@ export default function CalendarPage() {
           ))}
         </div>
 
-        {/* Grid */}
         {loading ? (
           <div className="grid grid-cols-7">
             {Array.from({ length: 35 }).map((_, i) => (
@@ -334,7 +326,6 @@ export default function CalendarPage() {
                     </div>
                   ) : cell ? (
                     <div className="flex flex-col h-full">
-                      {/* Top row: day number + source badge */}
                       <div className="flex items-start justify-between">
                         <span
                           className={`text-xs font-semibold leading-none ${
@@ -346,7 +337,6 @@ export default function CalendarPage() {
                         {cell.source && <SourceBadge source={cell.source} />}
                       </div>
 
-                      {/* Score + label in center */}
                       {score !== null ? (
                         <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
                           <span
@@ -372,7 +362,6 @@ export default function CalendarPage() {
                         </div>
                       )}
 
-                      {/* Bottom row: tier badge + weather + indicators */}
                       {(cell.tier !== null || cell.specialEvent || cell.isHoliday || wx) && (
                         <div className="flex items-end justify-between gap-1 mt-0.5">
                           <TierBadge tier={cell.tier} />
@@ -409,7 +398,6 @@ export default function CalendarPage() {
                     </div>
                   ) : null}
 
-                  {/* Today ring */}
                   {isToday && (
                     <div
                       className="absolute inset-1 rounded-lg pointer-events-none"
@@ -423,7 +411,6 @@ export default function CalendarPage() {
         )}
       </div>
 
-      {/* Selected day detail */}
       {selected && (
         <div
           className="bg-space-card border rounded-2xl p-5 transition-all duration-200"
@@ -431,7 +418,6 @@ export default function CalendarPage() {
         >
           <div className="flex items-start justify-between gap-6">
             <div className="flex-1 min-w-0">
-              {/* Date heading */}
               <div className="flex items-center gap-2.5 mb-4">
                 <div
                   className="w-1.5 h-8 rounded-full shrink-0"
@@ -483,12 +469,10 @@ export default function CalendarPage() {
                 </div>
               </div>
 
-              {/* Score bar */}
               {selected.crowdScore !== null && (
                 <ScoreBar score={selected.crowdScore} />
               )}
 
-              {/* Score breakdown */}
               {selected.crowdScore !== null && (
                 <div className="mt-3 grid grid-cols-4 gap-2">
                   {crowdLegend().map(({ label, range, color }) => ({
@@ -513,7 +497,6 @@ export default function CalendarPage() {
               )}
             </div>
 
-            {/* CTA */}
             <a
               href={`/?date=${selected.date}`}
               className="shrink-0 flex flex-col items-center gap-1.5 px-4 py-3 rounded-xl text-orange-400 hover:text-orange-300 transition-all group"
@@ -528,7 +511,6 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* Legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center pb-2">
         {crowdLegend().map(({ label, range, color }) => ({
           label: `${label} (${range})`,

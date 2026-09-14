@@ -4,12 +4,8 @@ import { format } from "date-fns";
 import { GROQ_TEXT_MODEL } from "./groq-models";
 
 /**
- * Clamp a value parsed out of an LLM response into [min, max].
- *
- * The obvious form of this, `Number(v) || fallback`, is wrong: `||` fires on
- * any falsy value and 0 is falsy, so a model that correctly answers "score: 0"
- * — a closed park, a dead Tuesday in January — had that rewritten to the
- * fallback of 50. Uses ?? semantics via an explicit finite check instead.
+ * Clamp a value parsed out of an LLM response into [min, max]. 0 is a real
+ * answer, so this checks for a finite number rather than using `|| fallback`.
  */
 export function clampParsedNumber(
   value: unknown,
@@ -150,8 +146,6 @@ export async function estimateDowCrowdScores(): Promise<Map<number, number>> {
 
   const content = msg.choices[0]?.message?.content ?? "{}";
 
-  // An unguarded JSON.parse here threw all the way out to the calendar route,
-  // whose bare catch left every day null with nothing logged.
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(content) as Record<string, unknown>;
@@ -215,8 +209,7 @@ Return ONLY valid JSON: {"adjustment": <integer -35 to 35>, "reasoning": "<one s
     const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
     return { adjustment, reasoning: reasoning || null };
   } catch (err) {
-    // A failed adjustment must not fail the sync, but silence here is how a
-    // dead model went unnoticed.
+    // A failed adjustment must not fail the sync.
     console.error("adjustCrowdScore failed", err);
     return { adjustment: 0, reasoning: null };
   }

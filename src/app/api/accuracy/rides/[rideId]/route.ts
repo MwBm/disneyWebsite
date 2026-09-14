@@ -3,13 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { cachedJson } from "@/lib/http";
 
-/**
- * Predicted-vs-actual points for one ride, for the accuracy chart.
- *
- * Split out of /api/accuracy, which used to return every joined row for the
- * whole 30-day window so the client could filter to one ride and keep the last
- * 48. The filtering and the limit now happen in Postgres.
- */
+/** Predicted-vs-actual points for one ride, for the accuracy chart. */
 export const dynamic = "force-dynamic";
 
 const CACHE_SECONDS = 1800;

@@ -3,14 +3,9 @@ import { prisma } from "./db";
 import { PARK_TIME_ZONE, normalizeParkDateKey, parkDateDow, parkDateRangeUtc } from "./park-time";
 
 /**
- * The SQL behind the forecast, calendar and crowd-score features.
- *
- * Every aggregate happens in Postgres. Each row a query returns counts against
- * Supabase's 5 GB/month egress quota, and these routes used to ship tens of
- * thousands of forecast rows to Node only to average them.
- *
- * Unit tests mock this module; tests/integration/forecast-queries.test.ts runs
- * every query here against a real Postgres.
+ * The SQL behind the forecast, calendar and crowd-score features. Every
+ * aggregate happens in Postgres: each row returned counts against Supabase's
+ * 5 GB/month egress quota.
  */
 
 /**
@@ -41,15 +36,7 @@ export type RideDayForecast = {
 
 export type HistoricalRideWaits = Omit<RideDayForecast, "mlConfidence">;
 
-/**
- * Per-ride average and peak predicted wait for one park date.
- *
- * Replaces a `DISTINCT ON ("rideId") … ORDER BY "mlConfidence" DESC` that was
- * meant to pick each ride's best slot. mlConfidence is one value per ride, so
- * every slot tied and Postgres returned an arbitrary one: on 2026-09-15 the 80
- * rides came back at 29 different times of day between 08:00 and 23:30, and
- * the table ranked a 2 PM wait against an 11:30 PM one.
- */
+/** Per-ride average and peak predicted wait for one park date. */
 export async function getRideForecastsForDate(date: Date | string): Promise<RideDayForecast[]> {
   const { start, endExclusive } = parkDateRangeUtc(date);
   const rows = await prisma.$queryRaw<RideDayForecast[]>(Prisma.sql`
@@ -76,13 +63,7 @@ export async function getRideForecastsForDate(date: Date | string): Promise<Ride
   }));
 }
 
-/**
- * Park date ("YYYY-MM-DD") → mean ML crowd score over that date's slots.
- *
- * Returns at most one row per day. The calendar used to fetch every slot of
- * the month (~47,000 rows, ~1.3 MB per uncached month) and the Groq sync every
- * slot of the next year, only to compute these averages in Node.
- */
+/** Park date ("YYYY-MM-DD") → mean ML crowd score over that date's slots. */
 export async function getDailyMlCrowdScores(start: Date, endExclusive: Date): Promise<Map<string, number>> {
   const rows = await prisma.$queryRaw<{ date: string; crowdScore: number }[]>(Prisma.sql`
     SELECT
@@ -98,21 +79,15 @@ export async function getDailyMlCrowdScores(start: Date, endExclusive: Date): Pr
 }
 
 /**
- * Per-ride average and peak of typical hourly waits on this date's day of week.
- *
- * Reads HourlyWaitSummary. It used to read WaitTimeRecord, which only ever
- * holds ~30 days, so a "two-year" day-of-week mean was built from about four
- * weeks: 7 Tuesdays where the hourly archive has 52. It also returned one row
- * per ride per hour, which the wait-times table then listed ~16 times per ride.
+ * Per-ride average and peak of typical hourly waits on this date's day of week,
+ * from HourlyWaitSummary (WaitTimeRecord only holds ~30 days).
  *
  * `date` in HourlyWaitSummary is already the park date at midnight, so the day
  * of week needs no time-zone conversion. Only the hours that have forecast
  * slots count, so these numbers line up with getRideForecastsForDate.
  *
- * Each ride's latest name comes from a LATERAL lookup on the
- * ("rideId", date, hour) unique index, one index probe per ride. A
- * DISTINCT ON over the whole table sorted all ~217,000 archive rows to find
- * ~65 names and took 310 ms on production; this takes 48 ms.
+ * Each ride's latest name is a LATERAL probe on the ("rideId", date, hour)
+ * unique index; a DISTINCT ON over the table would sort every archive row.
  */
 export async function getHistoricalRideWaitsForDate(date: Date | string): Promise<HistoricalRideWaits[]> {
   const dow = parkDateDow(normalizeParkDateKey(date)); // 0=Sunday..6=Saturday
@@ -178,13 +153,7 @@ export async function getHistoricalDowMeanWaits(month: number): Promise<Map<numb
   return new Map(rows.map((r) => [Number(r.dow), Number(r.meanWait)]));
 }
 
-/**
- * Most recent runs of the 30-minute collect job only.
- *
- * CollectRun also holds train and archive runs. Without the filter a daily
- * train run could stand in for "last collected", and 47 collect successes
- * would hide a train job that fails every night (or the reverse).
- */
+/** Most recent runs of the 30-minute collect job; CollectRun also logs train and archive. */
 export async function getRecentCollectRuns(limit = 3) {
   return prisma.collectRun.findMany({
     where: { job: "collect" },

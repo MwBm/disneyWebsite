@@ -111,9 +111,6 @@ describe("fetchLiveRides — ride exclusions", () => {
 });
 
 describe("fetchLiveRides — failure modes", () => {
-  // The module comment promises both parsers "fail loudly" on a shape change.
-  // These are the tests that hold it to that.
-
   it("throws QueueTimesError on a non-ok HTTP response", async () => {
     mockParks([emptyPark], false, 503);
     await expect(fetchLiveRides()).rejects.toThrow(QueueTimesError);

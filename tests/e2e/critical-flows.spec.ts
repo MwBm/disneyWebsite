@@ -3,8 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Home — Crowd Forecast", () => {
   test("date picker and forecast button render", async ({ page }) => {
     await page.goto("/");
-    // DisneyDatePicker is a button-based picker, not a native date input; the
-    // previous `input[type="date"]` selector matched nothing.
+    // DisneyDatePicker is a button-based picker, not a native date input.
     await expect(page.getByRole("button", { name: /change date/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /forecast/i })).toBeVisible();
   });
@@ -33,9 +32,6 @@ test.describe("Chat page", () => {
 });
 
 test.describe("Wait Times page", () => {
-  // This spec previously described an hour-selector UI that belonged to an
-  // earlier version of the page. The page now loads predictions for the
-  // selected date automatically, with no submit button.
   test("heading and date picker render", async ({ page }) => {
     await page.goto("/wait-times");
     await expect(
@@ -77,8 +73,6 @@ test.describe("Calendar page", () => {
   });
 
   test("legend thresholds match the shared crowd scale", async ({ page }) => {
-    // Guards the split that had the calendar on 30/55/75 and lib/crowd.ts on
-    // 25/50/75, so one day could carry two different labels.
     await page.goto("/calendar");
     for (const range of ["Light (0–25)", "Moderate (26–50)", "Busy (51–75)", "Very Busy (76+)"]) {
       await expect(page.getByText(range)).toBeVisible();

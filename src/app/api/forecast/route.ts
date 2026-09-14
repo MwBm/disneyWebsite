@@ -33,9 +33,7 @@ const QuerySchema = z.object({
 
 /**
  * `forecasts` holds one entry per ride with its average and peak wait for the
- * day, whichever source produced it. Both paths used to return something else:
- * the ML path one arbitrary time slot per ride, the historical path one row
- * per ride per hour.
+ * day, whichever source produced it.
  */
 export async function GET(req: NextRequest) {
   const limited = rateLimitResponse(req, RATE_LIMIT);
@@ -123,11 +121,7 @@ export async function GET(req: NextRequest) {
   }, CACHE_SECONDS);
 }
 
-/**
- * Narration is a nice-to-have: the forecast is returned without it, but a
- * failure is logged, never swallowed. A bare catch once hid every narration
- * call 404ing on a retired Groq model.
- */
+/** Narration is optional: the forecast is returned without it, and failures are logged. */
 async function narrate(
   path: string,
   crowdScore: number,

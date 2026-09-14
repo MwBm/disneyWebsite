@@ -25,8 +25,6 @@ function mockOpenMeteo(body: unknown, ok = true, status = 200) {
 
 describe("fetchWeatherForecast", () => {
   it("requests the single canonical Anaheim coordinate", async () => {
-    // The calendar used to fetch 33.8121/-117.9190 while this lib used
-    // 33.8366/-117.9143 — two coordinates for one theme park.
     mockOpenMeteo({ daily: { time: [] } });
     await fetchWeatherForecast("2026-06-01", "2026-06-02");
 
@@ -128,8 +126,6 @@ describe("climatologicalWeather", () => {
   });
 
   it("falls back instead of throwing on a malformed date string", () => {
-    // The previous implementation used a non-null assertion here and would
-    // have thrown on an out-of-range month.
     expect(() => climatologicalWeather("2026-13-01")).not.toThrow();
     expect(climatologicalWeather("2026-13-01").tempHigh).toBe(75);
     expect(climatologicalWeather("garbage").tempHigh).toBe(75);

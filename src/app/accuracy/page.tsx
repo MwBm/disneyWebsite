@@ -104,9 +104,6 @@ function RideCard({
 export default function AccuracyPage() {
   const [data, setData] = useState<AccuracyData | null>(null);
   const [loading, setLoading] = useState(true);
-  // Selection is by id, not name: the chart's points are now fetched per ride
-  // from /api/accuracy/rides/[rideId] rather than filtered out of one big
-  // client-side array.
   const [selectedRideId, setSelectedRideId] = useState<number | null>(null);
   const [dataQualityOk, setDataQualityOk] = useState(true);
   const [parkFilter, setParkFilter] = useState<ParkFilter>("all");

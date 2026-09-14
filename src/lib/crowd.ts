@@ -47,11 +47,7 @@ export type CrowdBand = {
 };
 
 /**
- * The one crowd scale. Even quarters of 0–100.
- *
- * The calendar page used to carry its own copy at ≤30/≤55/≤75 with its own
- * colors, so a day scoring 28 rendered as "Light" green on the home page and
- * "Low" in a different green on the calendar. Anything that labels or colors a
+ * The one crowd scale: even quarters of 0–100. Anything that labels or colors a
  * crowd score reads this array.
  */
 export const CROWD_BANDS: readonly CrowdBand[] = [

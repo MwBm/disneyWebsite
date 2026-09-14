@@ -72,9 +72,7 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
         <p className="text-xs text-warm-700 font-medium uppercase tracking-wide mb-2">{label}</p>
       )}
 
-      {/* Ticket stub */}
       <div className="flex rounded-xl overflow-hidden shadow-lg" style={{ border: "1px solid rgba(240,192,96,0.25)" }}>
-        {/* Orange stub strip */}
         <div
           className="w-9 bg-orange-500 flex items-center justify-center shrink-0"
           style={{ borderRight: "2px dashed rgba(255,255,255,0.35)" }}
@@ -87,7 +85,6 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
           </span>
         </div>
 
-        {/* Main body */}
         <div className="bg-space-card flex-1 flex items-center gap-1 px-2 py-2.5">
           <button
             type="button"
@@ -132,7 +129,6 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
         </div>
       </div>
 
-      {/* Calendar popup */}
       <AnimatePresence>
         {calendarOpen && (
           <motion.div
@@ -143,7 +139,6 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
             className="absolute z-50 mt-2 bg-space-card rounded-2xl shadow-2xl p-4 w-64"
             style={{ border: "1px solid rgba(240,192,96,0.2)" }}
           >
-            {/* Month nav */}
             <div className="flex items-center justify-between mb-3">
               <button
                 type="button"
@@ -168,7 +163,6 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
               </button>
             </div>
 
-            {/* Day-of-week headers */}
             <div className="grid grid-cols-7 mb-1">
               {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
                 <div key={d} className="text-center text-[10px] text-warm-600 font-medium py-1">
@@ -177,7 +171,6 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
               ))}
             </div>
 
-            {/* Day cells */}
             <div className="grid grid-cols-7 gap-0.5">
               {Array.from({ length: startPad }).map((_, i) => (
                 <div key={`pad-${i}`} />

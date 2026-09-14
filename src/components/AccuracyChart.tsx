@@ -19,12 +19,7 @@ type Row = {
   absError: number;
 };
 
-/**
- * Points come from /api/accuracy/rides/[rideId], already filtered to this ride,
- * limited and ordered by Postgres. Previously the parent fetched every joined
- * row for the whole 30-day window and this component filtered and sliced it
- * down to 48 in the browser.
- */
+/** Points come from /api/accuracy/rides/[rideId], already filtered, limited and ordered. */
 export default function AccuracyChart({
   rideId,
   rideName,

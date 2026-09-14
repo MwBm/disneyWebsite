@@ -6,7 +6,6 @@ test.describe("Mobile nav — hamburger menu", () => {
   test("desktop links hidden, hamburger visible at mobile width", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("button", { name: /open menu/i })).toBeVisible();
-    // Desktop link list should be hidden
     const desktopList = page.locator("nav ul.hidden");
     await expect(desktopList).toBeAttached();
   });
@@ -16,13 +15,10 @@ test.describe("Mobile nav — hamburger menu", () => {
     const hamburger = page.getByRole("button", { name: /open menu/i });
     await hamburger.click();
 
-    // Mobile menu should now be open
     await expect(page.getByRole("button", { name: /close menu/i })).toBeVisible();
-    // All nav links should be visible in mobile menu
     await expect(page.getByRole("link", { name: "Forecast" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Chat" }).first()).toBeVisible();
 
-    // Close it
     await page.getByRole("button", { name: /close menu/i }).click();
     await expect(page.getByRole("button", { name: /open menu/i })).toBeVisible();
   });

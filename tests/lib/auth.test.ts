@@ -28,8 +28,7 @@ describe("requireBearer — misconfiguration fails closed", () => {
   });
 
   it("does NOT authorize the literal 'Bearer undefined' when the secret is unset", () => {
-    // Regression guard for the original `header !== \`Bearer ${process.env.CRON_SECRET}\``
-    // check, which authenticated exactly this header.
+    // What a plain `header !== \`Bearer ${process.env.CRON_SECRET}\`` check would accept.
     delete process.env.CRON_SECRET;
     const res = requireBearer(makeReq("Bearer undefined"));
     expect(res).not.toBeNull();

@@ -3,13 +3,9 @@ import { cachedJson } from "@/lib/http";
 import { getParkName } from "@/lib/parks";
 
 /**
- * Dynamic, not prerendered.
- *
- * This route takes no search params, so Next prerendered it at build time —
- * which ran this query against the production database during `next build` and
- * made a live DB a hard build dependency. A deploy (or any CI) without database
- * reachability failed with ECONNREFUSED. It also baked a 30-day accuracy window
- * into the build output, though the window moves every day.
+ * Without this, Next prerenders the route at build time: `next build` would
+ * need a reachable database, and the moving 30-day window would be frozen into
+ * the build output.
  */
 export const dynamic = "force-dynamic";
 
@@ -34,16 +30,8 @@ type PerRideRow = {
 };
 
 /**
- * Both queries aggregate in Postgres.
- *
- * This route used to SELECT every joined row for the window — roughly
- * 50 rides x 40 slots x 30 days — materialise all of them in Node, walk the
- * array three times for the within-N buckets, and ship the whole thing to the
- * browser. The page rendered 48 points from it. Aggregates belong in SQL, and
- * the chart's points now come from /api/accuracy/rides/[rideId].
- *
- * DailyForecast.forecastFor and WaitTimeRecord.windowedAt are both stored as
- * 30-min-aligned UTC datetimes, so exact equality join is correct.
+ * DailyForecast.forecastFor and WaitTimeRecord.windowedAt are both 30-minute
+ * aligned UTC datetimes, so an equality join is exact.
  */
 export async function GET() {
   const [summaryRows, perRideRows] = await Promise.all([

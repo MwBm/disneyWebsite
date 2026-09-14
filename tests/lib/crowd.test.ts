@@ -128,9 +128,7 @@ describe("deriveCrowdScore", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Shared crowd scale — added when the calendar page's private copy (30/55/75)
-// was folded into lib/crowd.ts (25/50/75). These lock the thresholds so the
-// two can't drift apart again.
+// Shared crowd scale
 // ---------------------------------------------------------------------------
 
 import {
@@ -150,7 +148,7 @@ describe("crowdBand — threshold boundaries", () => {
     [0, "Light"],
     [25, "Light"],
     [26, "Moderate"],
-    [28, "Moderate"], // the score that used to render two different labels
+    [28, "Moderate"],
     [50, "Moderate"],
     [51, "Busy"],
     [75, "Busy"],

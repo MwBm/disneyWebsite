@@ -80,13 +80,11 @@ export default function LoadingScreen() {
   const progressInterval = useRef<ReturnType<typeof setInterval>>();
   const factInterval = useRef<ReturnType<typeof setInterval>>();
 
-  // Fact rotation
   useEffect(() => {
     factInterval.current = setInterval(() => setFactIndex((i) => i + 1), 4000);
     return () => clearInterval(factInterval.current);
   }, []);
 
-  // Progress bar
   useEffect(() => {
     progressInterval.current = setInterval(() => {
       const p = progressRef.current;
@@ -119,12 +117,6 @@ export default function LoadingScreen() {
 
   // Dismiss as soon as the browser has actually painted, with a short floor so
   // the overlay does not flash on a fast load.
-  //
-  // This used to be a flat `setTimeout(dismiss, 3000)` plus an 800ms fade, so
-  // every page load was blocked for ~3.8s no matter how quickly the data
-  // arrived — with warm APIs answering in 0.1–0.8s, the loading screen was the
-  // slowest part of the app. `window.finishLoading` was provided as an escape
-  // hatch and nothing ever called it.
   useEffect(() => {
     (window as Window & { finishLoading?: () => void }).finishLoading = dismiss;
 
@@ -162,7 +154,6 @@ export default function LoadingScreen() {
         transition: `opacity ${FADE_MS}ms ease, visibility ${FADE_MS}ms ease`,
       }}
     >
-      {/* Star field */}
       <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
         {stars.map((s, i) => (
           <div
@@ -183,7 +174,6 @@ export default function LoadingScreen() {
         ))}
       </div>
 
-      {/* Retro frame */}
       <div
         style={{
           position: "absolute",
@@ -212,7 +202,6 @@ export default function LoadingScreen() {
         ))}
       </div>
 
-      {/* Content */}
       <div
         style={{
           position: "relative",
@@ -222,7 +211,6 @@ export default function LoadingScreen() {
           alignItems: "center",
         }}
       >
-        {/* Title */}
         <h1
           className={abrilFatface.className}
           style={{
@@ -336,7 +324,6 @@ export default function LoadingScreen() {
           </svg>
         </div>
 
-        {/* Progress bar */}
         <div
           style={{
             width: "min(320px, 80vw)",
@@ -360,7 +347,6 @@ export default function LoadingScreen() {
           />
         </div>
 
-        {/* Fun facts */}
         <div
           style={{
             width: "min(380px, 88vw)",
@@ -398,7 +384,6 @@ export default function LoadingScreen() {
           </p>
         </div>
 
-        {/* Status */}
         <p
           style={{
             marginTop: 16,
@@ -414,7 +399,6 @@ export default function LoadingScreen() {
         </p>
       </div>
 
-      {/* Keyframe styles */}
       <style>{`
         @keyframes ls-spin {
           from { transform: rotate(0deg); }
