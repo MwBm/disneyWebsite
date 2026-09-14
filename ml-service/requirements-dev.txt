@@ -1,0 +1,5 @@
+# Test-only dependencies. The GitHub Actions jobs install requirements.txt;
+# CI and local development install this file.
+-r requirements.txt
+pytest==8.3.4
+PyYAML==6.0.2

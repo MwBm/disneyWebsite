@@ -10,7 +10,7 @@ Single-shot Python jobs run from GitHub Actions. `collect.py` (every 30 min) onl
 cd ml-service
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 DATABASE_URL="$DIRECT_URL" python collect.py   # writes one WaitTimeRecord window
 DATABASE_URL="$DIRECT_URL" python train.py     # writes the 30-day forecast window
 ```
@@ -28,12 +28,14 @@ Uses `DATABASE_URL`, else `DIRECT_URL`. Prisma-only query params (`pgbouncer`, `
 | `train.py` | Daily job: `pipeline.generate_forecasts` → 30-day `DailyForecast` window (the only writer of forecasts) |
 | `collect.py` | 30-min job: queue-times → `WaitTimeRecord` upsert → `CollectRun`. No reads, no ML |
 | `pipeline.py` | Training-data loading, lag/cross-ride features, forecast slot building and upsert |
+| `check_freshness.py` | Daily monitor run from collect.yml: fails when the last successful train run is > 24 h old or forecasts end < 27 days ahead |
 | `common.py` | Shared constants (`PARK_TZ`, `WINDOW_MINUTES`, `RAW_RETENTION_DAYS`), DB URL handling, `connect()`, `run_logged_job()` |
 | `model.py` | `train_ride_models(records)` + `predict_for_ride(tm, ride_id, slots, ...)` — XGBoost per ride |
 | `archive.py` | Aggregates `WaitTimeRecord` >30 days into `HourlyWaitSummary` |
 | `import_dca_kaggle_history.py` | One-time importer for the DCA Kaggle dataset → `HourlyWaitSummary` |
 | `schemas.py` | Pydantic models (`RideHistory`, `RideForecast`, `DateContext`, `LagFeatures`) |
-| `requirements.txt` | xgboost, scikit-learn, numpy, pydantic, httpx, kagglehub, psycopg, pytest |
+| `requirements.txt` | Runtime: xgboost, scikit-learn, numpy, pydantic, httpx, kagglehub, psycopg — what the Actions jobs install |
+| `requirements-dev.txt` | `requirements.txt` + pytest, PyYAML — CI and local development |
 
 ---
 
@@ -59,7 +61,7 @@ train.yml runs at 06:00 UTC (23:00 Pacific in summer), so each run writes tonigh
 
 ## Run logging (`common.run_logged_job`)
 
-Both jobs run inside `run_logged_job(work)`: one transaction for the work plus its `CollectRun` success row, so success is only recorded when the rows commit. Any exception rolls back and is logged on a fresh autocommit connection with `rowsUpserted=0` and the error message, then the job exits 1 so GitHub fails the run. Connections time out after `CONNECT_TIMEOUT_SECONDS` instead of hanging until the workflow timeout.
+`collect`, `train` and `archive` all run inside `run_logged_job(job, work)`, which records `CollectRun.job`: one transaction for the work plus its `CollectRun` success row, so success is only recorded when the rows commit. Any exception rolls back and is logged on a fresh autocommit connection with `rowsUpserted=0` and the error message, then the job exits 1 so GitHub fails the run. Connections time out after `CONNECT_TIMEOUT_SECONDS` instead of hanging until the workflow timeout.
 
 ---
 

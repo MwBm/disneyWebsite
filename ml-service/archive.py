@@ -2,14 +2,19 @@
 into HourlyWaitSummary, then delete the raw rows.
 
 Runs from GitHub Actions every Sunday. Safe to re-run: ON CONFLICT DO NOTHING
-means already-archived buckets are skipped without error.
+means already-archived buckets are skipped without error. Each run is logged to
+CollectRun with job='archive'; runs used to leave no trace at all.
 """
 
+import logging
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from common import RAW_RETENTION_DAYS, connect, database_url_from_env
+from common import RAW_RETENTION_DAYS, run_logged_job
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def fetch_buckets_to_archive(cur, cutoff: datetime) -> list[tuple]:
@@ -87,38 +92,24 @@ def delete_archived_rows(cur, cutoff: datetime) -> int:
     return cur.rowcount
 
 
-def main() -> int:
-    db_url = database_url_from_env()
-    if not db_url:
-        print("ERROR: DATABASE_URL or DIRECT_URL must be set", file=sys.stderr)
-        return 1
-
+def archive(conn) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(days=RAW_RETENTION_DAYS)
-    print(f"Archiving WaitTimeRecord rows with windowedAt < {cutoff.date()}")
+    logger.info("Archiving WaitTimeRecord rows with windowedAt < %s", cutoff.date())
 
-    with connect(db_url) as conn:
-        try:
-            with conn.cursor() as cur:
-                buckets = fetch_buckets_to_archive(cur, cutoff)
+    with conn.cursor() as cur:
+        buckets = fetch_buckets_to_archive(cur, cutoff)
+        if not buckets:
+            logger.info("Nothing to archive")
+            return 0
+        inserted = insert_summaries(cur, buckets)
+        deleted = delete_archived_rows(cur, cutoff)
 
-            if not buckets:
-                print("Nothing to archive.")
-                conn.rollback()
-                return 0
+    logger.info("Archived %d (ride, date, hour) buckets, deleted %d raw rows", inserted, deleted)
+    return inserted
 
-            print(f"Found {len(buckets)} (ride, date, hour) buckets to archive")
 
-            with conn.cursor() as cur:
-                inserted = insert_summaries(cur, buckets)
-                deleted = delete_archived_rows(cur, cutoff)
-
-            conn.commit()
-            print(f"Archived {inserted} buckets, deleted {deleted} raw rows")
-        except Exception:
-            conn.rollback()
-            raise
-
-    return 0
+def main() -> int:
+    return run_logged_job("archive", archive)
 
 
 if __name__ == "__main__":

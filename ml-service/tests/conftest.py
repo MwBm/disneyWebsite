@@ -124,15 +124,39 @@ class FakeDatabase:
     def statements(self) -> list[Statement]:
         return [s for conn in self.connections for s in conn.statements]
 
-    def collect_run_rows(self) -> list[tuple]:
-        """Params of every CollectRun insert: (id, ranAt, rowsUpserted, success, errorMessage)."""
-        return [s.params for s in self.statements if 'INSERT INTO "CollectRun"' in s.sql]
+    def collect_runs(self) -> list[dict]:
+        """Every CollectRun insert, as {"job", "ran_at", "rows", "success", "error"}."""
+        columns = ("id", "job", "ran_at", "rows", "success", "error")
+        return [
+            dict(zip(columns, s.params))
+            for s in self.statements
+            if 'INSERT INTO "CollectRun"' in s.sql
+        ]
 
 
 @pytest.fixture
 def fake_db(monkeypatch) -> FakeDatabase:
+    """Route every common.connect() to a FakeDatabase and forbid real connections.
+
+    Scripts may import connect by name (`from common import connect`), which a
+    patch on common.connect alone would miss — the test would then silently
+    open a real connection. Every loaded module holding that same function is
+    patched, and psycopg.connect itself raises, so a missed seam fails loudly.
+    """
+    import sys
+
+    import psycopg
+
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/db")
     monkeypatch.delenv("DIRECT_URL", raising=False)
     db = FakeDatabase()
-    monkeypatch.setattr(common, "connect", db.connect)
+    real_connect = common.connect
+    for module in list(sys.modules.values()):
+        if getattr(module, "connect", None) is real_connect:
+            monkeypatch.setattr(module, "connect", db.connect)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a test using fake_db tried to open a real database connection")
+
+    monkeypatch.setattr(psycopg, "connect", refuse)
     return db

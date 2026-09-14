@@ -1,4 +1,4 @@
-import { getCrowdScoresForMonth, ML_FORECAST_DAYS } from "@/lib/forecast";
+import { getCrowdScoresForMonth, getRecentCollectRuns, ML_FORECAST_DAYS } from "@/lib/forecast";
 import { prisma } from "@/lib/db";
 
 const mockFindMany = prisma.dailyForecast.findMany as jest.Mock;
@@ -79,5 +79,32 @@ describe("getCrowdScoresForMonth", () => {
   it("ML_FORECAST_DAYS is 30", () => {
     // Sync check: if this changes, verify the calendar UI still makes sense
     expect(ML_FORECAST_DAYS).toBe(30);
+  });
+});
+
+describe("getRecentCollectRuns", () => {
+  const mockCollectRunFindMany = prisma.collectRun.findMany as jest.Mock;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it("reads only collect-job runs, newest first", async () => {
+    mockCollectRunFindMany.mockResolvedValue([]);
+
+    await getRecentCollectRuns(3);
+
+    expect(mockCollectRunFindMany).toHaveBeenCalledTimes(1);
+    expect(mockCollectRunFindMany).toHaveBeenCalledWith({
+      where: { job: "collect" },
+      orderBy: { ranAt: "desc" },
+      take: 3,
+    });
+  });
+
+  it("defaults to the last three runs", async () => {
+    mockCollectRunFindMany.mockResolvedValue([]);
+
+    await getRecentCollectRuns();
+
+    expect(mockCollectRunFindMany.mock.calls[0][0].take).toBe(3);
   });
 });

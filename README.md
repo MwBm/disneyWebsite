@@ -41,13 +41,16 @@ npm run lint                           # eslint
 npm test                               # jest — 300+ unit and route tests
 npm run build                          # must succeed without a database
 
-cd ml-service && python -m pytest -q   # ML service
+cd ml-service && pip install -r requirements-dev.txt
+cd ml-service && python -m pytest -q   # ML service unit tests
+# ML integration tests need a local Postgres — see docs/runbook-tests.md
 
 npx playwright install chromium        # one-time, per machine
 npm run test:e2e                       # browser e2e on port 3100
 ```
 
-CI runs everything except e2e on every push — see
+CI runs everything except e2e on every push, including the ML integration
+tests against Postgres 17 and `actionlint` on the workflow files — see
 [docs/runbook-tests.md](docs/runbook-tests.md).
 
 ## Environment Variables

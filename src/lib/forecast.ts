@@ -52,8 +52,16 @@ export async function getCrowdScoreForDate(date: Date | string): Promise<number 
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
 }
 
+/**
+ * Most recent runs of the 30-minute collect job only.
+ *
+ * CollectRun also holds train and archive runs. Without the filter a daily
+ * train run could stand in for "last collected", and 47 collect successes
+ * would hide a train job that fails every night (or the reverse).
+ */
 export async function getRecentCollectRuns(limit = 3) {
   return prisma.collectRun.findMany({
+    where: { job: "collect" },
     orderBy: { ranAt: "desc" },
     take: limit,
   });

@@ -80,8 +80,21 @@ model Prediction {
   @@index([dateContextId])
 }
 
+// Which ml-service job wrote a CollectRun row. Keep in sync with
+// ml-service/common.py (JOBS); tests/test_common.py checks that.
+enum JobKind {
+  collect
+  train
+  archive
+}
+
+// One row per ml-service job run. `job` exists because train.py used to log
+// here indistinguishably from collect.py: a train job failing every night was
+// hidden behind 47 successful collects, and /api/forecast could report a train
+// run as "last collected".
 model CollectRun {
   id           String   @id @default(uuid())
+  job          JobKind  @default(collect)
   ranAt        DateTime @default(now())
   rowsUpserted Int
   success      Boolean

@@ -128,7 +128,7 @@ def collect(conn) -> int:
 
 
 def main() -> int:
-    return run_logged_job(collect)
+    return run_logged_job("collect", collect)
 
 
 if __name__ == "__main__":

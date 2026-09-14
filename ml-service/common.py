@@ -35,6 +35,9 @@ CONNECT_TIMEOUT_SECONDS = 15
 # "invalid URI query parameter". The same DATABASE_URL secret serves both.
 PRISMA_ONLY_URL_PARAMS = frozenset({"pgbouncer", "connection_limit", "pool_timeout", "schema"})
 
+# Values of the JobKind enum on CollectRun.job (prisma/schema.prisma).
+JOBS = ("collect", "train", "archive")
+
 
 def normalize_db_url(url: str) -> str:
     """Strip Prisma-only query parameters so psycopg accepts the URL.
@@ -93,22 +96,34 @@ def park_hour(dt: datetime) -> int:
     return as_utc(dt).astimezone(PARK_TZ).hour
 
 
+def require_known_job(job: str) -> None:
+    """Reject a job name the CollectRun.job enum doesn't have.
+
+    The database would reject it too, but only after the work's transaction
+    had been spent — and run_logged_job would then try to log that failure under
+    the same bad name.
+    """
+    if job not in JOBS:
+        raise ValueError(f"unknown job {job!r}; expected one of {JOBS}")
+
+
 def log_collect_run(
-    conn, rows_upserted: int, success: bool, error_message: str | None = None
+    conn, job: str, rows_upserted: int, success: bool, error_message: str | None = None
 ) -> None:
+    require_known_job(job)
     sql = """
-        INSERT INTO "CollectRun" (id, "ranAt", "rowsUpserted", success, "errorMessage")
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO "CollectRun" (id, job, "ranAt", "rowsUpserted", success, "errorMessage")
+        VALUES (%s, %s, %s, %s, %s, %s)
     """
     with conn.cursor() as cur:
         cur.execute(
             sql,
-            (str(uuid.uuid4()), datetime.now(timezone.utc), rows_upserted, success, error_message),
+            (str(uuid.uuid4()), job, datetime.now(timezone.utc), rows_upserted, success, error_message),
         )
 
 
-def run_logged_job(work: Callable[[psycopg.Connection], int]) -> int:
-    """Run `work` in one transaction, record the outcome in CollectRun, return an exit code.
+def run_logged_job(job: str, work: Callable[[psycopg.Connection], int]) -> int:
+    """Run `work` in one transaction, record the outcome in CollectRun as `job`, return an exit code.
 
     `work` receives an open connection and returns the number of rows it wrote.
     Success is logged in the same transaction as the work, so a run is never
@@ -118,6 +133,7 @@ def run_logged_job(work: Callable[[psycopg.Connection], int]) -> int:
     GitHub's failure email is then the only signal, which beats a crash that
     hides the original error.
     """
+    require_known_job(job)
     db_url = database_url_from_env()
     if not db_url:
         print("ERROR: DATABASE_URL or DIRECT_URL must be set", file=sys.stderr)
@@ -127,18 +143,18 @@ def run_logged_job(work: Callable[[psycopg.Connection], int]) -> int:
         with connect(db_url) as conn:
             try:
                 rows = work(conn)
-                log_collect_run(conn, rows, success=True)
+                log_collect_run(conn, job, rows, success=True)
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
-        logger.info("Run successful: %d rows written", rows)
+        logger.info("%s run successful: %d rows written", job, rows)
         return 0
     except Exception as exc:
-        logger.error("Run failed: %s", exc)
+        logger.error("%s run failed: %s", job, exc)
         try:
             with connect(db_url, autocommit=True) as conn:
-                log_collect_run(conn, 0, success=False, error_message=str(exc))
+                log_collect_run(conn, job, 0, success=False, error_message=str(exc))
         except Exception as log_exc:
             logger.error("Failed to log the failure to CollectRun: %s", log_exc)
         return 1
