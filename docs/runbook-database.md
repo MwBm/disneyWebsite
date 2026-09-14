@@ -100,6 +100,25 @@ One row per ml-service job run: `collect`, `train` or `archive`.
 
 ---
 
+## Data API lockdown (RLS)
+
+Supabase exposes `public` through its Data API as `anon`/`authenticated`, and by default grants them full access to everything `postgres` creates. Until migration `20260914020000_lock_down_data_api`, every table here (including `_prisma_migrations`) had RLS off and `anon` could SELECT, INSERT and DELETE.
+
+The migration enables RLS on every table with **no policies**, revokes all table/sequence/function privileges from `anon` and `authenticated`, and revokes `postgres`'s default privileges for them. The app is unaffected: Prisma and psycopg connect as `postgres`, which owns the tables and has BYPASSRLS (RLS is not FORCEd).
+
+- **New tables must enable RLS in their migration.** `tests/integration/test_migrations_db.py::test_every_table_in_the_migrated_database_has_rls` fails CI otherwise.
+- The Data API itself should be off: Dashboard → Project Settings → Data API → disable. That also covers anything `supabase_admin` creates, whose default privileges this migration can't change.
+
+Verify on production:
+
+```sql
+SET ROLE anon;
+SELECT count(*) FROM "WaitTimeRecord";   -- ERROR: permission denied
+RESET ROLE;
+```
+
+---
+
 ## Connections
 
 **App runtime (Vercel serverless):** Transaction Pooler on port 6543.
