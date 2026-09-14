@@ -8,6 +8,7 @@ import psycopg
 import pytest
 
 import archive
+import check_freshness
 import train
 from collect import upsert_wait_records
 from common import log_collect_run, run_logged_job
@@ -226,3 +227,32 @@ def test_archive_with_nothing_old_logs_a_zero_row_success(pg):
     assert _count(pg, "HourlyWaitSummary") == 0
     assert _count(pg, "WaitTimeRecord") == 1
     assert _runs(pg) == [("archive", 0, True, None)]
+
+
+# ---------------------------------------------------------------------------
+# check_freshness
+# ---------------------------------------------------------------------------
+
+def test_fetch_status_on_an_empty_database(pg):
+    assert check_freshness.fetch_status(pg) == (None, None)
+
+
+def test_fetch_status_only_counts_successful_train_runs(pg):
+    base = datetime(2026, 9, 14, 6, 0)
+    for job, success, ran_at in [
+        ("train", True, base - timedelta(days=1)),
+        ("train", False, base),                       # newer, but failed
+        ("collect", True, base + timedelta(hours=5)),  # newer, wrong job
+    ]:
+        pg.execute(
+            'INSERT INTO "CollectRun" (id, job, "ranAt", "rowsUpserted", success) VALUES (%s, %s, %s, 0, %s)',
+            (str(uuid.uuid4()), job, ran_at, success),
+        )
+    for forecast_for in (datetime(2026, 10, 1), datetime(2026, 10, 12, 6, 30)):
+        pg.execute(
+            'INSERT INTO "DailyForecast" (id, "rideId", "rideName", "landName", "forecastFor", "predictedWait", "crowdScore", "mlConfidence") '
+            "VALUES (%s, 1, 'R', 'L', %s, 10, 10, 0.5)",
+            (str(uuid.uuid4()), forecast_for),
+        )
+
+    assert check_freshness.fetch_status(pg) == (base - timedelta(days=1), datetime(2026, 10, 12, 6, 30))

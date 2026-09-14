@@ -127,3 +127,18 @@ jobs:
       - name: Run integration tests
         working-directory: ml-service
         run: python -m pytest -q -m integration
+
+  workflows:
+    name: Workflow files — actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned release; also runs shellcheck on every run: block
+      # (shellcheck is preinstalled on ubuntu-latest).
+      - name: Download actionlint
+        run: bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+
+      - name: Run actionlint
+        run: ./actionlint -color

@@ -91,9 +91,37 @@ required check is worse than no check. Run it locally before a release.
 
 ```bash
 cd ml-service
-python -m pytest -q
+pip install -r requirements-dev.txt    # runtime deps + pytest + PyYAML
+python -m pytest -q                    # unit tests; integration tests are deselected
 python -m pytest tests/test_model.py -v
 ```
+
+### Integration tests (`tests/integration/`, real Postgres)
+
+Marked `integration` and excluded by default (`pytest.ini`). They cover what mocks
+can't: real SQL, transactions and rollback, the `JobKind` enum cast, archive
+bucketing across both DST transitions, the full `train.main()` on seeded data, and
+migration backfills applied to pre-existing rows.
+
+```bash
+docker run -d --rm --name disney-it-pg -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=disney_test -p 55432:5432 postgres:17
+DATABASE_URL=postgresql://postgres:postgres@localhost:55432/disney_test npx prisma migrate deploy
+cd ml-service
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/disney_test python -m pytest -m integration
+docker stop disney-it-pg
+```
+
+Every test TRUNCATEs the app tables, so `tests/integration/conftest.py` refuses
+any host but localhost. Without `TEST_DATABASE_URL` they skip; CI sets
+`REQUIRE_INTEGRATION_DB=1` so a missing database fails instead.
+
+### Shared fakes (`tests/conftest.py`)
+
+`fake_db` routes every `common.connect()` — including modules that imported
+`connect` by name — to a recording `FakeConnection`, and makes the real
+`psycopg.connect` raise. Tests assert on the exact SQL run, commits and
+rollbacks, and `fake_db.collect_runs()`.
 
 ### `tests/test_model.py`
 - Feature vector is **23 named features**; tests reference `FEATURE_NAMES`
@@ -108,7 +136,15 @@ python -m pytest tests/test_model.py -v
 - `CROWD_MAX_WAIT` / `CROWD_EXPECTED_RIDES` match `src/lib/ride-config.json`
 
 ### `tests/test_collect.py`
-- `build_forecast_slots` uses Pacific days and skips midnight–8 AM
+- **Egress guard**: `collect.main()` runs only the `WaitTimeRecord` upsert and
+  the `CollectRun` insert — no SELECT at all
+- queue-times down, malformed or empty → failed run logged, nothing written
+
+### `tests/test_pipeline.py`
+- `build_forecast_slots` uses Pacific days and skips midnight–8 AM; empty after
+  23:30, 32 slots on both DST days
+- `generate_forecasts` reads nothing when there are no slots and raises when no
+  model trains
 - Lag features look back exactly 7 and 14 days at the same hour
 - **Label leakage guard**: `rolling_7d_mean` is never imputed with the record's
   own `wait_time`
@@ -119,7 +155,24 @@ python -m pytest tests/test_model.py -v
 
 ### `tests/test_train.py`
 - `train.main()` exits non-zero without `DATABASE_URL` / `DIRECT_URL`
-- `build_forecast_slots(days=30)` spans exactly 30 Pacific calendar days
+- `build_forecast_slots(days=30)` spans exactly 30 Pacific calendar days; the
+  06:00 UTC run covers tonight plus 29 full days
+
+### `tests/test_common.py`
+- `normalize_db_url` edge cases (param order, bare flags, encoding), connect
+  timeout + no prepared statements, park-time boundaries across DST
+- `run_logged_job`: success and failure rows per job, rollback, failure of the
+  failure log, connect failures; `JOBS` matches the Prisma `JobKind` enum
+
+### `tests/test_check_freshness.py`
+- Daily window boundaries, train-age and horizon thresholds, one aggregate read
+
+### `tests/test_workflows.py`
+- Every `schedule:` workflow is in collect.yml's keepalive list; only that job
+  gets `actions: write`; collect stays dispatch-only; every job has a timeout;
+  scripts run by workflows exist; production jobs install runtime deps only
+
+CI also runs `actionlint` (with shellcheck) on every workflow file.
 
 ### `tests/test_archive.py`, `tests/test_import_dca_kaggle_history.py`
 - Hourly aggregation and `ON CONFLICT DO NOTHING`; Kaggle importer smoke tests

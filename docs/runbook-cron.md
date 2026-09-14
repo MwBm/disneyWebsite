@@ -48,6 +48,19 @@ Do not replace cron-job.org with a `schedule:` block. GitHub disables scheduled 
 
 Until September 2026 this job also reloaded the whole training history and retrained every model on each run, to refresh today's forecast slots. That read 20–28 MB per run and used 16.5 GB of the Supabase Free plan's 5 GB monthly egress quota, restricting the project. `train.yml` now owns all forecasts.
 
+### Keepalive (`keep-schedules-enabled` job)
+
+Runs `gh workflow enable` for every workflow in `SCHEDULED_WORKFLOWS` on each collect dispatch, using the job's `GITHUB_TOKEN` with `actions: write` (the only job with that permission). If GitHub disables a scheduled workflow for inactivity, it is re-enabled within 30 minutes. `tests/test_workflows.py` fails when a workflow gains a `schedule:` trigger without being added to the list.
+
+### Forecast freshness (`check-freshness` job)
+
+Runs `ml-service/check_freshness.py`. Outside 12:00–12:30 UTC it exits immediately; inside, it fails the run (one GitHub email a day) when:
+
+- the latest successful `CollectRun` with `job='train'` is older than 24 h (a single missed nightly run), or
+- `DailyForecast` ends less than 27 days ahead (a healthy run writes 29).
+
+Dispatch with `check_freshness: true` to check immediately: `gh workflow run collect.yml -f check_freshness=true`.
+
 **Required secret:** `DATABASE_URL`.
 
 ---
@@ -94,11 +107,18 @@ Runs `python import_dca_kaggle_history.py` (optionally with `--dry-run`). Insert
 
 ## Monitoring
 
-Check `CollectRun` table for collect job history:
+Check `CollectRun` for job history:
 
 ```sql
-SELECT * FROM "CollectRun" ORDER BY "ranAt" DESC LIMIT 10;
+SELECT job, "ranAt", success, "rowsUpserted", "errorMessage"
+FROM "CollectRun" ORDER BY "ranAt" DESC LIMIT 20;
+
+-- Latest outcome per job
+SELECT DISTINCT ON (job) job, "ranAt", success, "errorMessage"
+FROM "CollectRun" ORDER BY job, "ranAt" DESC;
 ```
+
+`archive` runs are logged since 2026-09-13; before that archive left no trace. Check `gh workflow list --all` for any workflow in `disabled_inactivity` state.
 
 The `/accuracy` page shows a data-quality indicator if recent collect runs failed.
 
