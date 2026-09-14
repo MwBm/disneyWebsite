@@ -4,24 +4,21 @@ import { prisma } from "@/lib/db";
 import { _resetRateLimits } from "@/lib/rate-limit";
 import * as groqLib from "@/lib/groq";
 import * as forecastLib from "@/lib/forecast";
+import * as queries from "@/lib/forecast-queries";
 
 /**
- * Mocked at the lib boundary, matching calendar.test.ts.
- *
- * The previous version mocked prisma.dailyForecast.findMany, which
- * getForecastForDate stopped using when it moved to $queryRaw for the
- * DISTINCT ON optimization — so the mock was never consumed and the ML-path
- * tests failed on undefined. Worse, getForecastForDate and
- * getHistoricalMeansForDate both route through the single prisma.$queryRaw
- * mock, so no test could make one return ML rows and the other return
- * historical rows. The historical-fallback branch was untestable.
- *
- * forecast.ts keeps its own prisma-level tests in tests/lib/forecast.test.ts.
+ * Mocked at the lib boundary. The SQL behind these functions is covered
+ * against a real Postgres in tests/integration/forecast-queries.test.ts; here
+ * only the route's branching and response shape are under test.
  */
-jest.mock("@/lib/forecast", () => ({
-  getForecastForDate: jest.fn(),
+jest.mock("@/lib/forecast-queries", () => ({
+  getRideForecastsForDate: jest.fn(),
+  getHistoricalRideWaitsForDate: jest.fn(),
   getRecentCollectRuns: jest.fn(),
-  getHistoricalMeansForDate: jest.fn(),
+}));
+
+jest.mock("@/lib/forecast", () => ({
+  getCrowdScoreForDate: jest.fn(),
 }));
 
 jest.mock("@/lib/groq", () => ({
@@ -29,9 +26,10 @@ jest.mock("@/lib/groq", () => ({
   narrateForecastNoDataWithScore: jest.fn(),
 }));
 
-const mockGetForecast = forecastLib.getForecastForDate as jest.Mock;
-const mockGetRuns = forecastLib.getRecentCollectRuns as jest.Mock;
-const mockGetHistorical = forecastLib.getHistoricalMeansForDate as jest.Mock;
+const mockGetRides = queries.getRideForecastsForDate as jest.Mock;
+const mockGetHistorical = queries.getHistoricalRideWaitsForDate as jest.Mock;
+const mockGetRuns = queries.getRecentCollectRuns as jest.Mock;
+const mockCrowdScore = forecastLib.getCrowdScoreForDate as jest.Mock;
 const mockNarrate = groqLib.narrateForecast as jest.Mock;
 const mockNarrateNoData = groqLib.narrateForecastNoDataWithScore as jest.Mock;
 const mockDateContextFindUnique = prisma.dateContext.findUnique as jest.Mock;
@@ -40,22 +38,22 @@ function makeReq(date: string) {
   return new NextRequest(new URL(`http://localhost/api/forecast?date=${date}`));
 }
 
-const mlForecast = {
+const spaceMountain = {
   rideId: 1,
   rideName: "Space Mountain",
   landName: "Tomorrowland",
-  forecastFor: new Date("2026-06-01T10:00:00Z"),
-  predictedWait: 45,
-  crowdScore: 60,
+  avgWait: 45,
+  peakWait: 70,
   mlConfidence: 0.85,
 };
+const hauntedMansion = { ...spaceMountain, rideId: 2, rideName: "Haunted Mansion", avgWait: 25, peakWait: 40 };
 
-const historicalMean = {
+const historicalSpaceMountain = {
   rideId: 1,
   rideName: "Space Mountain",
   landName: "Tomorrowland",
-  hour: 10,
-  meanWait: 60,
+  avgWait: 60,
+  peakWait: 90,
 };
 
 const recentRun = { success: true, ranAt: new Date("2026-05-31T12:00:00Z") };
@@ -64,7 +62,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   _resetRateLimits();
   // Sensible defaults; each describe overrides what it cares about.
-  mockGetForecast.mockResolvedValue([]);
+  mockGetRides.mockResolvedValue([]);
+  mockCrowdScore.mockResolvedValue(null);
   mockGetRuns.mockResolvedValue([recentRun]);
   mockGetHistorical.mockResolvedValue([]);
   mockDateContextFindUnique.mockResolvedValue(null);
@@ -73,50 +72,74 @@ beforeEach(() => {
 });
 
 describe("forecast route — ML path", () => {
-  it("averages crowd score across per-ride forecasts", async () => {
-    mockGetForecast.mockResolvedValue([
-      { ...mlForecast, crowdScore: 60 },
-      { ...mlForecast, rideId: 2, rideName: "Haunted Mansion", crowdScore: 80 },
-    ]);
+  beforeEach(() => {
+    mockGetRides.mockResolvedValue([spaceMountain, hauntedMansion]);
+    mockCrowdScore.mockResolvedValue(60);
+  });
 
+  it("returns one avg/peak entry per ride and the day's crowd score", async () => {
     const res = await GET(makeReq("2026-06-01"));
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.source).toBe("ml");
-    expect(body.crowdScore).toBe(70);
-    expect(body.forecasts).toHaveLength(2);
+    expect(body.crowdScore).toBe(60);
+    expect(body.forecasts).toEqual([spaceMountain, hauntedMansion]);
     expect(body.dataQualityOk).toBe(true);
+    expect(body.lastCollectedAt).toBe("2026-05-31T12:00:00.000Z");
   });
 
-  it("serialises forecastFor as an ISO string", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
-
+  it("no longer exposes a per-slot time or per-row crowd score", async () => {
     const body = await (await GET(makeReq("2026-06-01"))).json();
-    expect(body.forecasts[0].forecastFor).toBe("2026-06-01T10:00:00.000Z");
+    for (const ride of body.forecasts) {
+      expect(ride).not.toHaveProperty("forecastFor");
+      expect(ride).not.toHaveProperty("predictedWait");
+      expect(ride).not.toHaveProperty("crowdScore");
+    }
   });
 
-  it("includes the Groq narration", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
+  it("queries every source for the requested park date", async () => {
+    await GET(makeReq("2026-06-01"));
 
+    expect(mockGetRides).toHaveBeenCalledWith("2026-06-01");
+    expect(mockCrowdScore).toHaveBeenCalledWith("2026-06-01");
+    expect(mockGetRuns).toHaveBeenCalledWith(3);
+    // Pacific midnight of Jun 1 is 07:00 UTC.
+    expect(mockDateContextFindUnique.mock.calls[0][0].where.date).toEqual(new Date("2026-06-01T07:00:00Z"));
+    expect(mockGetHistorical).not.toHaveBeenCalled();
+  });
+
+  it("narrates with the crowd score and the per-ride forecasts", async () => {
     const body = await (await GET(makeReq("2026-06-01"))).json();
+
     expect(body.crowdNarration).toBe("Test narration");
-    expect(mockNarrate).toHaveBeenCalledWith(60, expect.any(Array), expect.any(Date));
+    expect(mockNarrate).toHaveBeenCalledWith(60, [spaceMountain, hauntedMansion], expect.any(Date));
   });
 
   it("returns the forecast with a null narration when Groq throws", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
     mockNarrate.mockRejectedValueOnce(new Error("Groq down"));
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.crowdNarration).toBeNull();
-    // The forecast itself must survive — narration is a nice-to-have.
-    expect(body.forecasts).toHaveLength(1);
+    // The forecast itself must survive — narration is a nice-to-have — and the failure is logged.
+    expect(body.forecasts).toHaveLength(2);
     expect(body.crowdScore).toBe(60);
+    expect(consoleError).toHaveBeenCalledWith("narrateForecast failed (ml path)", expect.any(Error));
+    consoleError.mockRestore();
+  });
+
+  it("returns rides with a null score and no narration if no daily score exists", async () => {
+    mockCrowdScore.mockResolvedValue(null);
+
+    const body = await (await GET(makeReq("2026-06-01"))).json();
+    expect(body.source).toBe("ml");
+    expect(body.crowdScore).toBeNull();
+    expect(body.crowdNarration).toBeNull();
+    expect(mockNarrate).not.toHaveBeenCalled();
   });
 
   it("sets dataQualityOk false when no recent run succeeded", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
     mockGetRuns.mockResolvedValue([{ success: false, ranAt: new Date() }]);
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
@@ -124,7 +147,6 @@ describe("forecast route — ML path", () => {
   });
 
   it("sets dataQualityOk false when there are no runs at all", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
     mockGetRuns.mockResolvedValue([]);
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
@@ -134,12 +156,13 @@ describe("forecast route — ML path", () => {
 });
 
 describe("forecast route — Groq adjustment", () => {
+  beforeEach(() => {
+    mockGetRides.mockResolvedValue([spaceMountain]);
+    mockCrowdScore.mockResolvedValue(60);
+  });
+
   it("applies a stored adjustment on top of the ML score", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]); // score 60
-    mockDateContextFindUnique.mockResolvedValue({
-      groqAdjustment: 15,
-      groqReasoning: "Holiday weekend",
-    });
+    mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: 15, groqReasoning: "Holiday weekend" });
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.crowdScore).toBe(75);
@@ -147,99 +170,109 @@ describe("forecast route — Groq adjustment", () => {
     expect(body.groqReasoning).toBe("Holiday weekend");
   });
 
+  it("rounds a fractional adjustment", async () => {
+    mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: 2.6, groqReasoning: null });
+
+    expect((await (await GET(makeReq("2026-06-01"))).json()).crowdScore).toBe(63);
+  });
+
   it("clamps an adjustment that would push the score above 100", async () => {
-    mockGetForecast.mockResolvedValue([{ ...mlForecast, crowdScore: 95 }]);
+    mockCrowdScore.mockResolvedValue(95);
     mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: 30, groqReasoning: null });
 
     expect((await (await GET(makeReq("2026-06-01"))).json()).crowdScore).toBe(100);
   });
 
   it("clamps an adjustment that would push the score below 0", async () => {
-    mockGetForecast.mockResolvedValue([{ ...mlForecast, crowdScore: 5 }]);
+    mockCrowdScore.mockResolvedValue(5);
     mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: -30, groqReasoning: null });
 
     expect((await (await GET(makeReq("2026-06-01"))).json()).crowdScore).toBe(0);
   });
 
   it("omits the adjustment fields when the adjustment is zero", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
     mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: 0, groqReasoning: "No change" });
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.crowdScore).toBe(60);
     expect(body.groqAdjustment).toBeUndefined();
   });
+
+  it("narrates with the adjusted score", async () => {
+    mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: 10, groqReasoning: null });
+
+    await GET(makeReq("2026-06-01"));
+    expect(mockNarrate).toHaveBeenCalledWith(70, expect.any(Array), expect.any(Date));
+  });
 });
 
 describe("forecast route — historical fallback", () => {
-  // This branch was unreachable under the old mocking: both queries shared one
-  // $queryRaw mock, so seeding historical rows also satisfied the ML query.
-  beforeEach(() => {
-    mockGetForecast.mockResolvedValue([]);
-  });
-
-  it("falls back to historical means when there is no ML output", async () => {
+  it("returns one entry per ride, not one per ride per hour", async () => {
     mockGetHistorical.mockResolvedValue([
-      { ...historicalMean, hour: 10, meanWait: 40 },
-      { ...historicalMean, hour: 11, meanWait: 50 },
+      historicalSpaceMountain,
+      { ...historicalSpaceMountain, rideId: 2, rideName: "Matterhorn", avgWait: 40, peakWait: 55 },
     ]);
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.source).toBe("historical");
-    expect(body.forecasts).toHaveLength(2);
-    expect(body.forecasts[0].mlConfidence).toBe(0.25); // HISTORICAL_FALLBACK_CONFIDENCE
+    expect(body.forecasts).toEqual([
+      { ...historicalSpaceMountain, mlConfidence: 0.25 }, // HISTORICAL_FALLBACK_CONFIDENCE
+      { ...historicalSpaceMountain, rideId: 2, rideName: "Matterhorn", avgWait: 40, peakWait: 55, mlConfidence: 0.25 },
+    ]);
+    expect(mockGetHistorical).toHaveBeenCalledWith("2026-06-01");
   });
 
-  it("derives the crowd score from the mean wait", async () => {
-    // avgWait 60 over MAX_WAIT 120 → 50
-    mockGetHistorical.mockResolvedValue([historicalMean]);
+  it("derives the crowd score from the mean of the rides' average waits", async () => {
+    // mean(40, 80) = 60 over MAX_WAIT 120 → 50; peaks must not matter.
+    mockGetHistorical.mockResolvedValue([
+      { ...historicalSpaceMountain, avgWait: 40, peakWait: 120 },
+      { ...historicalSpaceMountain, rideId: 2, avgWait: 80, peakWait: 120 },
+    ]);
 
     expect((await (await GET(makeReq("2026-06-01"))).json()).crowdScore).toBe(50);
   });
 
-  it("stamps every synthetic forecast with the same derived score", async () => {
-    mockGetHistorical.mockResolvedValue([
-      { ...historicalMean, hour: 10, meanWait: 30 },
-      { ...historicalMean, hour: 11, meanWait: 90 },
-    ]);
+  it("ignores any stored Groq adjustment", async () => {
+    mockGetHistorical.mockResolvedValue([historicalSpaceMountain]);
+    mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: 20, groqReasoning: "x" });
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
-    const scores = body.forecasts.map((f: { crowdScore: number }) => f.crowdScore);
-    expect(new Set(scores).size).toBe(1);
+    expect(body.crowdScore).toBe(50);
+    expect(body.groqAdjustment).toBeUndefined();
   });
 
   it("narrates the historical forecast", async () => {
-    mockGetHistorical.mockResolvedValue([historicalMean]);
+    mockGetHistorical.mockResolvedValue([historicalSpaceMountain]);
 
     await GET(makeReq("2026-06-01"));
-    expect(mockNarrate).toHaveBeenCalled();
+    expect(mockNarrate).toHaveBeenCalledWith(50, [{ ...historicalSpaceMountain, mlConfidence: 0.25 }], expect.any(Date));
   });
 
   it("still returns the forecast when narration throws", async () => {
-    mockGetHistorical.mockResolvedValue([historicalMean]);
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
+    mockGetHistorical.mockResolvedValue([historicalSpaceMountain]);
     mockNarrate.mockRejectedValueOnce(new Error("Groq down"));
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.crowdNarration).toBeNull();
     expect(body.source).toBe("historical");
+    expect(consoleError).toHaveBeenCalledWith("narrateForecast failed (historical path)", expect.any(Error));
+    consoleError.mockRestore();
   });
 });
 
 describe("forecast route — Groq fallback", () => {
-  beforeEach(() => {
-    mockGetForecast.mockResolvedValue([]);
-    mockGetHistorical.mockResolvedValue([]);
-  });
-
   it("falls through to a Groq estimate with neither ML nor historical data", async () => {
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.source).toBe("groq");
     expect(body.forecasts).toEqual([]);
     expect(body.crowdScore).toBe(55);
     expect(body.crowdNarration).toBe("No data narration");
+    expect(mockNarrate).not.toHaveBeenCalled();
   });
 
   it("returns a null score and narration when Groq itself fails", async () => {
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
     mockNarrateNoData.mockRejectedValueOnce(new Error("down"));
 
     const res = await GET(makeReq("2026-06-01"));
@@ -249,6 +282,7 @@ describe("forecast route — Groq fallback", () => {
     expect(body.source).toBe("groq");
     expect(body.crowdScore).toBeNull();
     expect(body.crowdNarration).toBeNull();
+    consoleError.mockRestore();
   });
 });
 
@@ -271,20 +305,21 @@ describe("forecast route — validation", () => {
 
   it("does not touch the database when validation fails", async () => {
     await GET(makeReq("not-a-date"));
-    expect(mockGetForecast).not.toHaveBeenCalled();
+    expect(mockGetRides).not.toHaveBeenCalled();
   });
 });
 
 describe("forecast route — caching and rate limiting", () => {
   it("sets a CDN cache header on a successful response", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
+    mockGetRides.mockResolvedValue([spaceMountain]);
+    mockCrowdScore.mockResolvedValue(60);
 
     const res = await GET(makeReq("2026-06-01"));
     expect(res.headers.get("Cache-Control")).toContain("s-maxage=1800");
   });
 
-  it("returns 429 with Retry-After once the per-IP limit is exceeded", async () => {
-    mockGetForecast.mockResolvedValue([mlForecast]);
+  it("returns 429 with Retry-After once the per-IP limit is exceeded, before any query", async () => {
+    mockGetRides.mockResolvedValue([spaceMountain]);
 
     let last = await GET(makeReq("2026-06-01"));
     for (let i = 0; i < 40 && last.status !== 429; i++) {
@@ -292,5 +327,9 @@ describe("forecast route — caching and rate limiting", () => {
     }
     expect(last.status).toBe(429);
     expect(Number(last.headers.get("Retry-After"))).toBeGreaterThan(0);
+
+    const callsBefore = mockGetRides.mock.calls.length;
+    expect((await GET(makeReq("2026-06-01"))).status).toBe(429);
+    expect(mockGetRides.mock.calls.length).toBe(callsBefore);
   });
 });

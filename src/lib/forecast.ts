@@ -1,93 +1,27 @@
 import { prisma } from "./db";
-import { Prisma } from "@prisma/client";
 import { deriveCrowdScore } from "./crowd";
+import { getDailyMlCrowdScores, getHistoricalDowMeanWaits } from "./forecast-queries";
 import {
   dateContextMonthRangeUtc,
   normalizeParkDateKey,
   parkDateDow,
-  parkDateKey,
   parkDateRangeUtc,
   parkMonthRangeUtc,
 } from "./park-time";
 
-const PARK_LOCAL_RECORDED_AT = Prisma.raw(
-  `("recordedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')`
-);
-
-export async function getForecastForDate(date: Date | string) {
-  const { start, endExclusive } = parkDateRangeUtc(date);
-  // DISTINCT ON pushes dedup to Postgres — returns exactly one row per ride
-  // (the slot with the highest mlConfidence) instead of loading all 1,900+ rows
-  // into TypeScript for in-memory deduplication.
-  return prisma.$queryRaw<
-    {
-      rideId: number;
-      rideName: string;
-      landName: string;
-      forecastFor: Date;
-      predictedWait: number;
-      crowdScore: number;
-      mlConfidence: number;
-    }[]
-  >(Prisma.sql`
-    SELECT DISTINCT ON ("rideId")
-      "rideId",
-      "rideName",
-      "landName",
-      "forecastFor",
-      "predictedWait",
-      "crowdScore",
-      "mlConfidence"
-    FROM "DailyForecast"
-    WHERE "forecastFor" >= ${start}
-      AND "forecastFor" < ${endExclusive}
-    ORDER BY "rideId", "mlConfidence" DESC
-  `);
-}
-
-export async function getCrowdScoreForDate(date: Date | string): Promise<number | null> {
-  const forecasts = await getForecastForDate(date);
-  if (forecasts.length === 0) return null;
-  const scores = forecasts.map((f) => f.crowdScore);
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-}
-
 /**
- * Most recent runs of the 30-minute collect job only.
- *
- * CollectRun also holds train and archive runs. Without the filter a daily
- * train run could stand in for "last collected", and 47 collect successes
- * would hide a train job that fails every night (or the reverse).
+ * Crowd-score logic. The SQL it depends on lives in ./forecast-queries, so
+ * unit tests can mock each query separately.
  */
-export async function getRecentCollectRuns(limit = 3) {
-  return prisma.collectRun.findMany({
-    where: { job: "collect" },
-    orderBy: { ranAt: "desc" },
-    take: limit,
-  });
-}
-
-export type HistoricalMean = {
-  rideId: number;
-  rideName: string;
-  landName: string;
-  hour: number;
-  meanWait: number;
-};
 
 export const ML_FORECAST_DAYS = 30;
 
-/**
- * How far back the historical day-of-week fallback reads.
- *
- * The query filters on a computed park-local timezone expression, which no
- * plain column index can serve, and it previously had no time bound at all —
- * so it sequentially scanned the whole of WaitTimeRecord on every request that
- * fell through to the historical path. Two years is enough seasonality while
- * keeping the scan bounded; prisma/indexes.sql adds the matching functional
- * index.
- */
-export const HISTORICAL_LOOKBACK_YEARS = 2;
+/** Mean ML crowd score for one park date, or null when no forecast covers it. */
+export async function getCrowdScoreForDate(date: Date | string): Promise<number | null> {
+  const { start, endExclusive } = parkDateRangeUtc(date);
+  const scores = await getDailyMlCrowdScores(start, endExclusive);
+  return scores.get(normalizeParkDateKey(date)) ?? null;
+}
 
 export type DayCrowdScore = {
   date: string;
@@ -120,71 +54,19 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
   const { start, endExclusive } = parkMonthRangeUtc(year, month);
   const dateContextRange = dateContextMonthRangeUtc(year, month);
 
-  const [forecasts, histRows, dateContexts] = await Promise.all([
-    prisma.dailyForecast.findMany({
-      where: { forecastFor: { gte: start, lt: endExclusive } },
-      select: { forecastFor: true, crowdScore: true },
-    }),
-    // Weighted same-month historical averages from HourlyWaitSummary.
-    // Groups by park-local date first (to get a daily average across all rides/hours),
-    // then computes a weighted average by day-of-week — recent same-month dates get 2x weight.
-    prisma.$queryRaw<{ dow: number; meanWait: number }[]>(Prisma.sql`
-      SELECT
-        EXTRACT(DOW FROM sub.date)::int AS dow,
-        ROUND(SUM(sub.avg_wait * sub.weight) / SUM(sub.weight))::int AS "meanWait"
-      FROM (
-        SELECT
-          date,
-          AVG("avgWait") AS avg_wait,
-          CASE WHEN date >= NOW() - INTERVAL '1 year' THEN 2.0 ELSE 1.0 END AS weight
-        FROM "HourlyWaitSummary"
-        WHERE EXTRACT(MONTH FROM date) = ${month}
-          AND date >= NOW() - INTERVAL '3 years'
-        GROUP BY date
-      ) sub
-      GROUP BY EXTRACT(DOW FROM sub.date)
-    `),
+  const [mlScoreByDate, meanWaitByDow, dateContexts] = await Promise.all([
+    getDailyMlCrowdScores(start, endExclusive),
+    // Kept as a raw mean wait so each date's own tier can scale it below.
+    getHistoricalDowMeanWaits(month),
     prisma.dateContext.findMany({
       where: { date: { gte: dateContextRange.start, lt: dateContextRange.endExclusive } },
       select: { date: true, tier: true, specialEvent: true, isHoliday: true, groqAdjustment: true },
     }),
   ]);
 
-  const mlByDate = new Map<string, number[]>();
-  for (const f of forecasts) {
-    const key = parkDateKey(f.forecastFor);
-    if (!mlByDate.has(key)) mlByDate.set(key, []);
-    mlByDate.get(key)!.push(f.crowdScore);
-  }
-
-  // Mean wait per DOW — kept raw so we can apply per-date tier multiplier
-  const meanWaitByDow = new Map<number, number>(
-    histRows.map((r) => [Number(r.dow), Number(r.meanWait)])
-  );
-
-  const tierByDate = new Map<string, number>(
-    dateContexts
-      .filter((c) => c.tier !== null)
-      .map((c) => [c.date.toISOString().slice(0, 10), c.tier!])
-  );
-
-  const groqAdjByDate = new Map<string, number>(
-    dateContexts
-      .filter((c) => c.groqAdjustment !== null)
-      .map((c) => [c.date.toISOString().slice(0, 10), c.groqAdjustment!])
-  );
-
-  const specialEventByDate = new Map<string, string>(
-    dateContexts
-      .filter((c) => c.specialEvent !== null)
-      .map((c) => [c.date.toISOString().slice(0, 10), c.specialEvent!])
-  );
-
-  const isHolidayByDate = new Set<string>(
-    dateContexts
-      .filter((c) => c.isHoliday)
-      .map((c) => c.date.toISOString().slice(0, 10))
-  );
+  // DateContext.date is midnight UTC standing for the park date, so its UTC
+  // calendar date is the key.
+  const contextByDate = new Map(dateContexts.map((c) => [c.date.toISOString().slice(0, 10), c]));
 
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const windowCutoff = new Date();
@@ -194,13 +76,11 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
   const results: DayCrowdScore[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const key = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    const tier = tierByDate.get(key) ?? null;
-    const specialEvent = specialEventByDate.get(key) ?? null;
-    const isHoliday = isHolidayByDate.has(key);
+    const context = contextByDate.get(key);
+    const tier = context?.tier ?? null;
 
-    const mlScores = mlByDate.get(key);
-    const rawMlScore = mlScores ? Math.round(mlScores.reduce((a, b) => a + b, 0) / mlScores.length) : null;
-    const groqAdj = groqAdjByDate.get(key) ?? 0;
+    const rawMlScore = mlScoreByDate.get(key) ?? null;
+    const groqAdj = context?.groqAdjustment ?? 0;
     const mlScore = rawMlScore !== null ? Math.min(100, Math.max(0, Math.round(rawMlScore + groqAdj))) : null;
     const dowMeanWait = meanWaitByDow.get(parkDateDow(key)) ?? null;
     const historicalScore = dowMeanWait !== null ? deriveCrowdScore(dowMeanWait, tier ?? undefined) : null;
@@ -212,34 +92,14 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
       isBeyondWindow: key > windowCutoffKey,
     });
 
-    results.push({ date: key, crowdScore, source, tier, specialEvent, isHoliday });
+    results.push({
+      date: key,
+      crowdScore,
+      source,
+      tier,
+      specialEvent: context?.specialEvent ?? null,
+      isHoliday: context?.isHoliday ?? false,
+    });
   }
   return results;
-}
-
-export async function getHistoricalMeansForDate(date: Date | string): Promise<HistoricalMean[]> {
-  const dow = parkDateDow(normalizeParkDateKey(date)); // 0=Sunday..6=Saturday
-  const rows = await prisma.$queryRaw<HistoricalMean[]>(Prisma.sql`
-    SELECT
-      "rideId",
-      "rideName",
-      "landName",
-      EXTRACT(HOUR FROM ${PARK_LOCAL_RECORDED_AT})::int AS hour,
-      ROUND(AVG("waitTime"))::int AS "meanWait"
-    FROM "WaitTimeRecord"
-    WHERE
-      "isOpen" = true
-      AND "recordedAt" >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
-      AND EXTRACT(DOW FROM ${PARK_LOCAL_RECORDED_AT}) = ${dow}
-    GROUP BY "rideId", "rideName", "landName", EXTRACT(HOUR FROM ${PARK_LOCAL_RECORDED_AT})
-    ORDER BY "rideId", hour
-  `);
-  // Prisma raw may return BigInt for int columns — normalize
-  return rows.map((r) => ({
-    rideId: Number(r.rideId),
-    rideName: r.rideName,
-    landName: r.landName,
-    hour: Number(r.hour),
-    meanWait: Number(r.meanWait),
-  }));
 }

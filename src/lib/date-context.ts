@@ -4,7 +4,8 @@ import { isHolidayDate, isSchoolBreakDate } from "./calendar";
 import { fetchWeatherForecast, climatologicalWeather, WeatherDay } from "./weather";
 import { fetchDateSchedule } from "./park-schedule";
 import { mapWithConcurrency } from "./concurrency";
-import { parkDateKey, parkDateRangeUtc } from "./park-time";
+import { parkDateRangeUtc } from "./park-time";
+import { getDailyMlCrowdScores } from "./forecast-queries";
 
 /**
  * Ceiling on parallel work in the sync jobs. Each unit is one Groq call plus
@@ -144,27 +145,13 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
   const spanStart = parkDateRangeUtc(pendingKeys[0]).start;
   const spanEnd = parkDateRangeUtc(pendingKeys[pendingKeys.length - 1]).endExclusive;
 
-  const forecasts = await prisma.dailyForecast.findMany({
-    where: { forecastFor: { gte: spanStart, lt: spanEnd } },
-    select: { forecastFor: true, crowdScore: true },
-  });
-
-  const crowdByDate = new Map<string, number[]>();
-  for (const f of forecasts) {
-    // Group by park-local date. A UTC-date slice would file a 8pm Pacific slot
-    // under the following calendar day.
-    const key = parkDateKey(f.forecastFor);
-    if (!crowdByDate.has(key)) crowdByDate.set(key, []);
-    crowdByDate.get(key)!.push(f.crowdScore);
-  }
+  // Averaged per park-local date in Postgres. This used to pull every
+  // forecast slot of the span — up to a year of them — into Node.
+  const crowdByDate = await getDailyMlCrowdScores(spanStart, spanEnd);
 
   const outcomes = await mapWithConcurrency(pending, SYNC_CONCURRENCY, async (ctx) => {
       const dateKey = ctx.date.toISOString().slice(0, 10);
-      const scores = crowdByDate.get(dateKey);
-      const mlCrowdScore =
-        scores && scores.length > 0
-          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-          : 50;
+      const mlCrowdScore = crowdByDate.get(dateKey) ?? 50;
 
       const result = await adjustCrowdScore({
         date: dateKey,
