@@ -31,7 +31,7 @@ Uses `DATABASE_URL`, else `DIRECT_URL`. Prisma-only query params (`pgbouncer`, `
 | `check_freshness.py` | Daily monitor run from collect.yml: fails when the last successful train run is > 24 h old or forecasts end < 27 days ahead |
 | `common.py` | Shared constants (`PARK_TZ`, `WINDOW_MINUTES`, `RAW_RETENTION_DAYS`), DB URL handling, `connect()`, `run_logged_job()` |
 | `model.py` | `train_ride_models(records)` + `predict_for_ride(tm, ride_id, slots, ...)` — XGBoost per ride |
-| `archive.py` | Aggregates `WaitTimeRecord` >30 days into `HourlyWaitSummary` |
+| `archive.py` | Weekly, in-database: folds raw rows older than 30 days (hour-aligned) into `HourlyWaitSummary`, merging existing buckets; deletes forecasts older than 35 days |
 | `import_dca_kaggle_history.py` | One-time importer for the DCA Kaggle dataset → `HourlyWaitSummary` |
 | `schemas.py` | Pydantic models (`RideHistory`, `RideForecast`, `DateContext`, `LagFeatures`) |
 | `requirements.txt` | Runtime: xgboost, scikit-learn, numpy, pydantic, httpx, kagglehub, psycopg — what the Actions jobs install |
@@ -51,11 +51,12 @@ That is the whole job. It used to also reload the full training history and retr
 ## Forecasting (`train.py` → `pipeline.generate_forecasts`)
 
 1. Build 30 Pacific days of forecast slots. No slots → return 0 before any read
-2. Fetch training data: last `RAW_RETENTION_DAYS` of `WaitTimeRecord` + `HourlyWaitSummary` (3 years)
-3. Attach `DateContext` (tier, holiday, weather), lag features, and cross-ride features to each training record
-4. `train_ride_models(history)` — one XGBRegressor per ride (walk-forward CV). No models at all → raise, so an empty forecast is never reported as success
-5. Fetch `DateContext` + lag map for the slots, `predict_for_ride(...)` per ride
-6. `upsert_forecasts()` → upsert `DailyForecast` rows (ON CONFLICT updates in place)
+2. `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`, so every read sees one snapshot even if archive commits mid-run
+3. `fetch_training_history`: **every** unarchived `WaitTimeRecord` row plus 3 years of `HourlyWaitSummary`, with ride IDs only; names come from one `DISTINCT ON` lookup (~85 rows). Archive moves rows between the two tables atomically, so there is no gap or overlap however late it runs. The old fixed 30-day raw window lost Jul 24 – Aug 14 2026 while archive was disabled. Steady-state read: ~14 MB per run, down from 28 MB
+4. Attach `DateContext` (tier, holiday, weather), lag features, and cross-ride features to each training record
+5. `train_ride_models(history)` — one XGBRegressor per ride (walk-forward CV). No models at all → raise, so an empty forecast is never reported as success
+6. Fetch `DateContext` + lag map for the slots, `predict_for_ride(...)` per ride
+7. `upsert_forecasts()` → upsert `DailyForecast` rows (ON CONFLICT updates in place)
 
 train.yml runs at 06:00 UTC (23:00 Pacific in summer), so each run writes tonight's last slots plus the next 29 full days; today's daytime slots come from the previous night's run.
 

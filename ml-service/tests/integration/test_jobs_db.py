@@ -303,11 +303,54 @@ def test_archive_deletes_forecasts_older_than_the_retention_window(pg):
 
 
 # ---------------------------------------------------------------------------
+# training history reads
+# ---------------------------------------------------------------------------
+
+def test_training_history_includes_raw_rows_older_than_the_retention_window(pg):
+    """The fixed 30-day raw window lost Jul 24 - Aug 14 2026 while archive was disabled."""
+    from pipeline import fetch_training_history
+
+    now = datetime.now(timezone.utc)
+    _insert_raw(pg, 1, now - timedelta(days=45), 30)   # unarchived, older than 30 days
+    _insert_raw(pg, 1, now - timedelta(days=2), 40)
+
+    history = fetch_training_history(pg)
+
+    assert sorted(r.wait_time for r in history) == [30, 40]
+
+
+def test_training_history_uses_the_most_recent_name_across_both_tables(pg):
+    from pipeline import fetch_training_history
+
+    pg.execute(
+        'INSERT INTO "HourlyWaitSummary" (id, "rideId", "rideName", "landName", date, hour, "avgWait", "peakWait", "sampleCount", "isOpen") '
+        "VALUES ('h1', 312, 'Soarin'' Over California', 'Grizzly Peak', '2026-05-01', 12, 45.0, 50, 2, true)"
+    )
+    _insert_raw(pg, 312, datetime.now(timezone.utc) - timedelta(days=1), 55)
+    pg.execute('UPDATE "WaitTimeRecord" SET "rideName" = %s', ("Soarin' Around the World",))
+
+    history = fetch_training_history(pg)
+
+    assert {r.ride_name for r in history} == {"Soarin' Around the World"}
+    assert len(history) == 2
+
+
+def test_generate_forecasts_refuses_to_run_after_other_statements_in_its_transaction(pg):
+    """REPEATABLE READ can only be chosen first; a caller breaking that fails loudly."""
+    from pipeline import generate_forecasts
+
+    with pytest.raises(psycopg.errors.ActiveSqlTransaction):
+        with pg.transaction():
+            pg.execute("SELECT 1")
+            generate_forecasts(pg, datetime.now(timezone.utc), days=2)
+
+
+# ---------------------------------------------------------------------------
 # check_freshness
 # ---------------------------------------------------------------------------
 
 def test_fetch_status_on_an_empty_database(pg):
-    assert check_freshness.fetch_status(pg) == (None, None)
+    assert check_freshness.fetch_status(pg) == (None, None, None)
 
 
 def test_fetch_status_only_counts_successful_train_runs(pg):
@@ -327,5 +370,11 @@ def test_fetch_status_only_counts_successful_train_runs(pg):
             "VALUES (%s, 1, 'R', 'L', %s, 10, 10, 0.5)",
             (str(uuid.uuid4()), forecast_for),
         )
+    _insert_raw(pg, 1, datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc), 10)
+    _insert_raw(pg, 1, datetime(2026, 9, 13, 12, 0, tzinfo=timezone.utc), 10)
 
-    assert check_freshness.fetch_status(pg) == (base - timedelta(days=1), datetime(2026, 10, 12, 6, 30))
+    assert check_freshness.fetch_status(pg) == (
+        base - timedelta(days=1),
+        datetime(2026, 10, 12, 6, 30),
+        datetime(2026, 8, 20, 12, 0),
+    )

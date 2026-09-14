@@ -461,14 +461,78 @@ def test_build_forecast_slots_on_dst_days_has_32_unique_open_slots(day, first_sl
 # generate_forecasts
 # ---------------------------------------------------------------------------
 
+RAW_KEY = 'SELECT "rideId", "waitTime", "isOpen", "recordedAt" FROM "WaitTimeRecord"'
+ARCHIVE_KEY = 'SELECT "rideId", "avgWait", "isOpen", date::date, hour FROM "HourlyWaitSummary"'
+NAMES_KEY = 'SELECT DISTINCT ON ("rideId")'
+
+
 def _raw_history_rows(ride_ids, now, n_per_ride=12):
-    """Rows shaped like fetch_history's SELECT: rideId, rideName, landName, waitTime, isOpen, recordedAt."""
+    """Rows shaped like RAW_HISTORY_SQL: rideId, waitTime, isOpen, recordedAt (naive UTC)."""
     return [
-        (rid, f"Ride {rid}", "Land", 20 + i, True, (now - timedelta(days=i + 1)).replace(tzinfo=None))
+        (rid, 20 + i, True, (now - timedelta(days=i + 1)).replace(tzinfo=None))
         for rid in ride_ids
         for i in range(n_per_ride)
     ]
 
+
+def _names(ride_ids):
+    return [(rid, f"Ride {rid}", "Land") for rid in ride_ids]
+
+
+# ---------------------------------------------------------------------------
+# Training history reads
+# ---------------------------------------------------------------------------
+
+def test_training_history_joins_names_onto_id_only_rows(fake_db):
+    from pipeline import fetch_training_history
+
+    raw_at = datetime(2026, 9, 1, 19, 0)
+    fake_db.results[NAMES_KEY] = [(1, "Soarin' Around the World", "Grizzly Peak"), (2, "Matterhorn", "Fantasyland")]
+    fake_db.results[RAW_KEY] = [(1, 45, True, raw_at)]
+    fake_db.results[ARCHIVE_KEY] = [(2, 32.6, False, date(2026, 7, 4), 14)]
+    conn = fake_db.connect("x")
+
+    raw, archived = fetch_training_history(conn)
+
+    assert (raw.ride_id, raw.ride_name, raw.land_name, raw.wait_time, raw.is_open) == (
+        1, "Soarin' Around the World", "Grizzly Peak", 45, True,
+    )
+    assert raw.recorded_at == raw_at.replace(tzinfo=timezone.utc)
+    assert (archived.ride_id, archived.ride_name, archived.wait_time, archived.is_open) == (2, "Matterhorn", 33, False)
+    # 14:00 Pacific daylight time on Jul 4 is 21:00 UTC.
+    assert archived.recorded_at == datetime(2026, 7, 4, 21, 0, tzinfo=timezone.utc)
+
+
+def test_training_history_reads_all_raw_rows_and_no_names_per_row(fake_db):
+    """No time filter on raw rows (no gap behind a late archive) and IDs only (egress)."""
+    from pipeline import fetch_training_history
+
+    conn = fake_db.connect("x")
+    fetch_training_history(conn)
+
+    names_sql, raw_sql, archive_sql = conn.sql
+    assert names_sql.startswith(NAMES_KEY)
+    assert raw_sql == RAW_KEY
+    assert "WHERE" not in raw_sql
+    assert archive_sql.startswith(ARCHIVE_KEY)
+    for bulk in (raw_sql, archive_sql):
+        assert "rideName" not in bulk and "landName" not in bulk
+
+
+def test_hourly_archive_hour_in_the_repeated_fall_back_hour_resolves_to_daylight_time(fake_db):
+    from pipeline import fetch_hourly_archive
+
+    fake_db.results[ARCHIVE_KEY] = [(1, 10.0, True, date(2026, 11, 1), 1)]
+    conn = fake_db.connect("x")
+
+    [record] = fetch_hourly_archive(conn, {1: ("R", "L")})
+    # fold=0: the first 01:00, still PDT (UTC-7).
+    assert record.recorded_at == datetime(2026, 11, 1, 8, 0, tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# generate_forecasts
+# ---------------------------------------------------------------------------
 
 def test_generate_forecasts_with_no_slots_reads_nothing(fake_db):
     from pipeline import generate_forecasts
@@ -489,11 +553,25 @@ def test_generate_forecasts_raises_when_no_model_can_be_trained(fake_db):
     assert not any("DailyForecast" in sql for sql in conn.sql)
 
 
+def test_generate_forecasts_reads_in_one_repeatable_read_snapshot(fake_db):
+    from pipeline import generate_forecasts
+
+    now = _pacific(2026, 9, 13, 9, 0)
+    fake_db.results[NAMES_KEY] = _names([1])
+    fake_db.results[RAW_KEY] = _raw_history_rows([1], now)
+    conn = fake_db.connect("x")
+
+    generate_forecasts(conn, now, days=1)
+
+    assert conn.sql[0] == "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"
+
+
 def test_generate_forecasts_upserts_one_row_per_ride_per_slot_without_committing(fake_db):
     from pipeline import generate_forecasts
 
     now = _pacific(2026, 9, 13, 9, 0)
-    fake_db.results['FROM "WaitTimeRecord"'] = _raw_history_rows([1, 2], now)
+    fake_db.results[NAMES_KEY] = _names([1, 2])
+    fake_db.results[RAW_KEY] = _raw_history_rows([1, 2], now)
     conn = fake_db.connect("x")
 
     written = generate_forecasts(conn, now, days=1)

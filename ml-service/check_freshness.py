@@ -16,23 +16,30 @@ Problems it reports:
   night makes it ~30 h.
 - a forecast horizon shorter than MIN_HORIZON. Each healthy train run writes
   29 days ahead, so this catches a run that "succeeds" with a short window.
+- raw wait times older than RAW_RETENTION_DAYS + ARCHIVE_GRACE_DAYS, meaning
+  archive.yml has stopped. Training reads every unarchived raw row, so a
+  stalled archive also grows train.py's daily egress until it is noticed.
+  This looks at the data rather than CollectRun, so it works even though
+  archive runs were never logged before September 2026.
 """
 
 import argparse
 import sys
 from datetime import datetime, time, timedelta, timezone
 
-from common import as_utc, connect, database_url_from_env
+from common import ARCHIVE_GRACE_DAYS, RAW_RETENTION_DAYS, as_utc, connect, database_url_from_env
 
 MAX_TRAIN_AGE = timedelta(hours=24)
 MIN_HORIZON = timedelta(days=27)
 CHECK_WINDOW_START_UTC = time(12, 0)
 CHECK_WINDOW = timedelta(minutes=30)
+MAX_RAW_AGE = timedelta(days=RAW_RETENTION_DAYS + ARCHIVE_GRACE_DAYS)
 
 STATUS_SQL = """
     SELECT
         (SELECT max("ranAt") FROM "CollectRun" WHERE job = 'train' AND success),
-        (SELECT max("forecastFor") FROM "DailyForecast")
+        (SELECT max("forecastFor") FROM "DailyForecast"),
+        (SELECT min("windowedAt") FROM "WaitTimeRecord")
 """
 
 
@@ -42,8 +49,8 @@ def in_check_window(now: datetime) -> bool:
     return start <= now < start + CHECK_WINDOW
 
 
-def fetch_status(conn) -> tuple[datetime | None, datetime | None]:
-    """(latest successful train run, furthest forecast slot) as stored; None when absent.
+def fetch_status(conn) -> tuple[datetime | None, datetime | None, datetime | None]:
+    """(latest successful train run, furthest forecast slot, oldest raw row) as stored; None when absent.
 
     One aggregate row, so the check costs a few hundred bytes of egress.
     """
@@ -53,12 +60,16 @@ def fetch_status(conn) -> tuple[datetime | None, datetime | None]:
 
 
 def find_problems(
-    last_train: datetime | None, horizon: datetime | None, now: datetime
+    last_train: datetime | None,
+    horizon: datetime | None,
+    oldest_raw: datetime | None,
+    now: datetime,
 ) -> list[str]:
     """Human-readable problems, empty when healthy. Naive datetimes are UTC (Prisma columns)."""
     now = as_utc(now)
-    last_train = as_utc(last_train) if last_train is not None else None
-    horizon = as_utc(horizon) if horizon is not None else None
+    last_train, horizon, oldest_raw = (
+        as_utc(dt) if dt is not None else None for dt in (last_train, horizon, oldest_raw)
+    )
     problems = []
     if last_train is None:
         problems.append("No successful train run has ever been logged (CollectRun job='train').")
@@ -74,6 +85,13 @@ def find_problems(
         problems.append(
             f"Forecasts end {horizon:%Y-%m-%d %H:%M} UTC, "
             f"{(horizon - now) / timedelta(days=1):.1f} days ahead (minimum {MIN_HORIZON.days})."
+        )
+    # An empty WaitTimeRecord is not an archive problem: collect's own failures report that.
+    if oldest_raw is not None and now - oldest_raw > MAX_RAW_AGE:
+        problems.append(
+            f"The oldest unarchived wait time is from {oldest_raw:%Y-%m-%d %H:%M} UTC, "
+            f"{(now - oldest_raw) / timedelta(days=1):.0f} days ago (limit {MAX_RAW_AGE.days}). "
+            "Check that archive.yml is enabled and its recent runs."
         )
     return problems
 
@@ -96,9 +114,9 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
     # A monitor that cannot reach the database must fail too; an exception
     # here exits 1 with a traceback, which is the loud outcome we want.
     with connect(db_url, autocommit=True) as conn:
-        last_train, horizon = fetch_status(conn)
+        last_train, horizon, oldest_raw = fetch_status(conn)
 
-    problems = find_problems(last_train, horizon, now)
+    problems = find_problems(last_train, horizon, oldest_raw, now)
     for problem in problems:
         # ::error:: surfaces the message on the GitHub Actions run summary.
         print(f"::error title=Forecasts are stale::{problem}", file=sys.stderr)
