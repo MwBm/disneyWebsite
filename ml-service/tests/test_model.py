@@ -429,6 +429,56 @@ def test_predict_for_ride_all_rides_in_range():
 
 
 # ---------------------------------------------------------------------------
+# Empty and mismatched input
+#
+# collect.py crashed every night at 06:30 UTC with XGBoost's
+# "Check failed: ... (1 vs. 23)" when it asked for today's remaining slots and
+# there were none: np.array([]) has shape (0,), which XGBoost reads as a
+# one-column matrix.
+# ---------------------------------------------------------------------------
+
+def _xgboost_model():
+    tm = train_ride_models(_make_records_with_lags(1, MIN_SAMPLES + 50))[1]
+    assert tm.model is not None, "fixture must produce a real XGBoost model, not the fallback"
+    return tm
+
+
+def _fallback_model():
+    tm = train_ride_models(_make_records(1, 10))[1]
+    assert tm.model is None
+    return tm
+
+
+def test_predict_for_ride_with_no_slots_returns_empty_for_a_real_model():
+    assert predict_for_ride(_xgboost_model(), 1, [], [], []) == []
+
+
+def test_predict_for_ride_with_no_slots_never_calls_xgboost(monkeypatch):
+    tm = _xgboost_model()
+    monkeypatch.setattr(tm.model, "predict", lambda X: pytest.fail("predict called with no slots"))
+
+    assert predict_for_ride(tm, 1, [], [], []) == []
+
+
+def test_predict_for_ride_with_no_slots_returns_empty_for_the_fallback():
+    assert predict_for_ride(_fallback_model(), 1, [], [], []) == []
+
+
+@pytest.mark.parametrize(
+    "n_contexts, n_lags",
+    [(1, 2), (2, 1), (0, 2), (2, 0)],
+)
+@pytest.mark.parametrize("make_model", [_xgboost_model, _fallback_model], ids=["xgboost", "fallback"])
+def test_predict_for_ride_rejects_mismatched_lengths(make_model, n_contexts, n_lags):
+    slots = [
+        datetime(2026, 6, 15, 18, 0, tzinfo=timezone.utc),
+        datetime(2026, 6, 15, 18, 30, tzinfo=timezone.utc),
+    ]
+    with pytest.raises(ValueError, match="same length"):
+        predict_for_ride(make_model(), 1, slots, [None] * n_contexts, [None] * n_lags)
+
+
+# ---------------------------------------------------------------------------
 # Crowd score constants sync test
 # ---------------------------------------------------------------------------
 
