@@ -92,16 +92,17 @@ def test_database_url_is_none_when_neither_is_set(monkeypatch):
     assert database_url_from_env() is None
 
 
-def test_connect_always_sets_a_timeout(monkeypatch):
+def test_connect_sets_a_timeout_and_disables_prepared_statements(monkeypatch):
     calls = []
     monkeypatch.setattr(common.psycopg, "connect", lambda url, **kw: calls.append((url, kw)))
 
     common.connect("postgresql://x/db")
     common.connect("postgresql://x/db", autocommit=True)
 
+    expected = {"prepare_threshold": None, "connect_timeout": CONNECT_TIMEOUT_SECONDS}
     assert calls == [
-        ("postgresql://x/db", {"autocommit": False, "connect_timeout": CONNECT_TIMEOUT_SECONDS}),
-        ("postgresql://x/db", {"autocommit": True, "connect_timeout": CONNECT_TIMEOUT_SECONDS}),
+        ("postgresql://x/db", {"autocommit": False, **expected}),
+        ("postgresql://x/db", {"autocommit": True, **expected}),
     ]
 
 

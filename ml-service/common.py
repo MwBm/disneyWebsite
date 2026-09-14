@@ -63,7 +63,21 @@ def database_url_from_env() -> str | None:
 
 
 def connect(db_url: str, *, autocommit: bool = False) -> psycopg.Connection:
-    return psycopg.connect(db_url, autocommit=autocommit, connect_timeout=CONNECT_TIMEOUT_SECONDS)
+    """Open a connection that is safe behind Supabase's connection pooler.
+
+    psycopg prepares a statement server-side after it runs `prepare_threshold`
+    (default 5) times on a connection — executemany over thousands of rows
+    always crosses that. Behind a pooler the prepared name "_pg3_0" can already
+    exist on the pooled server session from another client, and the job dies
+    with `prepared statement "_pg3_0" already exists`. psycopg's docs say to
+    disable preparation behind pooling middleware; None does that.
+    """
+    return psycopg.connect(
+        db_url,
+        autocommit=autocommit,
+        prepare_threshold=None,
+        connect_timeout=CONNECT_TIMEOUT_SECONDS,
+    )
 
 
 def as_utc(dt: datetime) -> datetime:
