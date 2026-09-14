@@ -1,8 +1,6 @@
 """Training-data loading, feature engineering and forecast writing.
 
-Owned by train.py, which is the only job that produces DailyForecast rows.
-collect.py used to run this whole pipeline every 30 minutes; see its docstring
-for why it no longer does.
+Owned by train.py, the only job that writes DailyForecast rows.
 """
 
 import logging
@@ -51,9 +49,8 @@ def build_forecast_slots(now: datetime, days: int = 1) -> list[datetime]:
     return slots
 
 
-# The training reads carry ride IDs only. Names used to come back on every row —
-# about 45% of the bytes of train.py's largest read — although ~80 rides have
-# only ~80 name pairs. RIDE_NAMES_SQL returns one row per ride instead.
+# The training reads carry ride IDs only; names would be ~45% of the bytes.
+# RIDE_NAMES_SQL returns one name row per ride instead.
 RAW_HISTORY_SQL = 'SELECT "rideId", "waitTime", "isOpen", "recordedAt" FROM "WaitTimeRecord"'
 
 ARCHIVE_HISTORY_SQL = """
@@ -112,10 +109,7 @@ def fetch_training_history(conn) -> list[RideHistory]:
 
     Raw rows are read with no time filter. archive.py removes a raw row in the
     same statement that folds it into HourlyWaitSummary, so the two tables
-    never overlap and never leave a gap, however late archive runs. The fixed
-    30-day raw window this replaces silently dropped everything between the
-    last archive run and 30 days ago whenever archive fell behind — Jul 24 to
-    Aug 14 2026 while archive.yml was disabled.
+    never overlap and never leave a gap, however late archive runs.
 
     The caller's transaction must be REPEATABLE READ (generate_forecasts sets
     it): under READ COMMITTED an archive committing between these reads would
@@ -181,7 +175,6 @@ def attach_cross_ride_features(
     headliner_ids: frozenset,
 ) -> list[RideHistory]:
     """Compute pct_rides_open and is_headliner_open from concurrent records."""
-    # Group by park-local hour slot
     slot_stats: dict = defaultdict(lambda: {"open": 0, "total": 0, "headliner_open": False})
     for r in history:
         slot = r.recorded_at.astimezone(PARK_TZ).replace(minute=0, second=0, microsecond=0)
@@ -310,7 +303,6 @@ def build_prediction_lag_features(
 
     park_slots = [s.astimezone(PARK_TZ) for s in slots]
 
-    # Collect all dates needed for lag lookups (up to 14 days before earliest slot)
     dates_needed: set[str] = set()
     for ps in park_slots:
         d = ps.date()
@@ -417,14 +409,12 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
     history = fetch_training_history(conn)
     logger.info("Loaded %d training records", len(history))
 
-    # Attach DateContext (tier, weather, holiday) to training records
     training_contexts = fetch_date_contexts(conn, [r.recorded_at for r in history])
     history = [
         r.model_copy(update={"context": training_contexts.get(park_date_key(r.recorded_at), DateContext())})
         for r in history
     ]
 
-    # Enrich with lag and cross-ride features
     history = compute_lag_features(history)
     headliner_ids = resolve_headliner_ids(history)
     history = attach_cross_ride_features(history, headliner_ids)
@@ -448,7 +438,7 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
         conn, list(trained_models.keys()), slots, cross_ride_profile
     )
 
-    # Batch-predict per ride (one XGBoost call per ride for all slots)
+    # One XGBoost call per ride covers every slot.
     contexts_list = [date_contexts.get(park_date_key(s)) for s in slots]
     all_ride_forecasts: dict[tuple[int, datetime], RideForecast] = {}
     for ride_id, tm in trained_models.items():
@@ -459,7 +449,6 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
         for slot, f in zip(slots, predict_for_ride(tm, ride_id, slots, contexts_list, lags_list)):
             all_ride_forecasts[(ride_id, slot)] = f
 
-    # Regroup by slot to compute crowd score
     forecasts_per_slot = []
     for slot in slots:
         ctx = date_contexts.get(park_date_key(slot))

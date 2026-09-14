@@ -31,8 +31,6 @@ BASE = "postgresql://postgres.ref:p%40ss%3Fw0rd@aws-1-us-west-2.pooler.supabase.
     [
         pytest.param(BASE, BASE, id="no query string"),
         pytest.param(f"{BASE}?pgbouncer=true", BASE, id="only pgbouncer"),
-        # The old str.replace("?pgbouncer=true", "") produced ".../postgres&sslmode=require":
-        # database name "postgres&sslmode=require", sslmode silently dropped.
         pytest.param(f"{BASE}?pgbouncer=true&sslmode=require", f"{BASE}?sslmode=require", id="pgbouncer first"),
         pytest.param(f"{BASE}?sslmode=require&pgbouncer=true", f"{BASE}?sslmode=require", id="pgbouncer last"),
         pytest.param(

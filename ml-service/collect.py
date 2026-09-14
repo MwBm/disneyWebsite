@@ -2,13 +2,9 @@
 
 Runs every 30 minutes (cron-job.org -> workflow_dispatch on collect.yml).
 
-This job used to reload the full training history and retrain every ride model
-on each run, just to refresh today's forecast slots: roughly 20-28 MB read out
-of Supabase per run, 48 runs a day. That alone used 16.5 GB of the Free plan's
-5 GB monthly egress in the Aug 28 - Sep 28 2026 cycle and got the project
-restricted. No model feature uses same-day data, so the retrain barely moved
-any prediction. train.py now owns every DailyForecast row, and this job's only
-statements are the rows it writes (tests/test_collect.py pins that).
+It never reads from the database: at 48 runs a day, any read is multiplied
+against Supabase's 5 GB/month egress quota. train.py owns every DailyForecast
+row, and tests/test_collect.py pins that this job only writes.
 """
 
 import json

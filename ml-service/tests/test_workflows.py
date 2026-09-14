@@ -1,8 +1,7 @@
 """Checks on .github/workflows that actionlint cannot make, because they are about this repo.
 
-The August 2026 outage was a workflow problem, not a code problem: GitHub
-disabled every scheduled workflow for inactivity and nothing noticed. These
-tests keep the guard against that from quietly drifting.
+GitHub disables scheduled workflows after 60 days of repository inactivity.
+These tests keep the guard against that from quietly drifting.
 """
 
 import re

@@ -1,9 +1,5 @@
 """Fail loudly when forecasts go stale. A monitor, not a job: it writes nothing.
 
-In August 2026 GitHub disabled train.yml, archive.yml and sync-date-context.yml
-for repository inactivity. Nothing noticed for three weeks: collect kept
-succeeding, forecasts quietly ran out, and the site fell back to worse data.
-
 collect.yml runs this after every collect, but it only checks during
 CHECK_WINDOW_START_UTC..+30 min, so a stale forecast produces one failed run
 and one GitHub email a day rather than 48. If GitHub starts two collect runs in
@@ -19,8 +15,6 @@ Problems it reports:
 - raw wait times older than RAW_RETENTION_DAYS + ARCHIVE_GRACE_DAYS, meaning
   archive.yml has stopped. Training reads every unarchived raw row, so a
   stalled archive also grows train.py's daily egress until it is noticed.
-  This looks at the data rather than CollectRun, so it works even though
-  archive runs were never logged before September 2026.
 """
 
 import argparse
@@ -97,7 +91,7 @@ def find_problems(
 
 
 def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description="Fail when forecasts or the archive have gone stale.")
     parser.add_argument("--force", action="store_true", help="check now, outside the daily window")
     args = parser.parse_args(argv)
     now = as_utc(now or datetime.now(timezone.utc))

@@ -36,13 +36,13 @@ FEATURE_NAMES: List[str] = [
     "hour", "weekday", "month", "is_weekend",
     # Date context
     "tier", "has_special_event", "is_holiday", "is_school_break",
-    # Weather (precip_mm and is_extreme_heat are new vs. original 14-feature set)
+    # Weather
     "temp_high", "temp_range", "is_rainy", "precip_mm", "is_extreme_heat",
     # Interaction terms
     "hour_x_weekday", "hour_x_weekend", "month_x_weekday", "month_x_school_break",
-    # Lag features (new)
+    # Lag features
     "lag_7d_wait", "lag_14d_wait", "rolling_7d_mean", "rolling_7d_std",
-    # Cross-ride features (new)
+    # Cross-ride features
     "pct_rides_open", "is_headliner_open",
 ]
 
@@ -168,7 +168,6 @@ def _train_ride_model(
         fold_maes.append(
             float(np.mean(np.abs(cv_model.predict(X_all[val_idx]) - y_all[val_idx])))
         )
-    # Final model trained on all data
     final_model = xgb.XGBRegressor(**_XGB_PARAMS)
     final_model.fit(X_all, y_all)
 
@@ -188,13 +187,10 @@ def resolve_headliner_ids(
     history: List[RideHistory],
     configured: frozenset = HEADLINER_RIDE_IDS,
 ) -> frozenset:
-    """Headliner ride IDs, from config when set, otherwise derived from the data.
+    """Headliner ride IDs, from config when set, otherwise the top quartile by mean wait.
 
-    `headlinerRideIds` in ride-config.json is empty, which made is_headliner_open
-    a constant 0.0 for every training row — a dead feature occupying a slot in
-    the 23-feature vector. Deriving the top quartile by mean wait keeps the
-    feature informative without hardcoding queue-times.com ride IDs that nobody
-    can verify by reading the config.
+    `headlinerRideIds` in ride-config.json is empty; without the fallback
+    is_headliner_open would be a constant 0.0 for every training row.
     """
     if configured:
         return configured
@@ -262,10 +258,8 @@ def predict_for_ride(
 ) -> List[RideForecast]:
     """Batch-predict all slots for one ride with a single XGBoost call.
 
-    An empty `slots` returns []. It used to reach XGBoost as np.array([]),
-    shape (0,), which XGBoost reads as one column and rejects with
-    "Check failed: ... (1 vs. 23)" — collect.py crashed on that every night at
-    06:30 UTC, when no open slot was left in the Pacific day.
+    An empty `slots` returns []: XGBoost reads a (0,)-shaped array as one column
+    and rejects it ("1 vs. 23").
     """
     if not (len(slots) == len(contexts) == len(lag_features_list)):
         # zip() would silently truncate to the shortest list and return fewer
@@ -305,7 +299,7 @@ def predict_for_slot(
     slot: datetime,
     context: Optional[DateContext] = None,
 ) -> Tuple[List[RideForecast], int]:
-    """Single-slot prediction across all rides (backward-compatible API)."""
+    """Predictions for one slot across every trained ride, plus its crowd score."""
     forecasts: List[RideForecast] = []
     for ride_id, tm in trained_models.items():
         result = predict_for_ride(tm, ride_id, [slot], [context], [None])
@@ -318,5 +312,5 @@ def predict_for_date(
     target_date: datetime,
     context: Optional[DateContext] = None,
 ) -> Tuple[List[RideForecast], int]:
-    """Backward-compatible one-shot predictor for callers that pass raw history."""
+    """Train on `rides` and predict one slot in a single call."""
     return predict_for_slot(train_ride_models(rides), target_date, context)

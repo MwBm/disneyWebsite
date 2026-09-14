@@ -241,7 +241,7 @@ def _bucket(pg, ride_id):
 
 
 def test_archive_merges_into_an_existing_bucket_instead_of_dropping_rows(pg):
-    """The old ON CONFLICT DO NOTHING deleted these raw rows without counting them anywhere."""
+    """Every archived raw row must be counted in a bucket, even when that bucket already exists."""
     pg.execute(
         'INSERT INTO "HourlyWaitSummary" (id, "rideId", "rideName", "landName", date, hour, "avgWait", "peakWait", "sampleCount", "isOpen") '
         "VALUES ('existing', 7, 'Old Name', 'Land', '2026-06-05', 3, 20.0, 25, 2, false)"
@@ -307,7 +307,7 @@ def test_archive_deletes_forecasts_older_than_the_retention_window(pg):
 # ---------------------------------------------------------------------------
 
 def test_training_history_includes_raw_rows_older_than_the_retention_window(pg):
-    """The fixed 30-day raw window lost Jul 24 - Aug 14 2026 while archive was disabled."""
+    """A late archive must not open a gap in training data."""
     from pipeline import fetch_training_history
 
     now = datetime.now(timezone.utc)

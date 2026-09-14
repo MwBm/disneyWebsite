@@ -224,11 +224,7 @@ def test_context_attachment_pipeline():
 # ---------------------------------------------------------------------------
 
 def test_upsert_forecasts_no_delete_step():
-    """upsert_forecasts must never issue a DELETE statement.
-
-    The old delete_stale_forecasts + insert pattern deleted rows first, leaving a
-    window where forecasts were missing. ON CONFLICT DO UPDATE eliminates that gap.
-    """
+    """upsert_forecasts must never issue a DELETE: deleting first would leave a window with no forecasts."""
     from pipeline import upsert_forecasts
     from schemas import RideForecast
 
@@ -296,7 +292,7 @@ def test_cross_ride_profile_ignores_records_without_lag_features():
 
 
 def test_impute_uses_training_mean_not_a_constant_one():
-    """The skew this fixes: training saw 0.25 open at 7am, prediction must not send 1.0."""
+    """Training saw 0.25 open at 7am, so prediction must not send 1.0."""
     from pipeline import _impute_cross_ride
 
     profile = {7: (0.25, 0.0), 15: (1.0, 1.0)}
@@ -403,9 +399,8 @@ def test_resolve_headliner_ids_on_empty_history():
 # ---------------------------------------------------------------------------
 # build_forecast_slots edge cases
 #
-# The last slot of the Pacific day is 23:30. collect.py used to predict
-# "today's remaining slots" every 30 minutes, and at 06:30 UTC in summer
-# (23:31 PDT) that list was empty — XGBoost then crashed with "1 vs. 23".
+# The last slot of the Pacific day is 23:30, so a call just after it has no
+# slots left today.
 # ---------------------------------------------------------------------------
 
 def _pacific(y, m, d, hh, mm):

@@ -50,7 +50,7 @@ def test_migrations_are_ordered_with_the_baseline_first():
 
 
 def test_every_migration_is_plain_sql_without_captured_log_output():
-    """0_init once started with two dotenv banner lines captured by a shell redirect."""
+    """Catches shell output (e.g. a dotenv banner) redirected into a migration file."""
     for name in _migration_names():
         first_line = _migration_sql(name).lstrip().splitlines()[0]
         assert first_line.startswith("--"), f"{name} starts with {first_line!r}"
@@ -124,7 +124,7 @@ def supabase_like_db(scratch_db):
         if name == LOCKDOWN:
             break
         scratch_db.execute(_migration_sql(name))
-    # Exactly what production showed on 2026-09-13 (pg_default_acl and table grants).
+    # Matches production's pg_default_acl and table grants.
     scratch_db.execute("GRANT USAGE ON SCHEMA public TO anon, authenticated")
     scratch_db.execute("GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated")
     scratch_db.execute("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated")

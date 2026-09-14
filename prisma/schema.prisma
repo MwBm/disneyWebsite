@@ -88,10 +88,8 @@ enum JobKind {
   archive
 }
 
-// One row per ml-service job run. `job` exists because train.py used to log
-// here indistinguishably from collect.py: a train job failing every night was
-// hidden behind 47 successful collects, and /api/forecast could report a train
-// run as "last collected".
+// One row per ml-service job run. Filter on `job`: collect, train and archive
+// all log here.
 model CollectRun {
   id           String   @id @default(uuid())
   job          JobKind  @default(collect)
@@ -102,8 +100,8 @@ model CollectRun {
 }
 
 // Hourly aggregates of WaitTimeRecord after the 30-day raw retention window.
-// Each row = one hour of data for one ride on one day.
-// Used as training data for the ML model alongside the raw 30-day window.
+// Each row = one Pacific hour of data for one ride on one park date.
+// Training reads these alongside every unarchived WaitTimeRecord row.
 model HourlyWaitSummary {
   id          String   @id @default(uuid())
   rideId      Int

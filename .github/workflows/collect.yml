@@ -38,9 +38,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python collect.py
 
-  # GitHub disabled train, archive and sync-date-context for inactivity in
-  # August 2026 and nothing noticed for three weeks. Re-enabling them every
-  # 30 minutes caps any future gap at one collect interval.
+  # GitHub disables scheduled workflows after 60 days of repo inactivity.
+  # Re-enabling them every 30 minutes caps any gap at one collect interval.
   keep-schedules-enabled:
     runs-on: ubuntu-latest
     timeout-minutes: 5

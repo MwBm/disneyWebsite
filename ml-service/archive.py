@@ -7,15 +7,11 @@ Everything happens in Postgres, in one transaction:
    aggregated into (ride, park date, park hour) buckets.
 2. Forecasts older than FORECAST_RETENTION_DAYS are deleted.
 
-Nothing is read back except two counts. The job used to SELECT every bucket
-into Python and insert it again row by row.
+Nothing is read back except two counts.
 
-The cutoff is truncated to a whole hour. It used to be `now - 30 days` down to
-the second, so every run split one hour: the rows before the cutoff became a
-bucket and, with ON CONFLICT DO NOTHING, the rest of that hour was dropped when
-the next week's run found the bucket already present. Truncating prevents the
-split, and conflicting buckets are now merged rather than skipped, so a bucket
-that already exists (a re-run, an overlapping Kaggle import) never loses rows.
+The cutoff is truncated to a whole hour, so a run never splits an hour between
+this week's bucket and next week's. A bucket that already exists (a re-run, an
+overlapping Kaggle import) is merged rather than skipped, so it never loses rows.
 """
 
 import logging
@@ -30,9 +26,9 @@ logger = logging.getLogger(__name__)
 # One statement: DELETE ... RETURNING feeds the aggregation, so a row can only
 # leave WaitTimeRecord by landing in a bucket.
 #
-# Buckets are keyed on (rideId, park date, park hour) only. Grouping by name as
-# well produced two buckets for the same key whenever a ride was renamed inside
-# an hour, which ON CONFLICT DO UPDATE rejects; the latest name wins instead.
+# Buckets are keyed on (rideId, park date, park hour) only, with the latest
+# name: a ride renamed inside an hour would otherwise give one key two rows,
+# which ON CONFLICT DO UPDATE rejects.
 #
 # Merging into an existing bucket weights each side's average by its sample
 # count, so the result equals the average over all raw rows in that hour.

@@ -283,7 +283,9 @@ def print_stats(stats: ImportStats, bucket_count: int) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Import historical Disney California Adventure waits from Kaggle into HourlyWaitSummary."
+    )
     parser.add_argument("--dataset-path", help="Existing Kaggle dataset directory or CSV file")
     parser.add_argument("--csv-file", default=DEFAULT_CSV_NAME, help=f"CSV file name inside dataset path; default {DEFAULT_CSV_NAME}")
     parser.add_argument("--batch-size", type=int, default=1000)

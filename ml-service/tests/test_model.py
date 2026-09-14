@@ -430,11 +430,6 @@ def test_predict_for_ride_all_rides_in_range():
 
 # ---------------------------------------------------------------------------
 # Empty and mismatched input
-#
-# collect.py crashed every night at 06:30 UTC with XGBoost's
-# "Check failed: ... (1 vs. 23)" when it asked for today's remaining slots and
-# there were none: np.array([]) has shape (0,), which XGBoost reads as a
-# one-column matrix.
 # ---------------------------------------------------------------------------
 
 def _xgboost_model():

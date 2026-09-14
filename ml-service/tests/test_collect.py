@@ -154,9 +154,8 @@ def test_main_runs_only_its_two_writes_and_never_reads(fake_db, queue_times):
     """Egress guard.
 
     Every byte a SELECT returns counts against Supabase's 5 GB/month egress
-    quota. collect.py once reloaded ~20-28 MB of training history on each of
-    its 48 daily runs and used 16.5 GB in one cycle. If this test fails, a
-    read has crept back in: move it to train.py, which runs once a day.
+    quota, and collect runs 48 times a day. If this test fails, a read has
+    crept back in: move it to train.py, which runs once a day.
     """
     assert collect.main() == 0
 

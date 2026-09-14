@@ -1,10 +1,7 @@
 """Settings and database access shared by every ml-service job.
 
-collect, train, archive and the Kaggle importer need the same park time zone,
-the same retention window and the same connection handling. Each used to keep
-its own copy. RAW_RETENTION_DAYS lived in both collect.py and archive.py, and
-training silently loses data whenever those two disagree, so there is exactly
-one definition of each here.
+Each setting has exactly one definition: training silently loses data if two
+jobs disagree about, say, RAW_RETENTION_DAYS.
 """
 
 import logging
@@ -54,10 +51,6 @@ JOBS = ("collect", "train", "archive")
 def normalize_db_url(url: str) -> str:
     """Strip Prisma-only query parameters so psycopg accepts the URL.
 
-    Every job used to do `url.replace("?pgbouncer=true", "")`, which turns
-    `...postgres?pgbouncer=true&sslmode=require` into `...postgres&sslmode=require`:
-    the database name becomes "postgres&sslmode=require" and sslmode is lost.
-
     Works on the raw query string rather than parse/urlencode round-tripping, so
     every parameter that survives keeps its original percent-encoding.
     """
@@ -80,12 +73,10 @@ def database_url_from_env() -> str | None:
 def connect(db_url: str, *, autocommit: bool = False) -> psycopg.Connection:
     """Open a connection that is safe behind Supabase's connection pooler.
 
-    psycopg prepares a statement server-side after it runs `prepare_threshold`
-    (default 5) times on a connection — executemany over thousands of rows
-    always crosses that. Behind a pooler the prepared name "_pg3_0" can already
-    exist on the pooled server session from another client, and the job dies
-    with `prepared statement "_pg3_0" already exists`. psycopg's docs say to
-    disable preparation behind pooling middleware; None does that.
+    psycopg prepares a statement server-side after `prepare_threshold` runs on a
+    connection. Behind a pooler another client may already hold that name on
+    the server session (`prepared statement "_pg3_0" already exists`), so
+    preparation is disabled, as psycopg's docs advise for pooling middleware.
     """
     return psycopg.connect(
         db_url,
