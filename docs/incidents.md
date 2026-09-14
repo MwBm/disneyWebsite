@@ -2,7 +2,7 @@
 
 What went wrong, what fixed it, and what now stops it happening again. The
 runbooks describe how things work today; this is why they work that way. Full
-detail is in the linked PRs.
+detail is in the linked PRs. Dates are UTC.
 
 ## Standing rules
 
@@ -121,8 +121,8 @@ These come out of the incidents below. Break one only on purpose.
 
 - **What happened:** RLS was off on every table, and Supabase's default grants
   gave `anon` and `authenticated` full table privileges. With the project URL and
-  the public anon key, anyone could use the REST API. An `anon` SELECT on
-  `WaitTimeRecord` returned 6,563 rows on 2026-09-13.
+  the public anon key, anyone could use the REST API. Just before the fix, an
+  `anon` SELECT on `WaitTimeRecord` returned 6,563 rows.
 - **Fix:** migration `20260914020000_lock_down_data_api` enables RLS with no
   policies and revokes every grant and default privilege from both roles. It is
   applied and verified on production. The app is unaffected: it connects as

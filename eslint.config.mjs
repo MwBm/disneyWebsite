@@ -6,6 +6,7 @@ const config = [
     ignores: [
       ".next/**",
       "node_modules/**",
+      "coverage/**",
       "ml-service/**",
       "next-env.d.ts",
     ],
