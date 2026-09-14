@@ -1,5 +1,3 @@
-◇ injected env (4) from .env.local // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
-◇ injected env (0) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
 
