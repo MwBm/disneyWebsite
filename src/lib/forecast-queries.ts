@@ -102,13 +102,17 @@ export async function getDailyMlCrowdScores(start: Date, endExclusive: Date): Pr
  *
  * Reads HourlyWaitSummary. It used to read WaitTimeRecord, which only ever
  * holds ~30 days, so a "two-year" day-of-week mean was built from about four
- * weeks: 7 Tuesdays where the hourly archive has 52. It also scanned a
- * time-zone expression (1.1 s on production) and returned one row per ride
- * per hour, which the wait-times table then listed ~16 times per ride.
+ * weeks: 7 Tuesdays where the hourly archive has 52. It also returned one row
+ * per ride per hour, which the wait-times table then listed ~16 times per ride.
  *
  * `date` in HourlyWaitSummary is already the park date at midnight, so the day
  * of week needs no time-zone conversion. Only the hours that have forecast
  * slots count, so these numbers line up with getRideForecastsForDate.
+ *
+ * Each ride's latest name comes from a LATERAL lookup on the
+ * ("rideId", date, hour) unique index, one index probe per ride. A
+ * DISTINCT ON over the whole table sorted all ~217,000 archive rows to find
+ * ~65 names and took 310 ms on production; this takes 48 ms.
  */
 export async function getHistoricalRideWaitsForDate(date: Date | string): Promise<HistoricalRideWaits[]> {
   const dow = parkDateDow(normalizeParkDateKey(date)); // 0=Sunday..6=Saturday
@@ -122,21 +126,24 @@ export async function getHistoricalRideWaitsForDate(date: Date | string): Promis
         AND EXTRACT(DOW FROM date) = ${dow}
       GROUP BY "rideId", hour
     ),
-    names AS (
-      SELECT DISTINCT ON ("rideId") "rideId", "rideName", "landName"
-      FROM "HourlyWaitSummary"
-      ORDER BY "rideId", date DESC, hour DESC
+    per_ride AS (
+      SELECT
+        "rideId",
+        ROUND(AVG(mean_wait))::int AS "avgWait",
+        ROUND(MAX(mean_wait))::int AS "peakWait"
+      FROM hourly
+      GROUP BY "rideId"
     )
-    SELECT
-      hourly."rideId",
-      names."rideName",
-      names."landName",
-      ROUND(AVG(hourly.mean_wait))::int AS "avgWait",
-      ROUND(MAX(hourly.mean_wait))::int AS "peakWait"
-    FROM hourly
-    JOIN names ON names."rideId" = hourly."rideId"
-    GROUP BY hourly."rideId", names."rideName", names."landName"
-    ORDER BY hourly."rideId"
+    SELECT per_ride."rideId", latest."rideName", latest."landName", per_ride."avgWait", per_ride."peakWait"
+    FROM per_ride
+    CROSS JOIN LATERAL (
+      SELECT named."rideName", named."landName"
+      FROM "HourlyWaitSummary" named
+      WHERE named."rideId" = per_ride."rideId"
+      ORDER BY named.date DESC, named.hour DESC
+      LIMIT 1
+    ) latest
+    ORDER BY per_ride."rideId"
   `);
   return rows.map((r) => ({
     rideId: Number(r.rideId),

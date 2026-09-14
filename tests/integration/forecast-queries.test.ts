@@ -186,6 +186,21 @@ describeWithDatabase("forecast queries on Postgres", () => {
       expect(rides.map((r) => [r.rideId, r.rideName])).toEqual([[5, "New Name"], [6, "Ride 6"]]);
     });
 
+    it("names a ride from its newest archive row even when that row is left out of the averages", async () => {
+      const tuesday = recentWeekday(2, 1);
+      await prisma.hourlyWaitSummary.createMany({
+        data: [
+          hourlyRow(7, tuesday, 12, 40, { rideName: "Old Name", landName: "Old Land" }),
+          hourlyRow(7, tuesday, 23, 900, { rideName: "Renamed", landName: "New Land", isOpen: false }),
+          hourlyRow(8, tuesday, 12, 50, { isOpen: false }), // no open hours: no row at all
+        ],
+      });
+
+      expect(await getHistoricalRideWaitsForDate(tuesday)).toEqual([
+        { rideId: 7, rideName: "Renamed", landName: "New Land", avgWait: 40, peakWait: 40 },
+      ]);
+    });
+
     it("ignores raw WaitTimeRecord rows entirely", async () => {
       const tuesday = recentWeekday(2, 1);
       await prisma.waitTimeRecord.create({
