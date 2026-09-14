@@ -230,6 +230,79 @@ def test_archive_with_nothing_old_logs_a_zero_row_success(pg):
 
 
 # ---------------------------------------------------------------------------
+# archive: merge, renames, cutoff, retention
+# ---------------------------------------------------------------------------
+
+def _bucket(pg, ride_id):
+    return pg.execute(
+        'SELECT "rideName", "avgWait", "peakWait", "sampleCount", "isOpen" FROM "HourlyWaitSummary" WHERE "rideId" = %s',
+        (ride_id,),
+    ).fetchall()
+
+
+def test_archive_merges_into_an_existing_bucket_instead_of_dropping_rows(pg):
+    """The old ON CONFLICT DO NOTHING deleted these raw rows without counting them anywhere."""
+    pg.execute(
+        'INSERT INTO "HourlyWaitSummary" (id, "rideId", "rideName", "landName", date, hour, "avgWait", "peakWait", "sampleCount", "isOpen") '
+        "VALUES ('existing', 7, 'Old Name', 'Land', '2026-06-05', 3, 20.0, 25, 2, false)"
+    )
+    hour_start = datetime(2026, 6, 5, 3, 0, tzinfo=PT)
+    _insert_raw(pg, 7, hour_start + timedelta(minutes=30), 40)
+    _insert_raw(pg, 7, hour_start + timedelta(minutes=45), 60)
+
+    assert archive.main() == 0
+
+    # (20*2 + 40 + 60) / 4 = 35
+    assert _bucket(pg, 7) == [("Ride 7", 35.0, 60, 4, True)]
+    assert _count(pg, "WaitTimeRecord") == 0
+    assert _runs(pg) == [("archive", 1, True, None)]
+
+
+def test_archive_keeps_the_latest_name_when_a_ride_is_renamed_inside_an_hour(pg):
+    hour_start = datetime(2026, 6, 1, 15, 0, tzinfo=PT)
+    for minute, name in ((0, "Soarin' Over California"), (30, "Soarin' Around the World")):
+        naive = (hour_start + timedelta(minutes=minute)).astimezone(timezone.utc).replace(tzinfo=None)
+        pg.execute(
+            'INSERT INTO "WaitTimeRecord" (id, "rideId", "rideName", "landName", "waitTime", "isOpen", "windowedAt", "recordedAt") '
+            "VALUES (%s, 312, %s, 'Grizzly Peak', 50, true, %s, %s)",
+            (str(uuid.uuid4()), name, naive, naive),
+        )
+
+    assert archive.main() == 0
+
+    assert _bucket(pg, 312) == [("Soarin' Around the World", 50.0, 50, 2, True)]
+
+
+def test_archive_never_splits_the_hour_containing_the_cutoff(pg):
+    cutoff = archive.raw_cutoff(datetime.now(timezone.utc))
+    _insert_raw(pg, 1, cutoff - timedelta(minutes=30), 11)   # before the cutoff hour: archived
+    _insert_raw(pg, 2, cutoff, 22)                            # first half of the cutoff hour
+    _insert_raw(pg, 2, cutoff + timedelta(minutes=30), 33)    # second half of the cutoff hour
+
+    assert archive.main() == 0
+
+    assert _count(pg, "WaitTimeRecord", '"rideId" = 1') == 0
+    # If the clock crossed an hour mid-test both ride-2 rows are archived
+    # together; what must never happen is one row archived and one left behind.
+    assert _count(pg, "WaitTimeRecord", '"rideId" = 2') in (0, 2)
+
+
+def test_archive_deletes_forecasts_older_than_the_retention_window(pg):
+    now = datetime.now(timezone.utc)
+    for label, days_ago in (("expired", 36), ("kept-old", 34), ("kept-future", -5)):
+        pg.execute(
+            'INSERT INTO "DailyForecast" (id, "rideId", "rideName", "landName", "forecastFor", "predictedWait", "crowdScore", "mlConfidence") '
+            "VALUES (%s, 1, 'R', 'L', %s, 10, 10, 0.5)",
+            (label, (now - timedelta(days=days_ago)).replace(tzinfo=None)),
+        )
+
+    assert archive.main() == 0
+
+    remaining = {row[0] for row in pg.execute('SELECT id FROM "DailyForecast"').fetchall()}
+    assert remaining == {"kept-old", "kept-future"}
+
+
+# ---------------------------------------------------------------------------
 # check_freshness
 # ---------------------------------------------------------------------------
 
