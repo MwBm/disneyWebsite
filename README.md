@@ -2,26 +2,26 @@
 
 [![CI](https://github.com/MwBm/disneyWebsite/actions/workflows/ci.yml/badge.svg)](https://github.com/MwBm/disneyWebsite/actions/workflows/ci.yml)
 
-Crowd-level predictor, per-ride wait time forecaster, and historical accuracy tracker for Disneyland. Data collected on demand from queue-times.com via GitHub Actions. AI narration and post-process crowd adjustment via Groq (Llama 3.3).
+Crowd-level predictor, per-ride wait-time forecaster and accuracy tracker for Disneyland and Disney California Adventure. Live wait times are collected from queue-times.com every 30 minutes, per-ride XGBoost models retrain nightly, and Groq writes the narration and adjusts crowd scores.
 
 ## Stack
 
-| Layer              | Tech                                                           |
-| ------------------ | -------------------------------------------------------------- |
-| Frontend + API     | Next.js 16 (App Router, TypeScript) — Vercel                   |
-| Data + ML pipeline | Python 3.11 + XGBoost — GitHub Actions (daily + manual dispatch) |
-| Database           | Supabase (PostgreSQL) via Prisma                               |
-| AI                 | Groq API (`llama-3.3-70b-versatile`)                           |
+| Layer              | Tech                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| Frontend + API     | Next.js 16 (App Router, TypeScript) on Vercel                                        |
+| Data + ML pipeline | Python 3.11 + XGBoost on GitHub Actions (collect every 30 min, train daily, archive weekly) |
+| Database           | Supabase Postgres (Free plan), via Prisma 7 (web) and psycopg 3 (ml-service)         |
+| AI                 | Groq API; model IDs in [`src/lib/groq-models.ts`](src/lib/groq-models.ts)            |
 
 ## Pages
 
-| Route         | Purpose                                            |
-| ------------- | -------------------------------------------------- |
-| `/`           | Date picker → crowd score (0–100) + AI forecast    |
-| `/wait-times` | Per-ride predicted wait times for a selected date  |
-| `/accuracy`   | Historical predicted vs. actual wait time accuracy |
-| `/chat`       | Streaming AI chat assistant with live park context |
-| `/calendar`   | Monthly crowd calendar view                        |
+| Route         | Purpose                                                  |
+| ------------- | -------------------------------------------------------- |
+| `/`           | Date picker → crowd score (0–100) + AI narration         |
+| `/wait-times` | Per-ride average and peak predicted wait for a date      |
+| `/calendar`   | Monthly crowd calendar                                   |
+| `/accuracy`   | Predicted vs. actual waits over the last 30 days         |
+| `/chat`       | Streaming AI chat assistant with live park context       |
 
 ## Local Setup
 
@@ -38,20 +38,18 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 npx tsc --noEmit                       # types
 npm run lint                           # eslint
-npm test                               # jest — 300+ unit and route tests
+npm test                               # jest: unit, route and component tests
 npm run build                          # must succeed without a database
-
-cd ml-service && pip install -r requirements-dev.txt
-cd ml-service && python -m pytest -q   # ML service unit tests
-# ML integration tests need a local Postgres — see docs/runbook-tests.md
 
 npx playwright install chromium        # one-time, per machine
 npm run test:e2e                       # browser e2e on port 3100
+
+cd ml-service
+pip install -r requirements-dev.txt
+python -m pytest -q                    # ML service unit tests
 ```
 
-CI runs everything except e2e on every push, including the ML integration
-tests against Postgres 17 and `actionlint` on the workflow files — see
-[docs/runbook-tests.md](docs/runbook-tests.md).
+The web SQL tests (`npm run test:integration`) and the ML integration tests need a local Postgres; see [docs/runbook-tests.md](docs/runbook-tests.md). CI runs everything except e2e on every push, including both integration suites against Postgres 17 and `actionlint` on the workflow files.
 
 ## Environment Variables
 
@@ -59,71 +57,72 @@ Add to `.env.local`:
 
 ```
 DATABASE_URL=postgresql://postgres.[ref]:[password]@[pooler-host]:6543/postgres?pgbouncer=true
-DIRECT_URL=postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres?sslmode=require
 GROQ_API_KEY=gsk_...
-NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
-CRON_SECRET=<random secret for /api/cron/* authorization>
+CRON_SECRET=<random secret for /api/cron/* and /api/admin/* authorization>
 ```
 
-For GitHub Actions, add repo secrets (Settings → Secrets and variables → Actions):
+GitHub Actions repo secrets (Settings → Secrets and variables → Actions):
 
-| Secret         | Value                                                             |
-| -------------- | ----------------------------------------------------------------- |
-| `DATABASE_URL` | Supabase direct URL (port 5432, `?sslmode=require`)               |
-| `CRON_SECRET`  | Same value as `CRON_SECRET` in Vercel env                         |
-| `APP_URL`      | Your Vercel deployment URL (e.g. `https://your-app.vercel.app`)   |
+| Secret         | Value                                                                                  |
+| -------------- | -------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | Supabase pooler connection string. The direct `db.[ref]` host is IPv6-only, and GitHub-hosted runners have no IPv6 |
+| `CRON_SECRET`  | Same value as `CRON_SECRET` in Vercel                                                  |
+| `APP_URL`      | The Vercel deployment URL (e.g. `https://your-app.vercel.app`)                         |
 
-`CRON_SECRET` is required, not optional. `/api/cron/*` and `/api/admin/*` return
-500 when it is unset rather than letting the request through — an earlier version
-compared against `` `Bearer ${process.env.CRON_SECRET}` ``, which authenticated
-anyone sending the literal header `Bearer undefined`.
+`CRON_SECRET` is required: `/api/cron/*` and `/api/admin/*` return 500 when it is unset.
+
+The app talks to Postgres directly and never uses Supabase's Data API. Keep it turned off (Supabase dashboard → Project Settings → Data API); see [docs/runbook-database.md](docs/runbook-database.md#data-api-lockdown-rls).
 
 ## Docs
 
-| Runbook                                                  | Covers                                                          |
-| -------------------------------------------------------- | --------------------------------------------------------------- |
-| [docs/runbook-api.md](docs/runbook-api.md)               | API routes — forecast, accuracy, chat, live, calendar, cron     |
-| [docs/runbook-lib.md](docs/runbook-lib.md)               | Service layer — db, queue-times, forecast, crowd, groq, date-context |
-| [docs/runbook-components.md](docs/runbook-components.md) | UI components                                                   |
-| [docs/runbook-ml-service.md](docs/runbook-ml-service.md) | Python ML service — setup, deploy, test                         |
-| [docs/runbook-database.md](docs/runbook-database.md)     | Database schema, migrations, Supabase connection                |
-| [docs/runbook-tests.md](docs/runbook-tests.md)           | Running Jest + Playwright + pytest                              |
-| [docs/runbook-cron.md](docs/runbook-cron.md)             | GitHub Actions workflows — collect, archive, sync-date-context  |
+| Doc                                                      | Covers                                                                 |
+| -------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [docs/runbook-api.md](docs/runbook-api.md)               | API routes: forecast, calendar, accuracy, chat, live, weather, cron, admin |
+| [docs/runbook-lib.md](docs/runbook-lib.md)               | Service layer in `src/lib/`                                            |
+| [docs/runbook-components.md](docs/runbook-components.md) | UI components                                                          |
+| [docs/runbook-ml-service.md](docs/runbook-ml-service.md) | Python jobs: collect, train, archive, freshness check, model           |
+| [docs/runbook-cron.md](docs/runbook-cron.md)             | GitHub Actions workflows and monitoring                                |
+| [docs/runbook-database.md](docs/runbook-database.md)     | Schema, migrations, RLS, connections, egress                           |
+| [docs/runbook-tests.md](docs/runbook-tests.md)           | Jest, integration suites, Playwright, pytest                           |
+| [docs/incidents.md](docs/incidents.md)                   | Past incidents and the rules they left behind                          |
 
 ## Architecture
 
 ```
 Browser
   └── Next.js (Vercel)
-        ├── /wait-times        ← per-ride predicted waits for a date
-        ├── /api/forecast      ← reads DailyForecast from DB; applies Groq adjustment
-        ├── /api/calendar      ← monthly crowd scores from DailyForecast + HourlyWaitSummary
-        ├── /api/accuracy      ← JOIN Prediction × WaitTimeRecord
-        ├── /api/chat          ← Groq streaming + live context (rate-limited, 10 req/min per IP)
-        ├── /api/live          ← live wait times (CDN-cached 300s)
-        ├── /api/weather       ← 16-day Anaheim forecast (CDN-cached 1h)
-        └── /api/admin/date-context  ← DateContext inspection (Bearer CRON_SECRET)
+        ├── /api/forecast          ← per-ride avg/peak + crowd score for a date (30 req/min)
+        ├── /api/calendar          ← monthly crowd scores: ML → historical → Groq estimate (30 req/min)
+        ├── /api/accuracy          ← DailyForecast × WaitTimeRecord, aggregated in SQL
+        ├── /api/accuracy/rides/:id← chart points for one ride
+        ├── /api/chat              ← Groq streaming + live context (10 req/min)
+        ├── /api/live              ← live wait times (CDN-cached 5 min)
+        ├── /api/weather           ← 16-day Anaheim forecast (CDN-cached 1 h)
+        ├── /api/cron/sync-date-context ← DateContext + Groq adjustments (Bearer CRON_SECRET)
+        └── /api/admin/date-context     ← DateContext inspection (Bearer CRON_SECRET)
 
-GitHub Actions (daily 06:00 UTC)
+GitHub Actions: collect.yml (dispatched every 30 min by cron-job.org)
+  ├── ml-service/collect.py         ← queue-times.com → WaitTimeRecord; writes only, never reads
+  ├── keep-schedules-enabled        ← re-enables scheduled workflows GitHub disables for inactivity
+  └── ml-service/check_freshness.py ← fails once a day (12:00 UTC) if forecasts or the archive are stale
+
+GitHub Actions: train.yml (daily 06:00 UTC)
   └── ml-service/train.py
-        ├── Full history: WaitTimeRecord (raw window) + HourlyWaitSummary
-        ├── Attach DateContext + lag features + cross-ride features
-        ├── XGBoost per-ride model, expanding-window walk-forward CV (23 features)
-        └── Supabase (upsert 30-day DailyForecast + log CollectRun)
+        ├── Every unarchived WaitTimeRecord row + 3 years of HourlyWaitSummary, one snapshot
+        ├── DateContext + lag + cross-ride features (23 total)
+        ├── XGBoost per ride, expanding-window walk-forward CV
+        └── Upsert 30 days of DailyForecast
 
-GitHub Actions (dispatch every 30 min from cron-job.org)
-  └── ml-service/collect.py      ← writes only; never reads (Supabase egress quota)
-        ├── queue-times.com (fetch live data for all parks)
-        └── Supabase (upsert WaitTimeRecord + log CollectRun, one transaction)
-
-GitHub Actions (weekly Sunday 09:00 UTC)
+GitHub Actions: archive.yml (Sundays 09:00 UTC)
   └── ml-service/archive.py
-        └── Aggregates WaitTimeRecord >30 days → HourlyWaitSummary
+        ├── WaitTimeRecord older than 30 days → HourlyWaitSummary (one statement, merges buckets)
+        └── Delete DailyForecast older than 35 days
 
-GitHub Actions (monthly, 1st at 10:00 UTC)
-  └── /api/cron/sync-date-context
-        ├── ThemeParks.wiki (park hours + LLMP price → tier)
-        ├── Open-Meteo (16-day weather forecast for Anaheim)
-        ├── Climatological fallback (beyond 16-day window)
-        └── Groq adjuster (post-processes XGBoost crowd score, bounded ±35)
+GitHub Actions: sync-date-context.yml (1st of each month, 10:00 UTC)
+  └── GET /api/cron/sync-date-context
+        ├── ThemeParks.wiki (park hours + Lightning Lane price → tier)
+        ├── Open-Meteo (16-day forecast), climatological normals beyond it
+        └── Groq adjuster (bounded ±35 points on the ML crowd score)
+
+Every job logs to CollectRun (job = collect | train | archive).
 ```

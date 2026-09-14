@@ -1,161 +1,165 @@
 # Runbook: Service Layer (`src/lib/`)
 
-All shared business logic lives here. API routes are thin adapters; lib owns all I/O.
+Shared logic and all I/O. API routes are thin adapters over these modules.
 
 ---
 
-## `db.ts` — Prisma Singleton
+## `db.ts`: Prisma client
 
-Exports a single `PrismaClient` instance. Uses `global` cache to survive Next.js hot-reload in dev (avoids "too many connections" error). Also exports `prisma` as an alias.
+Exports `prisma`, a `PrismaClient` using `@prisma/adapter-pg` on `DATABASE_URL`. It throws at import when the variable is unset. Outside production the client is cached on `globalThis`, so hot reload doesn't open new connections.
 
 ```ts
 import { prisma } from "@/lib/db";
-const rows = await prisma.waitTimeRecord.findMany();
 ```
 
 ---
 
-## `queue-times.ts` — External Data Fetch
+## `forecast-queries.ts`: forecast SQL
 
-**`fetchLiveRides()`** — fetches `https://queue-times.com/en-US/parks/16/queue_times.json`, Zod-validates the response shape, returns flat `Ride[]` with `landName` added.
+Every aggregate happens in Postgres, because each returned row counts against the egress quota. Unit tests mock this module, and `tests/integration/forecast-queries.test.ts` runs every query against real Postgres.
 
-**`roundToWindow(date: Date)`** — rounds to nearest 30-min boundary. Used for deduplication key `windowedAt`.
-
-Throws `QueueTimesError` on network failure or invalid response shape. Callers (`/api/live`) catch and handle gracefully. The Python `collect.py` cron has its own queue-times fetcher.
-
----
-
-## `crowd.ts` — Crowd Score Utilities
-
-| Export | Purpose |
+| Export | Returns |
 |---|---|
-| `MAX_WAIT = 120` | Wait minutes where crowd score = 100 (must match `model.py` `CROWD_MAX_WAIT`) |
-| `EXPECTED_RIDES = 24` | Nominal full ride complement (must match `model.py` `CROWD_EXPECTED_RIDES`) |
-| `HISTORICAL_FALLBACK_CONFIDENCE = 0.25` | `mlConfidence` value for historical-fallback forecasts |
-| `deriveCrowdScore(avgWait, tier?, openRideCount?)` | Compute 0–100 crowd score from wait time + tier + open ride count |
-| `crowdLabel(score)` | Returns `{ label, color, description }` for a score |
-
-`crowdLabel` thresholds:
-- 0–25 → "Light" (green, `#22c55e`)
-- 26–50 → "Moderate" (amber, `#f59e0b`)
-- 51–75 → "Busy" (orange, `#f97316`)
-- 76–100 → "Very Busy" (red, `#ef4444`)
-
-**Critical:** `MAX_WAIT` and `EXPECTED_RIDES` must stay in sync with `ml-service/model.py` constants. A drift causes Python and TypeScript crowd scores to silently diverge.
-
----
-
-## `forecast-queries.ts` — SQL reads
-
-Every aggregate happens in Postgres; each returned row costs egress. Unit tests mock this module, and `tests/integration/forecast-queries.test.ts` runs every query against real Postgres.
-
-| Function / Export | Returns |
-|---|---|
-| `getRideForecastsForDate(date)` | `RideDayForecast[]`: one per ride, `avgWait`/`peakWait`/`mlConfidence` over the Pacific day |
+| `getRideForecastsForDate(date)` | `RideDayForecast[]`: one per ride, `avgWait`/`peakWait`/`mlConfidence` over the Pacific day, latest ride name |
 | `getDailyMlCrowdScores(start, endExclusive)` | `Map<"YYYY-MM-DD", score>`: rounded mean `crowdScore` per Pacific date |
-| `getHistoricalRideWaitsForDate(date)` | `HistoricalRideWaits[]`: per-ride avg/peak of typical hourly waits on that weekday, last 2 years of `HourlyWaitSummary`, 08:00 onwards |
-| `getHistoricalDowMeanWaits(month)` | `Map<dow, meanWait>` for the month, last year weighted 2× |
-| `getRecentCollectRuns(n)` | Last `n` `CollectRun` rows with `job = 'collect'` |
+| `getHistoricalRideWaitsForDate(date)` | `HistoricalRideWaits[]`: per-ride average and peak of typical hourly waits on that weekday, last 2 years of `HourlyWaitSummary`, from 08:00; each name comes from a `LATERAL` probe on the `(rideId, date, hour)` index |
+| `getHistoricalDowMeanWaits(month)` | `Map<dow, meanWait>` for the month over 3 years, last year weighted 2× |
+| `getRecentCollectRuns(limit = 3)` | Newest `CollectRun` rows with `job = 'collect'` |
 | `FORECAST_FIRST_LOCAL_HOUR` | `8`: must match `PARK_CLOSED_LOCAL_HOURS` in `ml-service/pipeline.py` (a pytest checks) |
+| `HISTORICAL_LOOKBACK_YEARS` | `2` |
+| `RideDayForecast`, `HistoricalRideWaits` | Row types |
 
-## `forecast.ts` — Crowd-score logic
+## `forecast.ts`: crowd-score logic
 
-| Function / Export | Returns |
+| Export | Returns |
 |---|---|
 | `getCrowdScoreForDate(date)` | Mean ML crowd score for the Pacific date, or null |
-| `getCrowdScoresForMonth(year, month)` | Full month of `DayCrowdScore` for the calendar view |
+| `getCrowdScoresForMonth(year, month)` | `DayCrowdScore[]` for every day of the month, used by the calendar |
 | `resolveCrowdScore({ mlScore, historicalScore, groqScore, isBeyondWindow })` | Best available score: ML → historical → Groq; `"unavailable"` beyond the window |
-| `ML_FORECAST_DAYS` | `30`, the ML forecast horizon |
+| `ML_FORECAST_DAYS` | `30` |
 | `DayCrowdScore` | `{ date, crowdScore, source, tier, specialEvent, isHoliday }` |
 
-`rate-limit.ts` also exports `rateLimitResponse(req, config)`: the 429 `NextResponse` for an over-limit client, or null. Every rate-limited route uses it.
-
 ---
 
-## `calendar.ts` — Holiday / School Break Detection
+## `crowd.ts`: crowd scale and colors
+
+`MAX_WAIT`, `EXPECTED_RIDES` and `TIER_MULTIPLIER_STEP` are read from `ride-config.json`, the same file `ml-service/model.py` reads, so the two crowd scores cannot drift.
 
 | Export | Purpose |
 |---|---|
-| `isHolidayDate(date)` | US/CA holiday detection (fixed + floating; Easter weekend included) |
-| `isSchoolBreakDate(date)` | SoCal school break detection (winter, spring, summer, Thanksgiving week) |
+| `deriveCrowdScore(avgWait, tier?, openRideCount?)` | 0–100 score from a mean wait, scaled by open rides and `1 + tier × TIER_MULTIPLIER_STEP` |
+| `HISTORICAL_FALLBACK_CONFIDENCE` | `0.25`: `mlConfidence` on historical-fallback rides |
+| `CROWD_BANDS`, `crowdBand(score)` | The one crowd scale: 0–25 Light, 26–50 Moderate, 51–75 Busy, 76+ Very Busy |
+| `crowdLabel(score)` | `{ label, color, description }` |
+| `crowdColor`, `crowdLabelText`, `crowdBgOpacity` | Null-tolerant helpers for the calendar grid |
+| `crowdLegend()` | Legend rows derived from `CROWD_BANDS` |
+| `WAIT_BANDS`, `waitColor(minutes)` | Wait-time colors: ≤20, ≤45, ≤75, above |
+| `SEVERITY_COLORS`, `NO_DATA_COLOR` | The shared palette |
 
 ---
 
-## `park-schedule.ts` — ThemeParks.wiki Schedule
+## `groq.ts` and `groq-models.ts`: AI
+
+Model IDs live only in `groq-models.ts` (`GROQ_TEXT_MODEL`, `GROQ_CHAT_MODEL`). When Groq retires a model, edit that file. Reasoning models (`openai/gpt-oss-*`) fail JSON mode, so they are not drop-in replacements.
 
 | Export | Purpose |
 |---|---|
-| `fetchDateSchedule(start, end)` | Fetch park schedule from ThemeParks.wiki → tier + special events |
-| `DateScheduleInfo` | `{ date, tier, specialEvent }` |
-
-Tier derived from LLMP price (`lightninglanemultipass_330339`) when available, else from park hours. Fallback tier: 2.
+| `narrateForecast(crowdScore, forecasts, date)` | 2–3 sentence forecast naming the five highest peak waits |
+| `narrateForecastNoDataWithScore(date)` | `{ score, narration }` when there is no ML or historical data |
+| `buildChatSystemPrompt(liveWaits, crowdScore, date)` | Chat system prompt with the 10 longest current waits |
+| `estimateDowCrowdScores()` | `Map<dow, score>` general estimate; an empty map on unparseable output |
+| `adjustCrowdScore(ctx)` | `{ adjustment: -35..35, reasoning }`; `{ 0, null }` on any error (logged) |
+| `clampParsedNumber(value, { min, max, fallback })` | Clamp an LLM-parsed number; 0 stays 0 |
+| `buildItinerary(...)` | Not called anywhere |
 
 ---
 
-## `weather.ts` — Weather Fetch + Climatological Fallback
+## `date-context.ts`: date-context sync
+
+Re-exports `isHolidayDate` and `isSchoolBreakDate` from `./calendar`, and `fetchDateSchedule` from `./park-schedule`.
 
 | Export | Purpose |
 |---|---|
-| `fetchWeatherForecast(start, end)` | Open-Meteo 16-day forecast → `Map<date, WeatherDay>` |
-| `climatologicalWeather(dateStr)` | NOAA 30-year climatological normal for Anaheim for a given month |
-| `ANAHEIM_MONTHLY_NORMALS` | Monthly tempHigh/tempLow/precipMm reference table |
-| `WeatherDay` | `{ date, tempHigh, tempLow, precipMm, isRainy }` |
+| `syncDateContext(days)` | Schedule, tier, weather and holiday/break flags → upsert `DateContext`; skips dates whose tier was fetched in the last 24 h. Returns `{ synced, skipped }` |
+| `syncGroqAdjustments(days)` | For dates with no adjustment or one older than 7 days: daily ML crowd score (50 when none) → `adjustCrowdScore` → store `groqAdjustment`, `groqReasoning`, `groqAdjustedAt`. Returns `{ adjusted }` |
 
-`isRainy` = true when precipMm ≥ 2.5.
+Both run at most 5 dates at a time through `mapWithConcurrency`, and one failed date doesn't stop the rest. Weather comes from `fetchWeatherForecast` for the first 16 days and `climatologicalWeather` beyond; a forecast failure falls back to normals.
 
----
+## `park-schedule.ts`: ThemeParks.wiki schedule
 
-## `date-context.ts` — Date Context Sync
+`fetchDateSchedule(start, end)` → `DateScheduleInfo[]` (`{ date, tier, specialEvent }`) for Disneyland. The tier (0–5) comes from the Lightning Lane Multi Pass price when listed, else from operating hours, else defaults to 2. `specialEvent` is the ticketed event's description.
 
-Re-exports `isHolidayDate`, `isSchoolBreakDate` from `./calendar` and `fetchDateSchedule` from `./park-schedule`. Own exports:
+## `calendar.ts`: holidays and school breaks
 
 | Export | Purpose |
 |---|---|
-| `syncDateContext(days)` | Full sync: schedule + weather + holiday/break flags → upsert `DateContext` |
-| `syncGroqAdjustments(days)` | Call Groq adjuster for dates missing `groqAdjustment`; store result |
+| `isHolidayDate(date)` | Fixed and floating US/CA holidays, plus Good Friday through Easter Monday |
+| `isSchoolBreakDate(date)` | SoCal winter, spring and summer breaks, and Thanksgiving week |
 
-**Weather:** `syncDateContext` calls `fetchWeatherForecast` for the 16-day window (Anaheim), then `climatologicalWeather` for dates beyond.
-
-**Groq adjuster:** `syncGroqAdjustments` queries average crowd score from `DailyForecast` per date (falls back to 50), calls `adjustCrowdScore`, and stores `groqAdjustment` ± 20 + `groqReasoning`. Non-fatal per date.
-
----
-
-## `accuracy-filters.ts` — Accuracy Page Filters
+## `weather.ts`: Anaheim weather
 
 | Export | Purpose |
 |---|---|
-| `filterAndSortRides(rides, parkFilter, search, sortKey)` | Client-side filter + sort for the accuracy page ride table |
-| `PerRide` | `{ rideId, rideName, landName, parkName, mae, within10, sampleCount }` |
-| `ParkFilter` | `"all" \| "Disneyland" \| "Disney California Adventure"` |
-| `SortKey` | `"mae-asc" \| "mae-desc" \| "alpha" \| "samples-desc"` |
+| `fetchWeatherForecast(start, end)` | Open-Meteo daily forecast → `Map<date, WeatherDay>` |
+| `climatologicalWeather(dateStr)` | NOAA 30-year monthly normal; a mild default day for a malformed date |
+| `weatherEmoji(code)`, `weatherLabel(code)` | Display helpers for a WMO weather code |
+| `WeatherDay` | `{ date, tempHigh, tempLow, precipMm, isRainy, weatherCode, precipProb }` |
+| `ANAHEIM_LAT`, `ANAHEIM_LON`, `FORECAST_HORIZON_DAYS` (16), `RAINY_PRECIP_MM` (2.5) | Constants |
 
 ---
 
-## `groq.ts` — AI (Groq) Helpers
+## `queue-times.ts`: live wait times
 
-Uses `groq-sdk` with `llama-3.3-70b-versatile`.
+`fetchLiveRides()` fetches every park in `ride-config.json` in parallel, validates each response with Zod and drops excluded rides. It returns a flat `RideData[]` (`{ id, name, landName, isOpen, waitTime, lastUpdated }`). If any park fails or changes shape, it throws `QueueTimesError` rather than return a partial list. `ml-service/collect.py` parses the same schema.
 
-| Function | Purpose |
-|---|---|
-| `narrateForecast(crowdScore, forecasts, date)` | 2–3 sentence crowd forecast for `/api/forecast` |
-| `narrateForecastNoDataWithScore(date)` | JSON `{score, narration}` when no ML/historical data exists |
-| `buildChatSystemPrompt(liveWaits, crowdScore, date)` | System prompt with injected live park data for `/api/chat` |
-| `buildItinerary(arrival, departure, priorities, forecasts)` | Optimized park itinerary |
-| `estimateDowCrowdScores()` | Map<DOW, score> general estimate by day-of-week (cached in `DateContext.groqDowEstimate`) |
-| `adjustCrowdScore(ctx)` | Post-process adjuster: returns `{adjustment: ±20, reasoning}` given ML score + context |
+`roundToWindow(date)` rounds to the nearest 30-minute boundary.
 
-`adjustCrowdScore` is non-fatal — returns `{adjustment: 0, reasoning: null}` on any error.
+## `park-time.ts`: park-local dates
 
----
-
-## `park-time.ts` — Timezone Utilities
-
-Utilities for Disneyland local time (America/Los_Angeles). All date arithmetic in this project uses UTC midnight for `DateContext` dates.
+All in `America/Los_Angeles` (`PARK_TIME_ZONE`).
 
 | Export | Purpose |
 |---|---|
-| `parkDateKey(date)` | `"YYYY-MM-DD"` in park local time |
-| `parkDateRangeUtc(dateKey)` | `{ start, endExclusive }` UTC range for a park-local date |
-| `parkMonthRangeUtc(year, month)` | UTC range for a full park-local month |
-| `parkDateDow(dateKey)` | Day-of-week (0=Sunday) in park local time |
-| `normalizeParkDateKey(date)` | Accepts `Date` or string, returns `"YYYY-MM-DD"` |
+| `parkDateKey(date)` | `"YYYY-MM-DD"` of a `Date` in park time |
+| `normalizeParkDateKey(date)` | Accepts a `Date` or a date key; returns the key |
+| `parkDateDow(date)` | Day of week of the park date, 0 = Sunday |
+| `parkDateRangeUtc(date)` | `{ start, endExclusive }` UTC bounds of the park day (23 or 25 hours on DST days) |
+| `parkMonthRangeUtc(year, month)` | UTC bounds of a park-local month |
+| `dateContextMonthRangeUtc(year, month)` | Bounds for `DateContext.date`, which is stored as midnight UTC |
+
+## `parks.ts`: park names
+
+`getParkName(landName)` maps a land to `"Disneyland"` or `"Disney California Adventure"` (unknown lands → Disneyland). It also exports `DISNEYLAND`, `DCA` and `CONFIGURED_PARKS`.
+
+## `accuracy-filters.ts`: accuracy table
+
+`filterAndSortRides(rides, parkFilter, search, sortKey)` filters and sorts the accuracy page's ride table in the browser. It also exports the types `PerRide`, `ParkFilter` and `SortKey` (`"mae-asc" | "mae-desc" | "alpha" | "samples-desc"`).
+
+---
+
+## `auth.ts`: bearer guard
+
+`requireBearer(req)` returns a response to send back (401, or 500 when `CRON_SECRET` is unset), or null when authorized. The comparison runs in constant time.
+
+```ts
+const denied = requireBearer(req);
+if (denied) return denied;
+```
+
+## `rate-limit.ts`: rate limiting
+
+An in-memory sliding window, kept per serverless instance, so limits are best-effort.
+
+| Export | Purpose |
+|---|---|
+| `rateLimitResponse(req, config)` | 429 `NextResponse` with `Retry-After`, or null |
+| `checkRateLimit(key, config)` | `{ allowed, remaining, retryAfterSeconds }` |
+| `clientKey(req)` | Leftmost `x-forwarded-for`, else one shared bucket |
+
+## `http.ts`: CDN caching
+
+`cachedJson(data, seconds)` is `NextResponse.json` plus `Cache-Control: public, s-maxage=N, stale-while-revalidate=2N`. `cacheHeaders(seconds)` returns just the header.
+
+## `concurrency.ts`
+
+`mapWithConcurrency(items, limit, fn)` runs `fn` over `items` with at most `limit` in flight. It returns `PromiseSettledResult`s in input order.

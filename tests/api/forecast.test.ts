@@ -89,7 +89,7 @@ describe("forecast route — ML path", () => {
     expect(body.lastCollectedAt).toBe("2026-05-31T12:00:00.000Z");
   });
 
-  it("no longer exposes a per-slot time or per-row crowd score", async () => {
+  it("does not expose a per-slot time or per-row crowd score", async () => {
     const body = await (await GET(makeReq("2026-06-01"))).json();
     for (const ride of body.forecasts) {
       expect(ride).not.toHaveProperty("forecastFor");

@@ -1,13 +1,13 @@
 # Runbook: Database (`prisma/`)
 
-Supabase PostgreSQL (Free plan: 0.5 GB database, **5 GB/month egress**). ORM: Prisma 7. Project ref: `cuzkfncrhdddozdxdcyy`.
+Supabase Postgres, Free plan: 0.5 GB database, **5 GB/month egress**. ORM: Prisma 7. Project ref: `cuzkfncrhdddozdxdcyy`.
 
 ---
 
 ## Schema
 
 ### `WaitTimeRecord`
-Raw data collected from queue-times.com each time `collect.py` runs.
+Raw wait times, one row per ride per 30-minute window, written by `collect.py`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -17,33 +17,31 @@ Raw data collected from queue-times.com each time `collect.py` runs.
 | `landName` | String | Fantasyland, Tomorrowland, etc. |
 | `waitTime` | Int | minutes |
 | `isOpen` | Boolean | false = ride closed |
-| `windowedAt` | DateTime | `recordedAt` rounded to nearest 30 min |
+| `windowedAt` | DateTime | `recordedAt` rounded to the nearest 30 min (UTC) |
 | `recordedAt` | DateTime | actual fetch time |
 
-Unique constraint: `(rideId, windowedAt)` — deduplication key. Upsert uses `ON CONFLICT DO UPDATE`.
-
-Raw rows older than 30 days (cutoff truncated to the hour) are moved into `HourlyWaitSummary` by the weekly archive job, in one statement. Until then they are training data too: `train.py` reads every row in this table.
+Unique: `(rideId, windowedAt)`; collect upserts on it. The weekly archive moves rows older than 30 days (cutoff truncated to the hour) into `HourlyWaitSummary`, in one statement. Until then they are training data: `train.py` reads every row in this table.
 
 ### `HourlyWaitSummary`
-Hourly aggregates of `WaitTimeRecord` after the 30-day raw retention window. Used as long-term ML training data alongside the raw 30-day window.
+Hourly aggregates of archived `WaitTimeRecord` rows, plus the DCA Kaggle import. Training reads 3 years of it alongside the raw table.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
 | `rideId` | Int | |
-| `rideName` | String | |
+| `rideName` | String | latest name seen for that hour |
 | `landName` | String | |
-| `date` | DateTime | midnight UTC of the park date |
-| `hour` | Int | 0–23 (park local hour) |
-| `avgWait` | Float | mean wait for this hour |
+| `date` | DateTime | the park date, stored as midnight UTC |
+| `hour` | Int | park-local hour, 0–23 |
+| `avgWait` | Float | mean wait for the hour |
 | `peakWait` | Int | max wait seen |
-| `sampleCount` | Int | number of raw records averaged |
-| `isOpen` | Boolean | |
+| `sampleCount` | Int | raw records averaged |
+| `isOpen` | Boolean | open at any point in the hour |
 
-Unique constraint: `(rideId, date, hour)`. When archive meets an existing bucket it merges: `avgWait` weighted by `sampleCount`, `peakWait` max, `sampleCount` summed, `isOpen` OR'd, latest names.
+Unique: `(rideId, date, hour)`. When archive meets an existing bucket it merges it: `avgWait` weighted by `sampleCount`, max `peakWait`, summed `sampleCount`, OR'd `isOpen`, latest names.
 
 ### `DailyForecast`
-Pre-computed predictions written only by `ml-service/train.py` (daily, 30-day window). Rows are upserted on `(rideId, forecastFor)`. `archive.py` deletes rows whose slot is more than 35 days old (`FORECAST_RETENTION_DAYS`). The accuracy pages read 30 days, joined to raw rows that only exist for 30. Before retention, 96% of this table (240k rows) was past slots nothing could read.
+Predictions for 30-minute slots, written only by `train.py` (daily, 30 days ahead). Upserted on `(rideId, forecastFor)`. `archive.py` deletes slots older than 35 days (`FORECAST_RETENTION_DAYS`): the accuracy pages read 30 days, joined to raw rows that only exist for 30.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -51,39 +49,40 @@ Pre-computed predictions written only by `ml-service/train.py` (daily, 30-day wi
 | `rideId` | Int | |
 | `rideName` | String | |
 | `landName` | String | |
-| `forecastFor` | DateTime | future date/time being predicted |
-| `predictedWait` | Int | minutes, clipped to [0, 300] |
-| `crowdScore` | Int | 0–100 park-wide score |
-| `mlConfidence` | Float | 0–1 from XGBoost residual std |
-| `createdAt` | DateTime | |
+| `forecastFor` | DateTime | slot start, 30-minute aligned UTC; 08:00–23:30 Pacific only |
+| `predictedWait` | Int | minutes, clipped to 0–300 |
+| `crowdScore` | Int | 0–100, park-wide for the slot |
+| `mlConfidence` | Float | 0–1 from walk-forward CV error; 0.3 for rides on the hour-mean fallback |
+| `createdAt` | DateTime | when the row was last written |
 
 ### `DateContext`
-Per-date signals used to improve crowd score accuracy: Disney ticket tier, holiday/school-break flags, weather forecast, and Groq post-process adjustment.
+Per-date signals: Disney demand tier, holiday and school-break flags, weather and the Groq adjustment. Written by `/api/cron/sync-date-context`.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
-| `date` | DateTime | midnight UTC for the park date (unique) |
-| `tier` | Int? | Disney LLMP tier 0–5 (higher = pricier/busier) |
+| `date` | DateTime | park date as midnight UTC (unique) |
+| `tier` | Int? | demand tier 0–5 (higher = busier) |
 | `isHoliday` | Boolean | US/CA holiday |
-| `isSchoolBreak` | Boolean | SoCal school break window |
-| `specialEvent` | String? | Ticketed event name (e.g. "Oogie Boogie Bash") |
-| `tierFetchedAt` | DateTime? | When tier was last fetched; re-fetch after 24h |
-| `tierSource` | String? | e.g. `"themeparks-wiki"` |
-| `groqDowEstimate` | Json? | Cached DOW→score map from `estimateDowCrowdScores` |
-| `tempHigh` | Float? | Forecast high °F (Open-Meteo or climatological fallback) |
-| `tempLow` | Float? | Forecast low °F |
-| `precipMm` | Float? | Total precipitation in mm |
-| `isRainy` | Boolean? | true when `precipMm ≥ 2.5` |
-| `weatherFetchedAt` | DateTime? | When weather was last fetched |
-| `groqAdjustment` | Float? | Points to add to ML crowd score (bounded ±20) |
-| `groqReasoning` | String? | One-sentence Groq explanation |
+| `isSchoolBreak` | Boolean | SoCal school break |
+| `specialEvent` | String? | ticketed event name (e.g. "Oogie Boogie Bash") |
+| `tierFetchedAt` | DateTime? | re-fetched after 24 h |
+| `tierSource` | String? | `"themeparks-wiki"` |
+| `groqDowEstimate` | Json? | cached day-of-week → score map for the calendar |
+| `tempHigh` | Float? | °F, Open-Meteo forecast or climatological normal |
+| `tempLow` | Float? | °F |
+| `precipMm` | Float? | mm |
+| `isRainy` | Boolean? | `precipMm ≥ 2.5` |
+| `weatherFetchedAt` | DateTime? | |
+| `groqAdjustment` | Float? | points added to the ML crowd score, −35 to 35 |
+| `groqReasoning` | String? | one-sentence explanation |
+| `groqAdjustedAt` | DateTime? | re-adjusted after 7 days |
 
 ### `Prediction`
-Historical record of predictions made (for accuracy tracking). Linked to `DateContext`.
+Not read or written by any current code. Accuracy is computed by joining `DailyForecast` to `WaitTimeRecord`.
 
 ### `CollectRun`
-One row per ml-service job run: `collect`, `train` or `archive`.
+One row per ml-service job run.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -94,20 +93,28 @@ One row per ml-service job run: `collect`, `train` or `archive`.
 | `success` | Boolean | |
 | `errorMessage` | String? | |
 
-`job` was added on 2026-09-13 (`20260913180000_collect_run_job`). Before that, train runs were logged here indistinguishably from collect runs; the migration backfills successful runs with ≥ 1,000 rows as `train` (collect wrote 50–59, train 65k+). Failed runs from before then can't be told apart and read as `collect`.
+**Rows written before `job` existed (before 2026-09-13):**
+- Migration `20260913180000_collect_run_job` backfilled successful runs with ≥ 1,000 rows as `train` (collect writes 50–59 rows, train 65k+).
+- Older failed runs can't be told apart, so they read as `collect`.
+- Archive runs weren't logged at all.
 
-`/api/forecast` reads only `job = 'collect'` runs for its data-quality flag. `ml-service/check_freshness.py` reads the latest successful `train` run. `JobKind` must match `JOBS` in `ml-service/common.py`; a unit test checks it.
+`/api/forecast` uses only `job = 'collect'` rows for its data-quality flag, and `check_freshness.py` reads the latest successful `train` run. `JobKind` must match `JOBS` in `ml-service/common.py`; a unit test checks.
 
 ---
 
 ## Data API lockdown (RLS)
 
-Supabase exposes `public` through its Data API as `anon`/`authenticated`, and by default grants them full access to everything `postgres` creates. Until migration `20260914020000_lock_down_data_api`, every table here (including `_prisma_migrations`) had RLS off and `anon` could SELECT, INSERT and DELETE.
+Supabase serves the `public` schema over its Data API (REST) as the `anon` and `authenticated` roles, and by default grants them full access to whatever `postgres` creates. The app never uses the Data API: Prisma and psycopg connect to Postgres directly.
 
-The migration enables RLS on every table with **no policies**, revokes all table/sequence/function privileges from `anon` and `authenticated`, and revokes `postgres`'s default privileges for them. The app is unaffected: Prisma and psycopg connect as `postgres`, which owns the tables and has BYPASSRLS (RLS is not FORCEd).
+Migration `20260914020000_lock_down_data_api`:
+- enables RLS on every table, with **no policies**;
+- revokes all table, sequence and function privileges from `anon` and `authenticated`;
+- revokes `postgres`'s default privileges for them.
 
-- **New tables must enable RLS in their migration.** `tests/integration/test_migrations_db.py::test_every_table_in_the_migrated_database_has_rls` fails CI otherwise.
-- The Data API itself should be off: Dashboard → Project Settings → Data API → disable. That also covers anything `supabase_admin` creates, whose default privileges this migration can't change.
+The app is unaffected: it connects as `postgres`, which owns the tables and has BYPASSRLS. RLS is not FORCEd.
+
+- **New tables must enable RLS in their migration.** `ml-service/tests/integration/test_migrations_db.py::test_every_table_in_the_migrated_database_has_rls` fails CI otherwise.
+- **Keep the Data API turned off** (Dashboard → Project Settings → Data API). That also covers objects created by `supabase_admin`, whose default privileges the migration can't change.
 
 Verify on production:
 
@@ -121,26 +128,25 @@ RESET ROLE;
 
 ## Connections
 
-**App runtime (Vercel serverless):** Transaction Pooler on port 6543.
-```
-postgresql://postgres.[ref]:[password]@aws-1-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true
-```
+| Client | Connection |
+|---|---|
+| App runtime (Vercel) | Transaction pooler, port 6543: `postgresql://postgres.[ref]:[password]@aws-1-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true` |
+| Prisma CLI (migrations) | `prisma.config.ts` rewrites that URL to the session pooler, port 5432 |
+| ml-service jobs (psycopg) | `DATABASE_URL`, else `DIRECT_URL`, through `common.connect()`. Prisma-only query params are stripped, and prepared statements are disabled because they collide behind the pooler |
+| Direct | `postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres?sslmode=require`. **IPv6-only**: from networks without IPv6 (most home connections, GitHub-hosted runners) use the session pooler |
 
-**Prisma CLI (migrations):** `prisma.config.ts` rewrites the pooler URL to session mode (port 5432).
-
-**ml-service jobs (psycopg):** `DATABASE_URL`, else `DIRECT_URL`, through `common.connect()`. It strips Prisma-only query params and disables psycopg prepared statements, which collide behind the pooler (`prepared statement "_pg3_0" already exists`).
-
-**Direct connection:** `postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres?sslmode=require`. This host is IPv6-only; from a network without IPv6 (most home connections, GitHub runners) use the session pooler instead.
-
-**Egress:** every row a query returns counts against the 5 GB/month quota. Aggregate in SQL and never re-read bulk history on a frequent schedule — that is what restricted the project in September 2026.
+**Egress:** every row a query returns counts against the 5 GB/month quota. Aggregate in SQL, and never re-read bulk history on a frequent schedule. See [incidents.md](incidents.md).
 
 ---
 
 ## Schema Changes
 
-Production has migration history since 2026-09-13 (`0_init` baselined, see `prisma/migrations/README.md`). **Do not use `prisma db push` against production anymore** — it changes the schema without recording a migration, and the next `migrate deploy` fails on drift.
+Production has Prisma migration history (`0_init` baselined on 2026-09-13; see `prisma/migrations/README.md`).
 
-Never point `migrate dev` or `migrate reset` at Supabase; both can drop data. Generate migrations against a disposable local database instead:
+- **Never run `prisma db push` against production.** It changes the schema without recording a migration, and the next `migrate deploy` fails on drift.
+- **Never point `migrate dev` or `migrate reset` at Supabase.** Both can drop data.
+
+Generate migrations against a disposable local database instead:
 
 ```bash
 # 1. Disposable Postgres with the current migrations applied
@@ -155,6 +161,7 @@ npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prism
   --script --output prisma/migrations/<YYYYMMDDHHMMSS>_<name>/migration.sql
 #    Add any data backfill by hand, and cover it in
 #    ml-service/tests/integration/test_migrations_db.py.
+#    Enable RLS on any new table.
 
 # 3. Apply locally, confirm no drift, regenerate the client
 npx prisma migrate deploy
@@ -162,13 +169,13 @@ npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prism
 npx prisma generate
 unset DATABASE_URL
 
-# 4. After the PR is merged, apply to production (uses .env.local)
+# 4. After review, apply to production (uses .env.local)
 npx prisma migrate deploy
 ```
 
-CI applies every migration to an empty Postgres 17 and fails on drift (`ml-integration` job).
-
-**Deploy order:** apply a migration before merging code that depends on it. The ml-service jobs run from `main` every 30 minutes, so code that writes a new column fails every run until the column exists.
+- **CI** applies every migration to an empty Postgres 17 and fails on drift (the `ml-integration` job).
+- **Never edit an applied migration.** Its checksum changes, and `migrate dev` then treats it as modified.
+- **Deploy order:** apply a migration before merging code that depends on it. The ml-service jobs run from `main` every 30 minutes, so code that writes a new column fails every run until that column exists.
 
 ---
 

@@ -4,162 +4,147 @@
 
 ## Workflows Overview
 
-| Workflow | Trigger | Purpose |
-|---|---|---|
-| `train.yml` | Daily 06:00 UTC + dispatch | Full model retrain on all history, write 30-day forecast window |
-| `collect.yml` | Dispatch every 30 min (cron-job.org) | Fetch live waits, upsert WaitTimeRecord (no reads, no ML training) |
-| `archive.yml` | Weekly Sunday 09:00 UTC | Archive WaitTimeRecord >30 days → HourlyWaitSummary |
-| `sync-date-context.yml` | Monthly 1st 10:00 UTC + dispatch | Sync tier/holiday/weather/Groq adjustment |
-| `import-dca-history.yml` | Manual dispatch only | One-time DCA Kaggle historical backfill |
+| Workflow | Trigger | Timeout | Purpose |
+|---|---|---|---|
+| `collect.yml` | Dispatch every 30 min (cron-job.org) | 10 min | Record live waits; keep scheduled workflows enabled; daily freshness check |
+| `train.yml` | Daily 06:00 UTC + dispatch | 20 min | Retrain on all history, write the 30-day forecast window |
+| `archive.yml` | Sundays 09:00 UTC + dispatch | 10 min | Raw rows older than 30 days → `HourlyWaitSummary`; delete old forecasts |
+| `sync-date-context.yml` | 1st of month 10:00 UTC + dispatch | 10 min | Tier, holiday, weather and Groq adjustments via the Vercel endpoint |
+| `import-dca-history.yml` | Dispatch only | 15 min | One-time DCA Kaggle backfill |
+| `ci.yml` | Every push and pull request | 5–15 min per job | Types, lint, tests, build, integration suites, actionlint ([runbook-tests.md](runbook-tests.md)) |
+
+The Python jobs need the `DATABASE_URL` secret, and sync-date-context needs `CRON_SECRET` and `APP_URL`. `DATABASE_URL` must be a Supabase pooler URL: GitHub-hosted runners have no IPv6, and the direct database host is IPv6-only.
+
+GitHub disables `schedule:` workflows in public repositories after 60 days without repository activity. Dispatches don't count as activity, but dispatch-triggered workflows are never disabled. Hence collect is dispatch-only and re-enables the rest. See [incidents.md](incidents.md).
 
 ---
 
-## `train.yml` — Daily Model Training
+## `collect.yml`: data collection
 
-**Trigger:** Daily at 06:00 UTC (11 PM Pacific in summer, 10 PM in winter — after the parks close). Also manually dispatchable. Timeout: 20 minutes.
+**Trigger:** `workflow_dispatch` only, fired every 30 minutes by a cron-job.org job (~48 runs/day). Do not add a `schedule:` block; `tests/test_workflows.py` fails if one appears.
 
-Runs `python train.py`. Full pipeline:
+Three jobs:
 
-1. Load all training history: last `RAW_RETENTION_DAYS` of `WaitTimeRecord` + all `HourlyWaitSummary`
-2. Attach `DateContext`, lag features, and cross-ride features to each training record
-3. `train_ride_models(history)` — XGBoost per ride with walk-forward CV
-4. Generate 30 Pacific-aligned days of forecast slots
-5. `upsert_forecasts()` → bulk upsert `DailyForecast` rows
-6. Log to `CollectRun`
+### `collect`
 
-**Required secret:** `DATABASE_URL`.
-
----
-
-## `collect.yml` — Data Collection
-
-**Trigger:** `workflow_dispatch` only, fired every 30 minutes by a cron-job.org job (~48 runs/day). Timeout: 10 minutes.
-
-Do not replace cron-job.org with a `schedule:` block. GitHub disables scheduled workflows in public repositories after 60 days without repository activity (a dispatch doesn't count), which is how `train`, `archive` and `sync-date-context` all silently stopped in August 2026. Dispatch-triggered workflows are not affected.
-
-**What it does:** records live waits. Nothing else — it reads nothing from the database and trains nothing.
-
-1. Checkout repo, setup Python 3.11 with pip cache
-2. `pip install -r ml-service/requirements.txt`
-3. Run `python collect.py`:
+1. Checkout, set up Python 3.11 with pip cache, `pip install -r ml-service/requirements.txt`
+2. `python collect.py`:
    1. `GET` queue-times.com for each park in `src/lib/ride-config.json`, dropping excluded rides
-   2. Upsert `WaitTimeRecord` (`ON CONFLICT (rideId, windowedAt)`), plus a `CollectRun` success row in the same transaction
-   3. On any error (queue-times down, zero rides, DB failure): roll back, log `CollectRun` with `success=false`, exit 1
+   2. Upsert `WaitTimeRecord` (`ON CONFLICT ("rideId", "windowedAt")`) and a `CollectRun` success row in one transaction
+   3. On any error (queue-times down, zero rides, database failure): roll back, log `CollectRun` with `success = false`, exit 1
 
-Until September 2026 this job also reloaded the whole training history and retrained every model on each run, to refresh today's forecast slots. That read 20–28 MB per run and used 16.5 GB of the Supabase Free plan's 5 GB monthly egress quota, restricting the project. `train.yml` now owns all forecasts.
+It reads nothing from the database and trains nothing.
 
 ### Keepalive (`keep-schedules-enabled` job)
 
-Runs `gh workflow enable` for every workflow in `SCHEDULED_WORKFLOWS` on each collect dispatch, using the job's `GITHUB_TOKEN` with `actions: write` (the only job with that permission). If GitHub disables a scheduled workflow for inactivity, it is re-enabled within 30 minutes. `tests/test_workflows.py` fails when a workflow gains a `schedule:` trigger without being added to the list.
+Runs `gh workflow enable` for every workflow in `SCHEDULED_WORKFLOWS`, using the job's `GITHUB_TOKEN` with `actions: write`. It is the only job with that permission. A workflow GitHub disables is re-enabled within 30 minutes. `tests/test_workflows.py` fails when a workflow with a `schedule:` trigger is missing from the list.
 
 ### Forecast freshness (`check-freshness` job)
 
-Runs `ml-service/check_freshness.py`. Outside 12:00–12:30 UTC it exits immediately; inside, it fails the run (one GitHub email a day) when:
+Runs `ml-service/check_freshness.py`, which writes nothing and reads a single aggregate row. Outside 12:00–12:30 UTC it exits immediately. Inside that window it fails the run (one GitHub email a day) when any of these hold:
 
-- the latest successful `CollectRun` with `job='train'` is older than 24 h (a single missed nightly run), or
-- `DailyForecast` ends less than 27 days ahead (a healthy run writes 29).
+- the latest successful `CollectRun` with `job = 'train'` is older than 24 h (one missed nightly run);
+- `DailyForecast` ends less than 27 days ahead (a healthy run writes 29);
+- the oldest `WaitTimeRecord` row is more than 38 days old (archive has stopped).
 
-Dispatch with `check_freshness: true` to check immediately: `gh workflow run collect.yml -f check_freshness=true`.
-
-**Required secret:** `DATABASE_URL`.
+To check immediately: `gh workflow run collect.yml -f check_freshness=true`. If GitHub starts two collect runs inside the window, expect two emails that day.
 
 ---
 
-## `archive.yml` — Weekly Archival
+## `train.yml`: daily model training
 
-**Trigger:** Every Sunday at 09:00 UTC (1–2am Pacific, outside park hours). Also manually dispatchable.
+**Trigger:** 06:00 UTC daily (23:00 Pacific in summer, 22:00 in winter, after the parks close), or dispatch.
+
+Runs `python train.py`, logged as `CollectRun.job = 'train'`:
+
+1. Build 30 Pacific days of forecast slots
+2. In one `REPEATABLE READ` snapshot, read every unarchived `WaitTimeRecord` row plus 3 years of `HourlyWaitSummary` (ride IDs only, ~14 MB)
+3. Attach `DateContext`, lag and cross-ride features
+4. Train one XGBoost model per ride with walk-forward CV
+5. Upsert `DailyForecast`
+
+Details: [runbook-ml-service.md](runbook-ml-service.md#forecasting-trainpy--pipelinegenerate_forecasts).
+
+---
+
+## `archive.yml`: weekly archival
+
+**Trigger:** Sundays 09:00 UTC (01:00–02:00 Pacific), or dispatch.
 
 Runs `python archive.py`, logged as `CollectRun.job = 'archive'`. One transaction, entirely in Postgres; only two counts are read back.
 
-1. `DELETE … RETURNING` raw `WaitTimeRecord` rows older than the cutoff and aggregate them, in the same statement, into `HourlyWaitSummary` buckets keyed on (ride, park date, park hour). The latest ride name wins.
-2. Delete `DailyForecast` rows older than `FORECAST_RETENTION_DAYS` (35).
+1. `DELETE … RETURNING` raw `WaitTimeRecord` rows older than `now − 30 days` (truncated to the hour). In the same statement they are aggregated into `HourlyWaitSummary` buckets keyed on (ride, park date, park hour), merging into any bucket that already exists
+2. Delete `DailyForecast` rows older than 35 days
 
-The cutoff is `now − 30 days` **truncated to the hour**. It used to keep the seconds, so every run split one hour, and the rest of that hour was dropped the following week by `ON CONFLICT DO NOTHING`. Half-filled buckets on Jun 5, Jun 12 and Jun 19 2026 (the Friday cutoffs) are consistent with that. An existing bucket is now **merged** (sample-weighted average, max peak, summed count) instead of skipped.
-
-Training reads every unarchived raw row, so a late archive loses nothing, but it does grow train's daily read. `check_freshness.py` reports raw rows older than 38 days.
-
-**Required secret:** `DATABASE_URL`.
+Training reads every unarchived raw row, so a late archive loses nothing, but each week it is late grows train's daily read.
 
 ---
 
-## `sync-date-context.yml` — Date Context Sync
+## `sync-date-context.yml`: date-context sync
 
-**Trigger:** 1st of each month at 10:00 UTC. Also manually dispatchable.
+**Trigger:** 1st of each month at 10:00 UTC, or dispatch.
 
-Calls `GET /api/cron/sync-date-context` (the Vercel endpoint, not a direct Python script).
+Calls `GET $APP_URL/api/cron/sync-date-context` with `Authorization: Bearer $CRON_SECRET`. The endpoint:
 
-**What the endpoint does:**
+1. Fetches the park schedule from ThemeParks.wiki (hours and Lightning Lane price → tier 0–5, plus ticketed events)
+2. Fetches Open-Meteo weather for the next 16 days, and uses climatological normals beyond that
+3. Upserts `DateContext` rows (tier, holiday, school break, weather) for the next 365 days
+4. Asks Groq for a crowd adjustment (±35) for each date that has none, or whose adjustment is older than 7 days
 
-1. Fetch park schedule from ThemeParks.wiki API (park hours + LLMP price → tier 0–5)
-2. Fetch 16-day weather forecast from Open-Meteo (free, no API key, Anaheim coords)
-3. Apply climatological fallback for dates beyond 16-day window
-4. Upsert `DateContext` rows (tier, holiday, school break, weather fields)
-5. Call Groq adjuster for each date with no `groqAdjustment` yet → store `groqAdjustment` ± 20 + `groqReasoning`
-
-Non-fatal: Groq failure for one date does not abort the others.
-
-**Required secrets:** `CRON_SECRET`, `APP_URL`.
+A Groq failure for one date doesn't stop the others. See [runbook-api.md](runbook-api.md#apicronsync-date-context-date-context-sync).
 
 ---
 
-## `import-dca-history.yml` — Kaggle Backfill
+## `import-dca-history.yml`: Kaggle backfill
 
-**Trigger:** Manual dispatch only. One-time operation.
+**Trigger:** dispatch only, with an optional `dry_run` input.
 
-Runs `python import_dca_kaggle_history.py` (optionally with `--dry-run`). Inserts into `HourlyWaitSummary` with `ON CONFLICT DO NOTHING` — safe to re-run.
-
-**Required secret:** `DATABASE_URL`.
+Runs `python import_dca_kaggle_history.py`. It inserts into `HourlyWaitSummary` with `ON CONFLICT DO NOTHING`, so it is safe to re-run.
 
 ---
 
 ## Monitoring
 
-Check `CollectRun` for job history:
+`CollectRun` holds every job run:
 
 ```sql
+-- Latest outcome per job
+SELECT DISTINCT ON (job) job, "ranAt", success, "rowsUpserted", "errorMessage"
+FROM "CollectRun" ORDER BY job, "ranAt" DESC;
+
+-- Recent history
 SELECT job, "ranAt", success, "rowsUpserted", "errorMessage"
 FROM "CollectRun" ORDER BY "ranAt" DESC LIMIT 20;
-
--- Latest outcome per job
-SELECT DISTINCT ON (job) job, "ranAt", success, "errorMessage"
-FROM "CollectRun" ORDER BY job, "ranAt" DESC;
 ```
 
-`archive` runs are logged since 2026-09-13; before that archive left no trace. Check `gh workflow list --all` for any workflow in `disabled_inactivity` state.
+Archive runs are logged from 2026-09-13 onwards; earlier archive runs left no row.
 
-The `/accuracy` page shows a data-quality indicator if recent collect runs failed.
-
-GitHub also sends email on workflow failure.
+- **Daily:** the `check-freshness` job fails and emails when forecasts or the archive are stale.
+- **Any failed workflow:** GitHub sends a failure email.
+- **Workflows GitHub disabled:** `gh workflow list --all` shows any in state `disabled_inactivity`.
+- **Forecasts API:** `/api/forecast` reports `dataQualityOk: false` when none of the last 3 collect runs succeeded.
 
 ---
 
 ## Manual Trigger
 
-**Via GitHub UI:** Actions tab → select workflow → Run workflow.
+**Via GitHub UI:** Actions tab → select the workflow → Run workflow.
 
-**Locally (train — full 30-day window):**
+**Via CLI:**
 ```bash
-cd ml-service
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-DATABASE_URL="$DIRECT_URL" python train.py
+gh workflow run train.yml
+gh workflow run archive.yml
+gh workflow run collect.yml -f check_freshness=true
 ```
 
-**Locally (collect — one wait-time window):**
+**Locally:** see [runbook-ml-service.md](runbook-ml-service.md#local-setup) for the Python jobs. For the date-context sync:
 ```bash
-cd ml-service
-DATABASE_URL="$DIRECT_URL" python collect.py
-```
-
-**Locally (sync-date-context):**
-```bash
-curl -fsS \
-  -H "Authorization: Bearer $CRON_SECRET" \
-  "$APP_URL/api/cron/sync-date-context"
+curl -fsS -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/sync-date-context"
 ```
 
 ---
 
-## Disabling
+## Pausing
 
-Comment out or remove the `schedule:` block in the relevant workflow file to pause without deleting it.
+- **Collect:** pause the cron-job.org job. Collect has no schedule of its own.
+- **train, archive, sync-date-context:** `gh workflow disable <file>` alone is undone within 30 minutes by collect's keepalive. Remove the workflow's `schedule:` block and its entry in `SCHEDULED_WORKFLOWS` (`collect.yml`) in the same commit; `tests/test_workflows.py` requires the two to match.
