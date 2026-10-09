@@ -233,13 +233,14 @@ describe("forecast route — historical fallback", () => {
   });
 
   it("derives the crowd score from the mean of the rides' average waits", async () => {
-    // mean(40, 80) = 60 over MAX_WAIT 120 → 50; peaks must not matter.
+    // mean(40, 80) = 60, the configured 90th-percentile fallback anchor;
+    // peaks must not matter.
     mockGetHistorical.mockResolvedValue([
       { ...historicalSpaceMountain, avgWait: 40, peakWait: 120 },
       { ...historicalSpaceMountain, rideId: 2, avgWait: 80, peakWait: 120 },
     ]);
 
-    expect((await (await GET(makeReq("2026-06-01"))).json()).crowdScore).toBe(50);
+    expect((await (await GET(makeReq("2026-06-01"))).json()).crowdScore).toBe(90);
   });
 
   it("ignores any stored Groq adjustment", async () => {
@@ -247,7 +248,7 @@ describe("forecast route — historical fallback", () => {
     mockDateContextFindUnique.mockResolvedValue({ groqAdjustment: 20, groqReasoning: "x" });
 
     const body = await (await GET(makeReq("2026-06-01"))).json();
-    expect(body.crowdScore).toBe(50);
+    expect(body.crowdScore).toBe(90);
     expect(body.groqAdjustment).toBeUndefined();
   });
 
@@ -255,7 +256,7 @@ describe("forecast route — historical fallback", () => {
     mockGetHistorical.mockResolvedValue([historicalSpaceMountain]);
 
     await GET(makeReq("2026-06-01"));
-    expect(mockNarrate).toHaveBeenCalledWith(50, [{ ...historicalSpaceMountain, mlConfidence: 0.25 }], expect.any(Date));
+    expect(mockNarrate).toHaveBeenCalledWith(90, [{ ...historicalSpaceMountain, mlConfidence: 0.25 }], expect.any(Date));
   });
 
   it("still returns the forecast when narration throws", async () => {

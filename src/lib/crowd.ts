@@ -1,21 +1,47 @@
 import rideConfig from "./ride-config.json";
 
-export const MAX_WAIT: number = rideConfig.crowdMaxWait;
-export const EXPECTED_RIDES: number = rideConfig.crowdExpectedRides;
-export const TIER_MULTIPLIER_STEP: number = rideConfig.tierMultiplierStep;
+export const CROWD_FALLBACK_WAIT_ANCHORS: readonly number[] = rideConfig.crowdFallbackWaitAnchors;
+export const CROWD_CALIBRATION_SCORES: readonly number[] = rideConfig.crowdCalibrationScores;
+export const HISTORICAL_TIER_BONUS: number = rideConfig.historicalTierBonus;
 export const HISTORICAL_FALLBACK_CONFIDENCE = 0.25;
+
+/**
+ * Convert a wait index to the public crowd scale. The training job replaces
+ * these fallback anchors with percentiles calculated from its full history;
+ * this version keeps historical-only API responses on the same shape.
+ */
+export function calibrateCrowdIndex(
+  waitIndex: number,
+  anchors: readonly number[] = CROWD_FALLBACK_WAIT_ANCHORS
+): number {
+  if (!Number.isFinite(waitIndex) || waitIndex <= 0) return 0;
+
+  let previousWait = 0;
+  let previousScore = 0;
+  for (let i = 0; i < anchors.length; i++) {
+    const anchor = anchors[i];
+    const score = CROWD_CALIBRATION_SCORES[i];
+    if (anchor <= previousWait) continue;
+    if (waitIndex <= anchor) {
+      const fraction = (waitIndex - previousWait) / (anchor - previousWait);
+      return Math.round(previousScore + fraction * (score - previousScore));
+    }
+    previousWait = anchor;
+    previousScore = score;
+  }
+  return 100;
+}
 
 export function deriveCrowdScore(
   avgWait: number,
-  tier?: number,
-  openRideCount?: number
+  tier?: number
 ): number {
-  const rideRatio =
-    openRideCount !== undefined ? Math.min(openRideCount / EXPECTED_RIDES, 1.0) : 1.0;
-  const effectiveWait = avgWait * rideRatio;
-  const base = Math.min((effectiveWait / MAX_WAIT) * 100, 100);
-  const tierMultiplier = tier !== undefined ? 1.0 + tier * TIER_MULTIPLIER_STEP : 1.0;
-  return Math.round(Math.min(base * tierMultiplier, 100));
+  const base = calibrateCrowdIndex(avgWait);
+  // The historical fallback only has a same-weekday wait average, not the
+  // date-specific features used by the ML model. Ticket tier is a small,
+  // additive correction here rather than the old compounding multiplier.
+  const tierBonus = Math.max(0, tier ?? 0) * HISTORICAL_TIER_BONUS;
+  return Math.min(base + tierBonus, 100);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { PARK_TIME_ZONE, normalizeParkDateKey, parkDateDow, parkDateRangeUtc } from "./park-time";
+import rideConfig from "./ride-config.json";
 
 /**
  * The SQL behind the forecast, calendar and crowd-score features. Every
@@ -21,6 +22,9 @@ export const HISTORICAL_LOOKBACK_YEARS = 2;
 
 /** A Prisma.raw fragment: PARK_TIME_ZONE is a trusted constant, not input. */
 const PARK_TZ_SQL = Prisma.raw(`'${PARK_TIME_ZONE}'`);
+
+/** Surface a day's busy period instead of averaging quiet opening/closing slots in. */
+export const DAILY_CROWD_SCORE_PERCENTILE = rideConfig.crowdDailyScorePercentile;
 
 /** One ride's predictions for one park day. */
 export type RideDayForecast = {
@@ -63,15 +67,23 @@ export async function getRideForecastsForDate(date: Date | string): Promise<Ride
   }));
 }
 
-/** Park date ("YYYY-MM-DD") → mean ML crowd score over that date's slots. */
+/** Park date ("YYYY-MM-DD") → busy-period ML crowd score over that date's slots. */
 export async function getDailyMlCrowdScores(start: Date, endExclusive: Date): Promise<Map<string, number>> {
   const rows = await prisma.$queryRaw<{ date: string; crowdScore: number }[]>(Prisma.sql`
+    WITH slot_scores AS (
+      SELECT "forecastFor", MAX("crowdScore")::float AS "crowdScore"
+      FROM "DailyForecast"
+      WHERE "forecastFor" >= ${start}
+        AND "forecastFor" < ${endExclusive}
+      GROUP BY "forecastFor"
+    )
     SELECT
       to_char(("forecastFor" AT TIME ZONE 'UTC' AT TIME ZONE ${PARK_TZ_SQL})::date, 'YYYY-MM-DD') AS date,
-      ROUND(AVG("crowdScore"))::int                                                            AS "crowdScore"
-    FROM "DailyForecast"
-    WHERE "forecastFor" >= ${start}
-      AND "forecastFor" < ${endExclusive}
+      ROUND(
+        PERCENTILE_CONT(${DAILY_CROWD_SCORE_PERCENTILE})
+        WITHIN GROUP (ORDER BY "crowdScore")
+      )::int AS "crowdScore"
+    FROM slot_scores
     GROUP BY 1
     ORDER BY 1
   `);

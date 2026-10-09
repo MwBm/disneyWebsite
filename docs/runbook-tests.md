@@ -146,7 +146,7 @@ python -m pytest tests/test_model.py -v
 - Crowd score stays within 0–100 for all inputs, including extremes
 - Weather defaults: `temp_high` 75.0, `is_rainy` 0.0
 - `predict_for_ride`: empty slots return `[]`; mismatched lengths raise
-- `CROWD_MAX_WAIT` / `CROWD_EXPECTED_RIDES` match `src/lib/ride-config.json`
+- Historical calibration maps its P50/P75/P90 anchors to 50/75/90; sparse history uses the config fallback and partial ride coverage does not lower the score
 
 ### `tests/test_collect.py`
 - **Egress guard**: `collect.main()` runs only the `WaitTimeRecord` upsert and the `CollectRun` insert, with no SELECT at all

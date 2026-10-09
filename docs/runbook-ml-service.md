@@ -139,15 +139,25 @@ Imputing the two cross-ride features from the training profile, instead of a con
 
 ### Crowd score
 
-`_compute_crowd_score(forecasts, context)` computes, per slot:
+`_compute_crowd_score(forecasts, context, calibration, headliner_ids)` computes a
+headliner-weighted wait index per slot, then maps it onto an empirical scale:
 
 ```
-avg_wait   = mean(min(predicted_wait, 120))
-ride_ratio = min(len(forecasts) / 24, 1)
-score      = min(avg_wait × ride_ratio / 120 × 100, 100) × (1 + tier × 0.08), capped at 100
+wait_index = 0.5 × mean(all predicted waits) + 0.5 × mean(headliner waits)
+anchors    = daytime historical wait-index percentiles P5, P50, P75, P90, P98
+score      = linear interpolation of anchors to 20, 50, 75, 90, 100
 ```
 
-120, 24 and 0.08 come from `ride-config.json` (`crowdMaxWait`, `crowdExpectedRides`, `tierMultiplierStep`), which `src/lib/crowd.ts` also reads.
+The training job builds anchors from open historical rides between 10:00 and
+20:00 Pacific. A typical historical daytime slot is therefore 50, a busy slot
+is 75, and a peak slot is 90–100. The score is never reduced merely because
+fewer rides trained successfully. `ride-config.json` supplies conservative
+fallback anchors for small datasets and the shared historical-only API path.
+
+The API reports the 75th percentile of a day's slot scores, rather than a
+mean that dilutes its busy period with opening and late-evening waits. Date
+context is already a per-ride ML feature, so it is not multiplied into the
+score a second time.
 
 ---
 

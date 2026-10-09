@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, NamedTuple
 
 import numpy as np
@@ -25,9 +26,13 @@ def _load_config() -> dict:
         return json.load(f)
 
 _config = _load_config()
-CROWD_MAX_WAIT: int = _config["crowdMaxWait"]
-CROWD_EXPECTED_RIDES: int = _config["crowdExpectedRides"]
-TIER_MULTIPLIER_STEP: float = _config["tierMultiplierStep"]
+CROWD_CALIBRATION_PERCENTILES: tuple[float, ...] = tuple(_config["crowdCalibrationPercentiles"])
+CROWD_CALIBRATION_SCORES: tuple[float, ...] = tuple(_config["crowdCalibrationScores"])
+DEFAULT_CROWD_CALIBRATION_ANCHORS: tuple[float, ...] = tuple(_config["crowdFallbackWaitAnchors"])
+CROWD_HEADLINER_WEIGHT: float = _config["crowdHeadlinerWeight"]
+CROWD_DAYTIME_START_HOUR: int = _config["crowdDaytimeStartHour"]
+CROWD_DAYTIME_END_HOUR: int = _config["crowdDaytimeEndHour"]
+CROWD_MIN_CALIBRATION_SLOTS: int = _config["crowdMinCalibrationSlots"]
 HEADLINER_RIDE_IDS: frozenset = frozenset(_config.get("headlinerRideIds", []))
 
 # Canonical feature order — tests reference these names, not positional indices.
@@ -53,6 +58,15 @@ class TrainedModel(NamedTuple):
     cv_mae_minutes: float               # walk-forward CV MAE in minutes; 0.0 for fallback
     hour_means: Dict[int, int]          # Pacific hour → mean wait (fallback lookup)
     global_mean: int                    # fallback when hour has no history
+
+
+class CrowdCalibration(NamedTuple):
+    """Historical wait-index anchors mapped to the public 0–100 score."""
+
+    anchors: tuple[float, ...]
+
+
+DEFAULT_CROWD_CALIBRATION = CrowdCalibration(DEFAULT_CROWD_CALIBRATION_ANCHORS)
 
 
 def _park_time(dt: datetime) -> datetime:
@@ -234,19 +248,102 @@ def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
     return result
 
 
+def _crowd_index(
+    waits_by_ride: list[tuple[int, float]],
+    headliner_ids: frozenset = frozenset(),
+) -> float:
+    """A slot's wait index, with half the weight on the busiest rides.
+
+    An arithmetic mean over every attraction makes a full park look quiet:
+    capacity rides with naturally short lines swamp the headliners visitors use
+    to judge crowding. The index therefore blends the all-ride mean with the
+    mean of the dynamically resolved top-quartile headliners. It deliberately
+    has no ride-count factor: partial model coverage is not evidence of a
+    quieter park.
+    """
+    if not waits_by_ride:
+        return 0.0
+
+    all_waits = [max(0.0, wait) for _, wait in waits_by_ride]
+    overall_mean = float(np.mean(all_waits))
+    headliner_waits = [
+        max(0.0, wait) for ride_id, wait in waits_by_ride if ride_id in headliner_ids
+    ]
+    if not headliner_waits:
+        return overall_mean
+
+    headliner_mean = float(np.mean(headliner_waits))
+    return (1.0 - CROWD_HEADLINER_WEIGHT) * overall_mean + CROWD_HEADLINER_WEIGHT * headliner_mean
+
+
+def build_crowd_calibration(
+    history: List[RideHistory],
+    headliner_ids: frozenset,
+) -> CrowdCalibration:
+    """Calibrate scores from observed daytime park demand in the training set.
+
+    The 50th, 75th and 90th percentiles of historic daytime wait indices map to
+    scores 50, 75 and 90. This makes the scale interpretable as relative park
+    demand instead of requiring every ride to average an arbitrary 120 minutes
+    before a day can score 100.
+    """
+    by_slot: dict[datetime, list[tuple[int, float]]] = defaultdict(list)
+    for record in history:
+        local_hour = _park_time(record.recorded_at).hour
+        if (
+            record.is_open
+            and CROWD_DAYTIME_START_HOUR <= local_hour < CROWD_DAYTIME_END_HOUR
+        ):
+            by_slot[record.recorded_at].append((record.ride_id, float(record.wait_time)))
+
+    indices = [
+        _crowd_index(waits, headliner_ids)
+        for waits in by_slot.values()
+        if waits
+    ]
+    if len(indices) < CROWD_MIN_CALIBRATION_SLOTS:
+        logger.warning(
+            "Only %d daytime history slots available for crowd calibration; using fallback anchors",
+            len(indices),
+        )
+        return DEFAULT_CROWD_CALIBRATION
+
+    anchors = tuple(float(value) for value in np.percentile(indices, CROWD_CALIBRATION_PERCENTILES))
+    return CrowdCalibration(anchors)
+
+
+def _calibrated_crowd_score(index: float, calibration: CrowdCalibration) -> int:
+    """Linearly interpolate a wait index through the calibrated score anchors."""
+    if index <= 0:
+        return 0
+
+    # An all-zero low-percentile anchor is possible on very quiet days. Keep
+    # the x-axis strictly increasing so interpolation remains well-defined.
+    wait_anchors = [0.0]
+    for anchor in calibration.anchors:
+        wait_anchors.append(max(float(anchor), wait_anchors[-1] + 0.001))
+    score_anchors = [0.0, *CROWD_CALIBRATION_SCORES]
+    return int(np.clip(round(float(np.interp(index, wait_anchors, score_anchors))), 0, 100))
+
+
 def _compute_crowd_score(
     forecasts: List[RideForecast],
     context: Optional[DateContext] = None,
+    calibration: CrowdCalibration = DEFAULT_CROWD_CALIBRATION,
+    headliner_ids: frozenset = HEADLINER_RIDE_IDS,
 ) -> int:
-    if not forecasts:
-        return 0
-    raw_waits = [min(f.predicted_wait, CROWD_MAX_WAIT) for f in forecasts]
-    avg_wait = float(np.mean(raw_waits))
-    ride_ratio = min(len(forecasts) / CROWD_EXPECTED_RIDES, 1.0)
-    effective_wait = avg_wait * ride_ratio
-    base = min(effective_wait / CROWD_MAX_WAIT * 100, 100)
-    tier_multiplier = 1.0 + (context.tier * TIER_MULTIPLIER_STEP if context else 0.0)
-    return int(min(base * tier_multiplier, 100))
+    """Map a weighted forecast wait index to an empirically calibrated score.
+
+    Date context is already a per-ride model feature. Applying another ticket
+    tier multiplier here double-counts it, so the parameter remains only for
+    backward-compatible callers.
+    """
+    del context
+    index = _crowd_index(
+        [(forecast.ride_id, float(forecast.predicted_wait)) for forecast in forecasts],
+        headliner_ids,
+    )
+    return _calibrated_crowd_score(index, calibration)
 
 
 def predict_for_ride(

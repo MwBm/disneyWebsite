@@ -21,7 +21,7 @@ Every aggregate happens in Postgres, because each returned row counts against th
 | Export | Returns |
 |---|---|
 | `getRideForecastsForDate(date)` | `RideDayForecast[]`: one per ride, `avgWait`/`peakWait`/`mlConfidence` over the Pacific day, latest ride name |
-| `getDailyMlCrowdScores(start, endExclusive)` | `Map<"YYYY-MM-DD", score>`: rounded mean `crowdScore` per Pacific date |
+| `getDailyMlCrowdScores(start, endExclusive)` | `Map<"YYYY-MM-DD", score>`: rounded 75th-percentile slot `crowdScore` per Pacific date |
 | `getHistoricalRideWaitsForDate(date)` | `HistoricalRideWaits[]`: per-ride average and peak of typical hourly waits on that weekday, last 2 years of `HourlyWaitSummary`, from 08:00; each name comes from a `LATERAL` probe on the `(rideId, date, hour)` index |
 | `getHistoricalDowMeanWaits(month)` | `Map<dow, meanWait>` for the month over 3 years, last year weighted 2× |
 | `getRecentCollectRuns(limit = 3)` | Newest `CollectRun` rows with `job = 'collect'` |
@@ -33,7 +33,7 @@ Every aggregate happens in Postgres, because each returned row counts against th
 
 | Export | Returns |
 |---|---|
-| `getCrowdScoreForDate(date)` | Mean ML crowd score for the Pacific date, or null |
+| `getCrowdScoreForDate(date)` | Busy-period ML crowd score for the Pacific date, or null |
 | `getCrowdScoresForMonth(year, month)` | `DayCrowdScore[]` for every day of the month, used by the calendar |
 | `resolveCrowdScore({ mlScore, historicalScore, groqScore, isBeyondWindow })` | Best available score: ML → historical → Groq; `"unavailable"` beyond the window |
 | `ML_FORECAST_DAYS` | `30` |
@@ -43,11 +43,14 @@ Every aggregate happens in Postgres, because each returned row counts against th
 
 ## `crowd.ts`: crowd scale and colors
 
-`MAX_WAIT`, `EXPECTED_RIDES` and `TIER_MULTIPLIER_STEP` are read from `ride-config.json`, the same file `ml-service/model.py` reads, so the two crowd scores cannot drift.
+The shared fallback calibration anchors and score targets are read from
+`ride-config.json`. The training job replaces those anchors with its observed
+historical daytime percentiles before it writes ML forecast scores.
 
 | Export | Purpose |
 |---|---|
-| `deriveCrowdScore(avgWait, tier?, openRideCount?)` | 0–100 score from a mean wait, scaled by open rides and `1 + tier × TIER_MULTIPLIER_STEP` |
+| `calibrateCrowdIndex(waitIndex)` | Maps a historical-only wait index through the fallback percentile anchors |
+| `deriveCrowdScore(avgWait, tier?)` | Historical-only score with a small additive ticket-tier correction; it does not penalize partial ride coverage |
 | `HISTORICAL_FALLBACK_CONFIDENCE` | `0.25`: `mlConfidence` on historical-fallback rides |
 | `CROWD_BANDS`, `crowdBand(score)` | The one crowd scale: 0–25 Light, 26–50 Moderate, 51–75 Busy, 76+ Very Busy |
 | `crowdLabel(score)` | `{ label, color, description }` |

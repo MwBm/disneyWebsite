@@ -3,15 +3,23 @@ import os
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from schemas import DateContext, LagFeatures, RideHistory
+from schemas import DateContext, LagFeatures, RideForecast, RideHistory
 from model import (
-    CROWD_EXPECTED_RIDES,
-    CROWD_MAX_WAIT,
+    CROWD_CALIBRATION_PERCENTILES,
+    CROWD_CALIBRATION_SCORES,
+    CROWD_DAYTIME_END_HOUR,
+    CROWD_DAYTIME_START_HOUR,
+    CROWD_HEADLINER_WEIGHT,
+    CROWD_MIN_CALIBRATION_SLOTS,
+    DEFAULT_CROWD_CALIBRATION_ANCHORS,
     FEATURE_NAMES,
     MIN_SAMPLES,
-    TIER_MULTIPLIER_STEP,
+    _calibrated_crowd_score,
+    _compute_crowd_score,
+    _crowd_index,
     _extract_features,
     _train_ride_model,
+    build_crowd_calibration,
     predict_for_date,
     predict_for_ride,
     train_ride_models,
@@ -474,17 +482,60 @@ def test_predict_for_ride_rejects_mismatched_lengths(make_model, n_contexts, n_l
 
 
 # ---------------------------------------------------------------------------
-# Crowd score constants sync test
+# Crowd score calibration
 # ---------------------------------------------------------------------------
 
-def test_crowd_score_formula_constants():
+def test_calibration_maps_historical_median_and_busy_percentiles_to_public_scores():
+    """A normal historical daytime slot is 50; busy slots occupy the upper scale."""
+    history = []
+    for i in range(CROWD_MIN_CALIBRATION_SLOTS + 5):
+        slot = datetime(2026, 6, 1, 17, 0, tzinfo=timezone.utc) + timedelta(days=i)
+        history.extend([
+            RideHistory(ride_id=1, ride_name="Headliner", land_name="Land", wait_time=10 + i, is_open=True, recorded_at=slot),
+            RideHistory(ride_id=2, ride_name="Other", land_name="Land", wait_time=10 + i, is_open=True, recorded_at=slot),
+        ])
+
+    calibration = build_crowd_calibration(history, frozenset({1}))
+
+    assert _calibrated_crowd_score(calibration.anchors[1], calibration) == 50
+    assert _calibrated_crowd_score(calibration.anchors[2], calibration) == 75
+    assert _calibrated_crowd_score(calibration.anchors[3], calibration) == 90
+
+
+def test_calibration_falls_back_when_history_has_too_few_daytime_slots():
+    history = [
+        RideHistory(
+            ride_id=1, ride_name="Ride", land_name="Land", wait_time=40,
+            is_open=True, recorded_at=datetime(2026, 6, 1, 17, 0, tzinfo=timezone.utc),
+        )
+    ]
+
+    assert build_crowd_calibration(history, frozenset()).anchors == DEFAULT_CROWD_CALIBRATION_ANCHORS
+
+
+def test_crowd_index_weights_resolved_headliners_without_using_ride_count():
+    weighted = _crowd_index([(1, 80), (2, 20), (3, 20), (4, 20)], frozenset({1}))
+    assert weighted == pytest.approx(57.5)
+    assert CROWD_HEADLINER_WEIGHT == pytest.approx(0.5)
+
+    one_ride = _compute_crowd_score([RideForecast(ride_id=1, predicted_wait=45, confidence=1.0)])
+    many_rides = _compute_crowd_score([
+        RideForecast(ride_id=ride_id, predicted_wait=45, confidence=1.0)
+        for ride_id in range(1, 25)
+    ])
+    assert one_ride == many_rides
+
+
+def test_crowd_score_calibration_constants_match_ride_config():
     """model.py constants must match ride-config.json (single source of truth)."""
     config_path = os.path.join(os.path.dirname(__file__), "../../src/lib/ride-config.json")
     with open(config_path) as f:
         config = json.load(f)
-    assert CROWD_MAX_WAIT == config["crowdMaxWait"]
-    assert CROWD_EXPECTED_RIDES == config["crowdExpectedRides"]
-    assert TIER_MULTIPLIER_STEP == pytest.approx(config["tierMultiplierStep"])
+    assert CROWD_CALIBRATION_PERCENTILES == tuple(config["crowdCalibrationPercentiles"])
+    assert CROWD_CALIBRATION_SCORES == tuple(config["crowdCalibrationScores"])
+    assert DEFAULT_CROWD_CALIBRATION_ANCHORS == tuple(config["crowdFallbackWaitAnchors"])
+    assert CROWD_DAYTIME_START_HOUR == config["crowdDaytimeStartHour"]
+    assert CROWD_DAYTIME_END_HOUR == config["crowdDaytimeEndHour"]
 
 
 def test_no_cv_folds_does_not_yield_maximum_confidence():

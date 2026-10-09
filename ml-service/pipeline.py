@@ -12,8 +12,10 @@ import numpy as np
 
 from common import PARK_TZ, WINDOW_MINUTES, as_utc, park_date_key, park_hour
 from model import (
+    CROWD_CALIBRATION_PERCENTILES,
     HEADLINER_RIDE_IDS,
     _compute_crowd_score,
+    build_crowd_calibration,
     predict_for_ride,
     resolve_headliner_ids,
     train_ride_models,
@@ -419,7 +421,13 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
     headliner_ids = resolve_headliner_ids(history)
     history = attach_cross_ride_features(history, headliner_ids)
     cross_ride_profile = compute_cross_ride_profile(history)
+    crowd_calibration = build_crowd_calibration(history, headliner_ids)
     logger.info("Resolved %d headliner rides", len(headliner_ids))
+    logger.info(
+        "Crowd calibration anchors (P%s): %s",
+        "/P".join(str(int(p)) for p in CROWD_CALIBRATION_PERCENTILES),
+        crowd_calibration.anchors,
+    )
 
     trained_models = train_ride_models(history)
     if not trained_models:
@@ -457,7 +465,11 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
             for rid in trained_models
             if (rid, slot) in all_ride_forecasts
         ]
-        forecasts_per_slot.append((slot, slot_forecasts, _compute_crowd_score(slot_forecasts, ctx)))
+        forecasts_per_slot.append((
+            slot,
+            slot_forecasts,
+            _compute_crowd_score(slot_forecasts, ctx, crowd_calibration, headliner_ids),
+        ))
 
     rows_upserted = upsert_forecasts(conn, forecasts_per_slot, ride_meta)
     logger.info(

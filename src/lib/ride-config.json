@@ -1,7 +1,13 @@
 {
-  "crowdMaxWait": 120,
-  "crowdExpectedRides": 24,
-  "tierMultiplierStep": 0.08,
+  "crowdCalibrationPercentiles": [5, 50, 75, 90, 98],
+  "crowdCalibrationScores": [20, 50, 75, 90, 100],
+  "crowdFallbackWaitAnchors": [12, 30, 45, 60, 80],
+  "crowdHeadlinerWeight": 0.5,
+  "crowdDaytimeStartHour": 10,
+  "crowdDaytimeEndHour": 20,
+  "crowdMinCalibrationSlots": 20,
+  "crowdDailyScorePercentile": 0.75,
+  "historicalTierBonus": 3,
   "headlinerRideIds": [],
   "parks": [
     {

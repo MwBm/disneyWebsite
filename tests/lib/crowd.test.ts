@@ -1,4 +1,10 @@
-import { crowdLabel, deriveCrowdScore, MAX_WAIT, EXPECTED_RIDES } from "@/lib/crowd";
+import {
+  CROWD_FALLBACK_WAIT_ANCHORS,
+  calibrateCrowdIndex,
+  crowdLabel,
+  deriveCrowdScore,
+  HISTORICAL_TIER_BONUS,
+} from "@/lib/crowd";
 
 describe("crowdLabel", () => {
   it("returns Light at boundary 25", () => {
@@ -35,91 +41,35 @@ describe("crowdLabel", () => {
 });
 
 describe("deriveCrowdScore", () => {
-  describe("base score (no tier, no openRideCount)", () => {
-    it("returns 50 for avgWait = MAX_WAIT / 2", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2)).toBe(50);
-    });
-    it("returns 100 for avgWait = MAX_WAIT", () => {
-      expect(deriveCrowdScore(MAX_WAIT)).toBe(100);
-    });
-    it("caps at 100 when avgWait exceeds MAX_WAIT", () => {
-      expect(deriveCrowdScore(200)).toBe(100);
-    });
-    it("returns 0 for avgWait = 0", () => {
-      expect(deriveCrowdScore(0)).toBe(0);
-    });
-    it("rounds fractional scores", () => {
-      // 1 min → (1/120)*100 = 0.833... → rounds to 1
-      expect(deriveCrowdScore(1)).toBe(1);
-    });
+  it("maps the historically typical fallback wait to 50, not half of an arbitrary cap", () => {
+    expect(deriveCrowdScore(CROWD_FALLBACK_WAIT_ANCHORS[1])).toBe(50);
   });
 
-  describe("tier multiplier", () => {
-    // tier multiplier = 1.0 + tier * 0.08; base = 50 (avgWait = MAX_WAIT/2)
-    it("tier 0 applies 1.0x multiplier", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2, 0)).toBe(50);
-    });
-    it("tier 5 applies 1.4x multiplier", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2, 5)).toBe(70);
-    });
-    it("tier 1 applies 1.08x multiplier", () => {
-      // 50 * 1.08 = 54
-      expect(deriveCrowdScore(MAX_WAIT / 2, 1)).toBe(54);
-    });
-    it("tier 3 applies 1.24x multiplier", () => {
-      // 50 * 1.24 = 62
-      expect(deriveCrowdScore(MAX_WAIT / 2, 3)).toBe(62);
-    });
-    it("tier multiplier does not push score above 100", () => {
-      // avgWait=120 → base=100; tier=5 → 100*1.4=140 → capped at 100
-      expect(deriveCrowdScore(MAX_WAIT, 5)).toBe(100);
-    });
-    it("undefined tier behaves same as tier 0", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2, undefined)).toBe(
-        deriveCrowdScore(MAX_WAIT / 2, 0)
-      );
-    });
+  it("maps busier fallback waits through the calibrated anchors", () => {
+    expect(deriveCrowdScore(CROWD_FALLBACK_WAIT_ANCHORS[2])).toBe(75);
+    expect(deriveCrowdScore(CROWD_FALLBACK_WAIT_ANCHORS[4])).toBe(100);
   });
 
-  describe("open ride count adjustment", () => {
-    // rideRatio = min(openRideCount / EXPECTED_RIDES, 1.0)
-    // effectiveWait = avgWait * rideRatio
-    it("full complement (EXPECTED_RIDES) applies no reduction", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2, undefined, EXPECTED_RIDES)).toBe(50);
-    });
-    it("half rides open halves the effective wait → 25", () => {
-      // EXPECTED_RIDES=24, half=12, rideRatio=0.5, effectiveWait=30, base=25
-      expect(deriveCrowdScore(MAX_WAIT / 2, undefined, EXPECTED_RIDES / 2)).toBe(25);
-    });
-    it("more than EXPECTED_RIDES open does not push score above no-adjustment baseline", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2, undefined, EXPECTED_RIDES + 10)).toBe(50);
-    });
-    it("zero rides open returns 0", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2, undefined, 0)).toBe(0);
-    });
-    it("undefined openRideCount applies no adjustment", () => {
-      expect(deriveCrowdScore(MAX_WAIT / 2, 0, undefined)).toBe(
-        deriveCrowdScore(MAX_WAIT / 2, 0)
-      );
-    });
+  it("interpolates between anchors and clamps outside the scale", () => {
+    expect(calibrateCrowdIndex(0)).toBe(0);
+    expect(calibrateCrowdIndex(37.5)).toBe(63);
+    expect(calibrateCrowdIndex(500)).toBe(100);
   });
 
-  describe("combined tier + openRideCount", () => {
-    it("applies tier multiplier after ride-count adjustment", () => {
-      // half rides: effectiveWait=30, base=25, tier=5 (×1.4): 25*1.4=35
-      expect(deriveCrowdScore(MAX_WAIT / 2, 5, EXPECTED_RIDES / 2)).toBe(35);
-    });
+  it("uses a small additive ticket-tier correction for historical-only data", () => {
+    expect(deriveCrowdScore(30, 5)).toBe(50 + 5 * HISTORICAL_TIER_BONUS);
+    expect(deriveCrowdScore(100, 5)).toBe(100);
   });
 
   describe("output is always an integer in [0, 100]", () => {
     const cases = [
-      [0, 0, 0],
-      [60, 2, 10],
-      [200, 5, 30],
-      [30, undefined, undefined],
+      [0, 0],
+      [60, 2],
+      [200, 5],
+      [30, undefined],
     ] as const;
-    it.each(cases)("deriveCrowdScore(%s, %s, %s) in [0,100]", (w, t, r) => {
-      const score = deriveCrowdScore(w, t as number | undefined, r as number | undefined);
+    it.each(cases)("deriveCrowdScore(%s, %s) in [0,100]", (w, t) => {
+      const score = deriveCrowdScore(w, t as number | undefined);
       expect(score).toBeGreaterThanOrEqual(0);
       expect(score).toBeLessThanOrEqual(100);
       expect(Number.isInteger(score)).toBe(true);

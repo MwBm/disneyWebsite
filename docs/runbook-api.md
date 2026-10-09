@@ -30,7 +30,7 @@ All routes are Next.js App Router route handlers with no shared state between re
 **Logic** (queries in `src/lib/forecast-queries.ts`, all aggregated in Postgres):
 1. In parallel:
    - per-ride average and peak for the Pacific date (`getRideForecastsForDate`);
-   - the date's mean ML crowd score (`getCrowdScoreForDate`);
+   - the date's busy-period ML crowd score (`getCrowdScoreForDate`);
    - the last 3 `collect` runs;
    - `DateContext.groqAdjustment` / `groqReasoning`.
 2. **ML forecasts exist** → `source: "ml"`:
@@ -38,7 +38,7 @@ All routes are Next.js App Router route handlers with no shared state between re
    - Groq narration.
 3. **Else, `HourlyWaitSummary` has history** → `source: "historical"`:
    - per-ride average and peak of typical waits on that weekday over the last 2 years, 08:00 onwards (`getHistoricalRideWaitsForDate`);
-   - crowd score from the mean of the rides' `avgWait`;
+   - crowd score from the calibrated mean of the rides' `avgWait`;
    - `mlConfidence: 0.25` on each ride.
 4. **Else** → `source: "groq"`: a Groq general estimate for the score and narration, with `forecasts: []`.
 
@@ -81,8 +81,8 @@ All routes are Next.js App Router route handlers with no shared state between re
 **Returns:** `{ year, month, days }`, where each day is `{ date, crowdScore, source, tier, specialEvent, isHoliday }`.
 
 `source` per day, in priority order:
-1. `"ml"`: mean `DailyForecast.crowdScore` for the park date, plus the stored Groq adjustment
-2. `"historical"`: same-weekday mean from `HourlyWaitSummary` for that month (last 3 years, last year weighted 2×), scaled by the date's tier. Only within the 30-day ML window
+1. `"ml"`: 75th-percentile `DailyForecast.crowdScore` slot for the park date, plus the stored Groq adjustment
+2. `"historical"`: same-weekday mean from `HourlyWaitSummary` for that month (last 3 years, last year weighted 2×), mapped through the fallback calibration anchors with a small additive date-tier correction. Only within the 30-day ML window
 3. `"groq"`: Groq's day-of-week estimate for days still empty. It is cached in `DateContext.groqDowEstimate` for 7 days, and a Groq failure leaves the days null
 4. `"unavailable"`: beyond the ML window with no ML score
 
@@ -166,7 +166,7 @@ Called monthly by `sync-date-context.yml`, or on demand.
    - fetches Open-Meteo weather for the first 16 days, with climatological normals beyond;
    - computes holiday and school-break flags;
    - upserts `DateContext`, skipping dates whose tier was fetched in the last 24 h.
-2. `syncGroqAdjustments(365)`: for dates with no `groqAdjustment` or one older than 7 days, it asks Groq for an adjustment of ±35 points to that date's mean ML crowd score (or 50 when there are no forecasts).
+2. `syncGroqAdjustments(365)`: for dates with no `groqAdjustment` or one older than 7 days, it asks Groq for an adjustment of ±35 points to that date's busy-period ML crowd score (or 50 when there are no forecasts).
 
 **Returns:**
 ```json

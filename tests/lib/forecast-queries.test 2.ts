@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import {
+  DAILY_CROWD_SCORE_PERCENTILE,
   FORECAST_FIRST_LOCAL_HOUR,
   HISTORICAL_LOOKBACK_YEARS,
   getDailyMlCrowdScores,
@@ -59,8 +60,9 @@ describe("getDailyMlCrowdScores", () => {
     const scores = await getDailyMlCrowdScores(start, end);
 
     expect([...scores.entries()]).toEqual([["2026-06-01", 41], ["2026-06-02", 58]]);
-    expect(lastSql().values).toEqual([start, end]);
+    expect(lastSql().values).toEqual([start, end, DAILY_CROWD_SCORE_PERCENTILE]);
     expect(lastSql().sql).toContain("AT TIME ZONE 'America/Los_Angeles'");
+    expect(lastSql().sql).toContain("PERCENTILE_CONT");
   });
 });
 

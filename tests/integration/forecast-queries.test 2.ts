@@ -115,19 +115,21 @@ describeWithDatabase("forecast queries on Postgres", () => {
   });
 
   describe("getDailyMlCrowdScores / getCrowdScoreForDate", () => {
-    it("groups slots by Pacific date and rounds each day's mean", async () => {
+    it("groups slots by Pacific date and reports each day's busy-period score", async () => {
       await prisma.dailyForecast.createMany({
         data: [
           forecastRow(1, pacific("2026-06-01T09:00:00", -7), 1, { crowdScore: 10 }),
-          forecastRow(2, pacific("2026-06-01T23:30:00", -7), 1, { crowdScore: 11 }), // UTC date is Jun 2
+          forecastRow(2, pacific("2026-06-01T14:00:00", -7), 1, { crowdScore: 30 }),
+          forecastRow(3, pacific("2026-06-01T23:30:00", -7), 1, { crowdScore: 70 }), // UTC date is Jun 2
           forecastRow(1, pacific("2026-06-02T09:00:00", -7), 1, { crowdScore: 70 }),
         ],
       });
 
       const scores = await getDailyMlCrowdScores(pacific("2026-06-01T00:00:00", -7), pacific("2026-06-03T00:00:00", -7));
 
-      expect([...scores.entries()]).toEqual([["2026-06-01", 11], ["2026-06-02", 70]]); // 10.5 → 11
-      expect(await getCrowdScoreForDate("2026-06-01")).toBe(11);
+      // percentile_cont(0.75) of 10, 30, 70 is 50; a mean would be 37.
+      expect([...scores.entries()]).toEqual([["2026-06-01", 50], ["2026-06-02", 70]]);
+      expect(await getCrowdScoreForDate("2026-06-01")).toBe(50);
       expect(await getCrowdScoreForDate("2026-06-03")).toBeNull();
     });
 
