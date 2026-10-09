@@ -70,6 +70,11 @@ describe("ChatAssistant", () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith("/api/chat", expect.objectContaining({ method: "POST" }));
+    const request = (global.fetch as jest.Mock).mock.calls[0][1];
+    expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
+      date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      messages: [{ role: "user", content: "hi" }],
+    }));
     expect(container.textContent).toContain("hi");
   });
 

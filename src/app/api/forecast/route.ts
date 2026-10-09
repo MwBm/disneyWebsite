@@ -24,6 +24,9 @@ const CACHE_SECONDS = 1800;
  */
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 
+/** Collect runs every 30 minutes; three missed dispatches make data stale. */
+const MAX_COLLECT_AGE_MS = 90 * 60_000;
+
 const QuerySchema = z.object({
   date: z
     .string()
@@ -61,8 +64,10 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  const dataQualityOk = recentRuns.length > 0 && recentRuns.some((r) => r.success);
-  const lastCollectedAt = recentRuns[0]?.ranAt ?? null;
+  const latestSuccessfulCollection = recentRuns.find((run) => run.success) ?? null;
+  const lastCollectedAt = latestSuccessfulCollection?.ranAt ?? null;
+  const dataQualityOk =
+    lastCollectedAt !== null && Date.now() - lastCollectedAt.getTime() <= MAX_COLLECT_AGE_MS;
   const status = { date: dateKey, dataQualityOk, lastCollectedAt };
 
   if (rides.length > 0) {

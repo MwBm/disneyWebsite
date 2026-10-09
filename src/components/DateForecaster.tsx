@@ -5,6 +5,7 @@ import { format, parseISO } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import CrowdMeter from "./CrowdMeter";
 import DisneyDatePicker from "./DisneyDatePicker";
+import { parkDateKey } from "@/lib/park-time";
 import type { RideDayForecast } from "@/lib/forecast-queries";
 
 type Forecast = {
@@ -26,7 +27,7 @@ function timeAgo(iso: string): string {
 }
 
 export default function DateForecaster() {
-  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [date, setDate] = useState(() => parkDateKey(new Date()));
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Forecast | null>(null);
   const [error, setError] = useState<string | null>(null);

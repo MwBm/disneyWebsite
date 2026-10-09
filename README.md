@@ -104,9 +104,11 @@ Browser
 GitHub Actions: collect.yml (dispatched every 30 min by cron-job.org)
   ├── ml-service/collect.py         ← queue-times.com → WaitTimeRecord; writes only, never reads
   ├── keep-schedules-enabled        ← re-enables scheduled workflows GitHub disables for inactivity
-  └── ml-service/check_freshness.py ← fails once a day (12:00 UTC) if forecasts or the archive are stale
 
-GitHub Actions: train.yml (daily 06:00 UTC)
+GitHub Actions: freshness.yml (daily 13:47 UTC)
+  └── ml-service/check_freshness.py ← alerts when forecasts or the archive are stale
+
+GitHub Actions: train.yml (daily 06:17 UTC)
   └── ml-service/train.py
         ├── Every unarchived WaitTimeRecord row + 3 years of HourlyWaitSummary, one snapshot
         ├── DateContext + lag + cross-ride features (23 total)

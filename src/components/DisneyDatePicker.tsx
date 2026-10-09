@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { format, addDays, subDays, startOfMonth, endOfMonth, eachDayOfInterval, getDay } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
+import { parkDateKey } from "@/lib/park-time";
 
 type Props = {
   value: string; // yyyy-MM-dd
@@ -36,7 +37,7 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
   }
 
   const date = parseLocalDate(value);
-  const today = format(new Date(), "yyyy-MM-dd");
+  const today = parkDateKey(new Date());
 
   useEffect(() => {
     function handler(e: MouseEvent) {

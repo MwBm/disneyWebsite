@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireBearer } from "@/lib/auth";
+import { addParkDays, dateContextDate, parkDateKey } from "@/lib/park-time";
 
 export const revalidate = 0;
 
@@ -15,9 +16,9 @@ export async function GET(req: NextRequest) {
   const days = Number.isFinite(requestedDays)
     ? Math.min(Math.max(Math.trunc(requestedDays), 1), 365)
     : 90;
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start.getTime() + days * 86_400_000);
+  const startKey = parkDateKey(new Date());
+  const start = dateContextDate(startKey);
+  const end = dateContextDate(addParkDays(startKey, days));
 
   const rows = await prisma.dateContext.findMany({
     where: { date: { gte: start, lte: end } },

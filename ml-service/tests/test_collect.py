@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 import collect
+import common
 from collect import fetch_live_rides, round_to_window, upsert_wait_records
 
 
@@ -39,6 +40,7 @@ def queue_times(monkeypatch):
     """Serve PAYLOADS for every park; tests can overwrite entries to break one."""
     payloads = {url: dict(body) for url, body in PAYLOADS.items()}
     monkeypatch.setattr(collect, "_load_park_configs", lambda: PARKS)
+    monkeypatch.setattr(collect, "FETCH_RETRY_BASE_SECONDS", 0)
 
     def fake_get(url, timeout):
         body = payloads[url]
@@ -88,6 +90,24 @@ def test_fetch_live_rides_raises_on_an_http_error(queue_times):
 
     with pytest.raises(httpx.HTTPStatusError):
         fetch_live_rides()
+
+
+def test_fetch_live_rides_retries_a_transient_transport_error(monkeypatch, queue_times):
+    url = PARKS[0]["queueTimesUrl"]
+    original_get = collect.httpx.get
+    attempts = 0
+
+    def flaky_get(requested_url, timeout):
+        nonlocal attempts
+        attempts += 1
+        if requested_url == url and attempts == 1:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        return original_get(requested_url, timeout)
+
+    monkeypatch.setattr(collect.httpx, "get", flaky_get)
+
+    assert len(fetch_live_rides()) == 3
+    assert attempts == 3  # retry once for park one, then fetch park two
 
 
 def test_fetch_live_rides_raises_on_a_malformed_payload(queue_times):
@@ -198,9 +218,10 @@ def test_main_rolls_back_and_logs_when_the_upsert_fails(fake_db, queue_times):
 
     assert collect.main() == 1
 
-    work_conn, log_conn = fake_db.connections
-    assert work_conn.events[-1] == "rollback"
-    assert "commit" not in work_conn.events
+    work_conns = fake_db.connections[:-1]
+    [log_conn] = fake_db.connections[-1:]
+    assert len(work_conns) == common.JOB_ATTEMPTS
+    assert all(conn.events[-1] == "rollback" and "commit" not in conn.events for conn in work_conns)
     assert log_conn.autocommit is True
     [run] = fake_db.collect_runs()
     assert run["job"] == "collect"

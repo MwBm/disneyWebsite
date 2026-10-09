@@ -1,4 +1,4 @@
-import { clampParsedNumber } from "@/lib/groq";
+import { buildChatSystemPrompt, clampParsedNumber } from "@/lib/groq";
 
 describe("clampParsedNumber — the falsy-zero bug", () => {
   it("keeps a legitimate 0 instead of substituting the fallback", () => {
@@ -62,6 +62,26 @@ describe("clampParsedNumber — junk input falls back", () => {
 
   it("does not coerce true to 1 the way Number() would", () => {
     expect(clampParsedNumber(true, { min: 0, max: 100, fallback: 50 })).toBe(50);
+  });
+});
+
+describe("buildChatSystemPrompt", () => {
+  it("separates a selected future-date forecast from live waits", () => {
+    const prompt = buildChatSystemPrompt({
+      now: new Date("2026-06-02T03:30:00.000Z"),
+      visitDate: "2026-07-04",
+      crowdScore: 82,
+      visitForecastSource: "ml",
+      visitForecasts: [{ rideName: "Space Mountain", landName: "Tomorrowland", avgWait: 45, peakWait: 75 }],
+      liveWaits: [{ name: "Matterhorn", waitTime: 35, isOpen: true }],
+    });
+
+    expect(prompt).toContain("Selected visit date: Saturday, July 4, 2026");
+    expect(prompt).toContain("ML predictions for the selected date");
+    expect(prompt).toContain("Space Mountain (Tomorrowland): avg ~45 min, peak ~75 min");
+    expect(prompt).toContain("Current top wait times (these are live now, not a prediction for the selected date)");
+    // 03:30 UTC is still June 1 in Anaheim.
+    expect(prompt).toContain("Current park date/time (America/Los_Angeles): Monday, June 1, 2026");
   });
 });
 

@@ -69,7 +69,7 @@ All routes are Next.js App Router route handlers with no shared state between re
 ```
 
 - `groqAdjustment` and `groqReasoning` are omitted when there is no adjustment.
-- `dataQualityOk` is true when at least one of the last 3 collect runs succeeded.
+- `dataQualityOk` is true only when a successful collect run exists within the last 90 minutes. `lastCollectedAt` is that successful run, never a failed attempt.
 - `crowdScore` can be null if the date has ride forecasts but no daily score, or on the groq path if Groq fails.
 
 ---
@@ -127,14 +127,17 @@ Two aggregate queries over `DailyForecast` × `WaitTimeRecord`:
 
 **Body:**
 ```json
-{ "messages": [{ "role": "user", "content": "Should I visit Saturday?" }] }
+{
+  "date": "2026-07-04",
+  "messages": [{ "role": "user", "content": "Should I visit Saturday?" }]
+}
 ```
 
-1–50 messages, each with `role` `user` or `assistant` and 1–4000 characters of `content`.
+`date` is optional (`YYYY-MM-DD`); it defaults to the current Disneyland park date. There are 1–50 messages, each with `role` `user` or `assistant` and 1–4000 characters of `content`.
 
 **Response:** a plain-text stream (`text/plain; charset=utf-8`). An upstream failure mid-stream errors the stream rather than closing it, so a truncated answer never looks complete.
 
-**Context injected:** the 10 longest current waits among open rides, and today's ML crowd score.
+**Context injected:** the 10 longest current waits (explicitly marked as live now), plus the selected date's ML per-ride predictions and crowd score. When no ML forecast exists, the route uses same-weekday historical per-ride averages. The assistant is instructed not to treat current waits as a future forecast.
 
 The route returns 503 when `GROQ_API_KEY` is unset. It checks config, then rate limit, then body, before any upstream call.
 

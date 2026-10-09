@@ -79,10 +79,11 @@ def test_collect_stays_dispatch_only():
     assert set(_triggers(WORKFLOWS["collect.yml"])) == {"workflow_dispatch"}
 
 
-def test_collect_checks_forecast_freshness():
-    steps = WORKFLOWS["collect.yml"]["jobs"]["check-freshness"]["steps"]
+def test_freshness_workflow_forces_one_daily_check():
+    steps = WORKFLOWS["freshness.yml"]["jobs"]["check-freshness"]["steps"]
     [check] = [s for s in steps if "check_freshness.py" in s.get("run", "")]
     assert check["env"]["DATABASE_URL"] == "${{ secrets.DATABASE_URL }}"
+    assert "--force" in check["run"]
 
 
 @pytest.mark.parametrize("workflow_name", sorted(WORKFLOWS))
@@ -101,7 +102,7 @@ def test_python_scripts_run_by_workflows_exist(workflow_name):
                 assert (workdir / script).is_file(), f"{workflow_name}:{job_name} runs missing {script}"
 
 
-@pytest.mark.parametrize("workflow_name", ["collect.yml", "train.yml", "archive.yml", "import-dca-history.yml"])
+@pytest.mark.parametrize("workflow_name", ["collect.yml", "freshness.yml", "train.yml", "archive.yml", "import-dca-history.yml"])
 def test_production_jobs_install_runtime_requirements_only(workflow_name):
     """requirements-dev.txt adds test tooling the jobs never need."""
     runs = [s.get("run", "") for job in WORKFLOWS[workflow_name]["jobs"].values() for s in job.get("steps", [])]

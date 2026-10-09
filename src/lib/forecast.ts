@@ -3,7 +3,9 @@ import { deriveCrowdScore } from "./crowd";
 import { getDailyMlCrowdScores, getHistoricalDowMeanWaits } from "./forecast-queries";
 import {
   dateContextMonthRangeUtc,
+  addParkDays,
   normalizeParkDateKey,
+  parkDateKey,
   parkDateDow,
   parkDateRangeUtc,
   parkMonthRangeUtc,
@@ -69,9 +71,7 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
   const contextByDate = new Map(dateContexts.map((c) => [c.date.toISOString().slice(0, 10), c]));
 
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const windowCutoff = new Date();
-  windowCutoff.setDate(windowCutoff.getDate() + ML_FORECAST_DAYS);
-  const windowCutoffKey = windowCutoff.toISOString().slice(0, 10);
+  const windowCutoffKey = addParkDays(parkDateKey(new Date()), ML_FORECAST_DAYS);
 
   const results: DayCrowdScore[] = [];
   for (let d = 1; d <= daysInMonth; d++) {

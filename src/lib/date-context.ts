@@ -4,7 +4,7 @@ import { isHolidayDate, isSchoolBreakDate } from "./calendar";
 import { fetchWeatherForecast, climatologicalWeather, WeatherDay } from "./weather";
 import { fetchDateSchedule } from "./park-schedule";
 import { mapWithConcurrency } from "./concurrency";
-import { parkDateRangeUtc } from "./park-time";
+import { addParkDays, dateContextDate, parkDateKey, parkDateRangeUtc } from "./park-time";
 import { getDailyMlCrowdScores } from "./forecast-queries";
 
 /**
@@ -25,12 +25,12 @@ export async function syncDateContext(
 ): Promise<{ synced: number; skipped: number }> {
   const now = new Date();
   const staleThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const startDate = now.toISOString().slice(0, 10);
-  const endDate = new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+  const startDate = parkDateKey(now);
+  const endDate = addParkDays(startDate, days);
 
   const existing = await prisma.dateContext.findMany({
     where: {
-      date: { gte: new Date(startDate), lte: new Date(endDate) },
+      date: { gte: dateContextDate(startDate), lte: dateContextDate(endDate) },
       tierFetchedAt: { gte: staleThreshold },
     },
     select: { date: true },
@@ -42,7 +42,7 @@ export async function syncDateContext(
 
   if (toSync.length === 0) return { synced: 0, skipped: schedule.length };
 
-  const forecastCutoff = new Date(now.getTime() + 16 * 86_400_000).toISOString().slice(0, 10);
+  const forecastCutoff = addParkDays(startDate, 16);
   const forecastEnd = toSync.some((s) => s.date <= forecastCutoff)
     ? forecastCutoff < endDate ? forecastCutoff : endDate
     : null;
@@ -58,7 +58,7 @@ export async function syncDateContext(
 
   const fetchedAt = new Date();
   const upserts = await mapWithConcurrency(toSync, SYNC_CONCURRENCY, (s) => {
-      const d = new Date(s.date);
+      const d = dateContextDate(s.date);
       const isHoliday = isHolidayDate(d);
       const isSchoolBreak = isSchoolBreakDate(d);
       const weather = weatherMap.get(s.date) ?? climatologicalWeather(s.date);
@@ -107,13 +107,13 @@ export async function syncDateContext(
 
 export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number }> {
   const now = new Date();
-  const startDate = now.toISOString().slice(0, 10);
-  const endDate = new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+  const startDate = parkDateKey(now);
+  const endDate = addParkDays(startDate, days);
 
   const staleGroqThreshold = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const pending = await prisma.dateContext.findMany({
     where: {
-      date: { gte: new Date(startDate), lte: new Date(endDate) },
+      date: { gte: dateContextDate(startDate), lte: dateContextDate(endDate) },
       OR: [
         { groqAdjustment: null },
         { groqAdjustedAt: { lt: staleGroqThreshold } },

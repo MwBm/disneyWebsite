@@ -7,6 +7,7 @@ jobs disagree about, say, RAW_RETENTION_DAYS.
 import logging
 import os
 import sys
+import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -39,6 +40,11 @@ ARCHIVE_GRACE_DAYS = 8
 # Without a timeout an unreachable database hangs the job until GitHub Actions
 # kills it at timeout-minutes, and the failure is never logged to CollectRun.
 CONNECT_TIMEOUT_SECONDS = 15
+
+# One dropped pooler connection should not turn a healthy, idempotent job into
+# a red workflow. Three attempts stay comfortably inside every job timeout.
+JOB_ATTEMPTS = 3
+JOB_RETRY_BASE_SECONDS = 1.0
 
 # Connection-string parameters that Prisma understands and libpq rejects with
 # "invalid URI query parameter". The same DATABASE_URL secret serves both.
@@ -142,22 +148,40 @@ def run_logged_job(job: str, work: Callable[[psycopg.Connection], int]) -> int:
         print("ERROR: DATABASE_URL or DIRECT_URL must be set", file=sys.stderr)
         return 1
 
-    try:
-        with connect(db_url) as conn:
-            try:
-                rows = work(conn)
-                log_collect_run(conn, job, rows, success=True)
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-        logger.info("%s run successful: %d rows written", job, rows)
-        return 0
-    except Exception as exc:
-        logger.error("%s run failed: %s", job, exc)
+    last_error: Exception | None = None
+    for attempt in range(1, JOB_ATTEMPTS + 1):
         try:
-            with connect(db_url, autocommit=True) as conn:
-                log_collect_run(conn, job, 0, success=False, error_message=str(exc))
-        except Exception as log_exc:
-            logger.error("Failed to log the failure to CollectRun: %s", log_exc)
-        return 1
+            with connect(db_url) as conn:
+                try:
+                    rows = work(conn)
+                    log_collect_run(conn, job, rows, success=True)
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+            logger.info("%s run successful: %d rows written", job, rows)
+            return 0
+        except Exception as exc:
+            last_error = exc
+            retryable = isinstance(exc, (psycopg.OperationalError, psycopg.InterfaceError))
+            if not retryable or attempt == JOB_ATTEMPTS:
+                break
+            delay = JOB_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+            logger.warning(
+                "%s attempt %d/%d failed with a transient database error: %s; retrying in %.1fs",
+                job,
+                attempt,
+                JOB_ATTEMPTS,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+
+    assert last_error is not None
+    logger.error("%s run failed: %s", job, last_error)
+    try:
+        with connect(db_url, autocommit=True) as conn:
+            log_collect_run(conn, job, 0, success=False, error_message=str(last_error))
+    except Exception as log_exc:
+        logger.error("Failed to log the failure to CollectRun: %s", log_exc)
+    return 1

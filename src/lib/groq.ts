@@ -2,6 +2,7 @@ import Groq from "groq-sdk";
 import { crowdLabel } from "./crowd";
 import { format } from "date-fns";
 import { GROQ_TEXT_MODEL } from "./groq-models";
+import { PARK_TIME_ZONE } from "./park-time";
 
 /**
  * Clamp a value parsed out of an LLM response into [min, max]. 0 is a real
@@ -37,6 +38,48 @@ type RideForecast = {
   predictedWait: number;
 };
 
+export type ChatForecast = {
+  rideName: string;
+  landName: string;
+  avgWait: number;
+  peakWait: number;
+};
+
+export type ChatForecastSource = "ml" | "historical" | "unavailable";
+
+export type ChatSystemContext = {
+  liveWaits: { name: string; waitTime: number; isOpen: boolean }[];
+  crowdScore: number | null;
+  now: Date;
+  visitDate: string;
+  visitForecasts: ChatForecast[];
+  visitForecastSource: ChatForecastSource;
+};
+
+function formatParkNow(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: PARK_TIME_ZONE,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatVisitDate(dateKey: string): string {
+  // Noon UTC always remains the same calendar date in Pacific time. Formatting
+  // it in UTC also prevents a server's own timezone from changing the label.
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(new Date(`${dateKey}T12:00:00.000Z`));
+}
+
 export async function narrateForecast(
   crowdScore: number,
   forecasts: { rideName: string; peakWait: number }[],
@@ -70,12 +113,16 @@ Be specific and actionable. Mention the crowd score label and give one timing ti
   return msg.choices[0]?.message?.content ?? "";
 }
 
-export function buildChatSystemPrompt(
-  liveWaits: { name: string; waitTime: number; isOpen: boolean }[],
-  crowdScore: number | null,
-  date: Date
-): string {
-  const dateStr = format(date, "EEEE, MMMM d, yyyy h:mm a");
+export function buildChatSystemPrompt({
+  liveWaits,
+  crowdScore,
+  now,
+  visitDate,
+  visitForecasts,
+  visitForecastSource,
+}: ChatSystemContext): string {
+  const currentDateTime = formatParkNow(now);
+  const visitDateStr = formatVisitDate(visitDate);
   const { label } = crowdScore !== null ? crowdLabel(crowdScore) : { label: "Unknown" };
 
   const openRides = liveWaits
@@ -85,15 +132,33 @@ export function buildChatSystemPrompt(
     .map((r) => `${r.name}: ${r.waitTime} min`)
     .join("\n");
 
-  return `You are a helpful Disneyland trip planning assistant with access to real-time park data.
+  const topForecasts = [...visitForecasts]
+    .sort((a, b) => b.peakWait - a.peakWait)
+    .slice(0, 10)
+    .map((r) => `${r.rideName} (${r.landName}): avg ~${r.avgWait} min, peak ~${r.peakWait} min`)
+    .join("\n");
 
-Current date/time: ${dateStr}
-Today's crowd score: ${crowdScore ?? "N/A"}/100 (${label})
+  const visitData =
+    visitForecastSource === "ml"
+      ? "ML predictions for the selected date"
+      : visitForecastSource === "historical"
+        ? "historical same-weekday averages for the selected date"
+        : "no date-specific wait forecast is available";
 
-Current top wait times:
+  return `You are a helpful Disneyland trip planning assistant with current park data and a selected trip date.
+
+Current park date/time (America/Los_Angeles): ${currentDateTime}
+Selected visit date: ${visitDateStr}
+Selected-date crowd score: ${crowdScore ?? "N/A"}/100 (${label})
+Selected-date forecast source: ${visitData}
+
+Selected-date top ride forecasts:
+${topForecasts || "No per-ride forecast is available for this date."}
+
+Current top wait times (these are live now, not a prediction for the selected date):
 ${openRides}
 
-Answer questions about wait times, ride recommendations, itinerary planning, and park tips. Be concise and specific. Always ground advice in the current data when relevant.`;
+Answer questions about wait times, ride recommendations, itinerary planning, and park tips. Use selected-date forecasts for future-date planning and live waits only for advice about right now. When selected-date data is unavailable, say that clearly but still offer general, date-aware planning guidance. Do not claim that you only have data for today.`;
 }
 
 export async function narrateForecastNoDataWithScore(

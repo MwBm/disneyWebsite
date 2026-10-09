@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import { filterAndSortRides } from "@/lib/accuracy-filters";
 import type { PerRide, ParkFilter, SortKey } from "@/lib/accuracy-filters";
 import { DCA, DISNEYLAND } from "@/lib/parks";
+import { parkDateKey } from "@/lib/park-time";
 
 type Summary = {
   mae: number;
@@ -113,7 +114,7 @@ export default function AccuracyPage() {
   useEffect(() => {
     Promise.all([
       fetch("/api/accuracy", { cache: "force-cache" }).then((r) => r.json()),
-      fetch("/api/forecast?date=" + new Date().toISOString().split("T")[0], { cache: "force-cache" }).then((r) => r.json()),
+      fetch("/api/forecast?date=" + parkDateKey(new Date()), { cache: "force-cache" }).then((r) => r.json()),
     ]).then(([accuracyData, forecastData]: [AccuracyData, { dataQualityOk?: boolean }]) => {
       setData(accuracyData);
       if (accuracyData.perRide.length > 0) setSelectedRideId(accuracyData.perRide[0].rideId);

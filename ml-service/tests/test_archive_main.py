@@ -10,6 +10,7 @@ import psycopg
 import pytest
 
 import archive
+import common
 from common import FORECAST_RETENTION_DAYS, RAW_RETENTION_DAYS
 
 
@@ -88,8 +89,9 @@ def test_a_failed_forecast_cleanup_rolls_back_the_archive_too(fake_db):
 
     assert archive.main() == 1
 
-    work_conn, _ = fake_db.connections
-    assert "commit" not in work_conn.events and work_conn.events[-1] == "rollback"
+    work_conns = fake_db.connections[:-1]
+    assert len(work_conns) == common.JOB_ATTEMPTS
+    assert all("commit" not in conn.events and conn.events[-1] == "rollback" for conn in work_conns)
     [run] = fake_db.collect_runs()
     assert (run["job"], run["rows"], run["success"]) == ("archive", 0, False)
     assert "statement timeout" in run["error"]

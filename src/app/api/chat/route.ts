@@ -3,9 +3,13 @@ import { z } from "zod";
 import Groq from "groq-sdk";
 import { fetchLiveRides } from "@/lib/queue-times";
 import { getCrowdScoreForDate } from "@/lib/forecast";
-import { buildChatSystemPrompt } from "@/lib/groq";
+import { deriveCrowdScore } from "@/lib/crowd";
+import { buildChatSystemPrompt, type ChatForecast, type ChatForecastSource } from "@/lib/groq";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { GROQ_CHAT_MODEL } from "@/lib/groq-models";
+import { getHistoricalRideWaitsForDate, getRideForecastsForDate } from "@/lib/forecast-queries";
+import { parkDateKey } from "@/lib/park-time";
+import { isValid, parseISO } from "date-fns";
 
 /** This route spends money on every request, so it is metered per client. */
 const RATE_LIMIT = { limit: 10, windowMs: 60_000 };
@@ -27,6 +31,11 @@ const BodySchema = z.object({
       content: z.string().min(1).max(4000),
     })
   ).min(1).max(50),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((v) => isValid(parseISO(v)), { message: "Invalid date" })
+    .optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -52,14 +61,42 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const [liveRides, crowdScore] = await Promise.allSettled([
+  const now = new Date();
+  const visitDate = parsed.data.date ?? parkDateKey(now);
+  const [liveRides, crowdScore, mlForecasts] = await Promise.allSettled([
     fetchLiveRides(),
-    getCrowdScoreForDate(new Date()),
+    getCrowdScoreForDate(visitDate),
+    getRideForecastsForDate(visitDate),
   ]);
 
   const rides = liveRides.status === "fulfilled" ? liveRides.value : [];
-  const score = crowdScore.status === "fulfilled" ? crowdScore.value : null;
-  const systemPrompt = buildChatSystemPrompt(rides, score, new Date());
+  let forecasts: ChatForecast[] =
+    mlForecasts.status === "fulfilled" ? mlForecasts.value : [];
+  let forecastSource: ChatForecastSource = forecasts.length > 0 ? "ml" : "unavailable";
+  let score = crowdScore.status === "fulfilled" ? crowdScore.value : null;
+
+  if (forecasts.length === 0) {
+    try {
+      forecasts = await getHistoricalRideWaitsForDate(visitDate);
+      if (forecasts.length > 0) {
+        forecastSource = "historical";
+        score = deriveCrowdScore(
+          forecasts.reduce((sum, ride) => sum + ride.avgWait, 0) / forecasts.length
+        );
+      }
+    } catch (err) {
+      console.error("chat historical forecast lookup failed", err);
+    }
+  }
+
+  const systemPrompt = buildChatSystemPrompt({
+    liveWaits: rides,
+    crowdScore: score,
+    now,
+    visitDate,
+    visitForecasts: forecasts,
+    visitForecastSource: forecastSource,
+  });
   const groq = getGroqClient();
 
   const stream = await groq.chat.completions.create({

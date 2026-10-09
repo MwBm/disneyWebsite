@@ -82,6 +82,18 @@ export function parkDateKey(date: Date): string {
   return `${year}-${pad2(month)}-${pad2(day)}`;
 }
 
+/** Add calendar days to a YYYY-MM-DD park date without crossing a timezone boundary. */
+export function addParkDays(dateKey: string, days: number): string {
+  const { year, month, day } = parseParkDateKey(dateKey);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+/** DateContext stores a park date as midnight UTC, rather than Pacific midnight. */
+export function dateContextDate(dateKey: string): Date {
+  parseParkDateKey(dateKey);
+  return new Date(`${dateKey}T00:00:00.000Z`);
+}
+
 export function normalizeParkDateKey(date: Date | string): string {
   return typeof date === "string" ? date : parkDateKey(date);
 }

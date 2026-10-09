@@ -45,7 +45,7 @@ def test_a_healthy_state_has_no_problems():
 
 
 def test_one_missed_nightly_run_is_reported():
-    yesterday = HEALTHY_TRAIN - timedelta(days=1)
+    yesterday = HEALTHY_TRAIN - timedelta(days=1, seconds=1)
     problems = find_problems(yesterday, yesterday + timedelta(days=29), HEALTHY_OLDEST_RAW, NOON)
 
     assert len(problems) == 1

@@ -33,7 +33,7 @@ Jobs use `DATABASE_URL`, falling back to `DIRECT_URL`. `common.normalize_db_url`
 | `collect.py` | 30-min job: queue-times.com → `WaitTimeRecord`. Writes only; never reads |
 | `train.py` | Daily job: `pipeline.generate_forecasts` → 30 days of `DailyForecast` (the only writer of forecasts) |
 | `archive.py` | Weekly job, entirely in SQL. Folds raw rows older than 30 days (hour-aligned) into `HourlyWaitSummary`, merging existing buckets, and deletes forecasts older than 35 days |
-| `check_freshness.py` | Daily monitor run from collect.yml; see [runbook-cron.md](runbook-cron.md#forecast-freshness-check-freshness-job) |
+| `check_freshness.py` | Daily monitor run from freshness.yml; see [runbook-cron.md](runbook-cron.md#freshnessyml-forecast-freshness) |
 | `pipeline.py` | Training-data reads, lag and cross-ride features, forecast slots and upsert |
 | `model.py` | `train_ride_models`, `predict_for_ride`, crowd score: XGBoost per ride |
 | `common.py` | Shared settings (`PARK_TZ`, `WINDOW_MINUTES`, retention days, `JOBS`), DB URL handling, `connect()`, `run_logged_job()` |
@@ -67,7 +67,7 @@ It never reads from the database: at 48 runs a day, any read is multiplied again
 6. Fetch `DateContext` and lag features for the slots; `predict_for_ride(...)`, one XGBoost call per ride
 7. `upsert_forecasts()`: `ON CONFLICT ("rideId", "forecastFor") DO UPDATE`
 
-train.yml runs at 06:00 UTC (23:00 Pacific in summer), so each run writes tonight's last slots plus the next 29 days. Today's daytime slots come from the previous night's run.
+train.yml runs at 06:17 UTC (23:17 Pacific in summer), so each run writes tonight's last slots plus the next 29 days. Today's daytime slots come from the previous night's run.
 
 ## Archive (`archive.py`)
 

@@ -26,7 +26,7 @@ def test_forecast_slots_cover_30_days():
 
 
 def test_scheduled_run_time_still_produces_29_full_days():
-    """train.yml fires at 06:00 UTC — 23:00 PDT — so 'today' has only two slots left.
+    """train.yml fires at 06:17 UTC — 23:17 PDT — so 'today' has only two slots left.
 
     Today's slots are therefore written by the previous night's run, which is
     why collect.py never needs to write forecasts.

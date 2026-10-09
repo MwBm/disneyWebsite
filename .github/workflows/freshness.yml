@@ -1,15 +1,16 @@
-name: Daily Train + Forecast
+name: Forecast Freshness
 
 on:
   schedule:
-    # Avoid the top of the hour, when GitHub may heavily delay scheduled runs.
-    - cron: "17 6 * * *"  # 06:17 UTC daily (11:17pm PDT / 10:17pm PST)
+    # Run well after the 06:17 UTC train. Avoid :00, when GitHub's scheduler
+    # is busiest, and keep this alert separate from successful collection.
+    - cron: "47 13 * * *"
   workflow_dispatch:
 
 jobs:
-  train:
+  check-freshness:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -23,8 +24,8 @@ jobs:
         working-directory: ml-service
         run: pip install -r requirements.txt
 
-      - name: Run daily training + 30-day forecast
+      - name: Check forecast freshness
         working-directory: ml-service
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python train.py
+        run: python check_freshness.py --force

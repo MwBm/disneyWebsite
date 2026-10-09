@@ -221,32 +221,35 @@ def test_run_logged_job_rolls_back_when_the_success_log_itself_fails(fake_db):
     # rather than raise and hide the original error.
     assert run_logged_job("collect", _writes_rows(2)) == 1
 
-    work_conn, log_conn = fake_db.connections
-    assert "commit" not in work_conn.events
-    assert work_conn.events[-1] == "rollback"
+    work_conns = fake_db.connections[:-1]
+    [log_conn] = fake_db.connections[-1:]
+    assert len(work_conns) == common.JOB_ATTEMPTS
+    assert all("commit" not in conn.events and conn.events[-1] == "rollback" for conn in work_conns)
+    assert log_conn.autocommit is True
     assert log_conn.sql == [fake_db.statements[-1].sql]
 
 
-def test_run_logged_job_logs_when_the_first_connect_fails(fake_db):
+def test_run_logged_job_retries_when_the_first_connect_fails(fake_db):
     fake_db.connect_failures[0] = psycopg.OperationalError("connection timeout expired")
 
-    assert run_logged_job("collect", _writes_rows(2)) == 1
+    assert run_logged_job("collect", _writes_rows(2)) == 0
 
-    [log_conn] = fake_db.connections
-    assert log_conn.autocommit is True
+    [work_conn] = fake_db.connections
+    assert work_conn.autocommit is False
     [run] = fake_db.collect_runs()
     assert run["job"] == "collect"
     rows, success, error = run["rows"], run["success"], run["error"]
-    assert (rows, success, error) == (0, False, "connection timeout expired")
+    assert (rows, success, error) == (2, True, None)
 
 
 def test_run_logged_job_exits_1_when_every_connect_fails(fake_db):
-    fake_db.connect_failures[0] = psycopg.OperationalError("down")
-    fake_db.connect_failures[1] = psycopg.OperationalError("still down")
+    for attempt in range(4):
+        fake_db.connect_failures[attempt] = psycopg.OperationalError("down")
 
     assert run_logged_job("collect", _writes_rows(2)) == 1
     assert fake_db.connections == []
-    assert fake_db.connect_attempts == 2
+    # Three work attempts plus one best-effort failure log.
+    assert fake_db.connect_attempts == 4
 
 
 # ---------------------------------------------------------------------------

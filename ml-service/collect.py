@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -21,6 +22,10 @@ from common import WINDOW_MINUTES, run_logged_job
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+FETCH_ATTEMPTS = 3
+FETCH_RETRY_BASE_SECONDS = 1.0
+RETRYABLE_HTTP_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 class _QueueTimesRide(BaseModel):
@@ -57,14 +62,42 @@ def round_to_window(dt: datetime) -> datetime:
     return datetime.fromtimestamp(rounded / 1000, tz=timezone.utc)
 
 
+def _fetch_park(url: str) -> _QueueTimesResponse:
+    """Fetch one park with bounded retries for transient HTTP failures."""
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            res = httpx.get(url, timeout=20.0)
+            res.raise_for_status()
+            return _QueueTimesResponse.model_validate(res.json())
+        except httpx.HTTPStatusError as exc:
+            retryable = exc.response.status_code in RETRYABLE_HTTP_STATUS_CODES
+            error: Exception = exc
+        except httpx.TransportError as exc:
+            retryable = True
+            error = exc
+
+        if not retryable or attempt == FETCH_ATTEMPTS:
+            raise error
+        delay = FETCH_RETRY_BASE_SECONDS * (2 ** (attempt - 1))
+        logger.warning(
+            "queue-times request %s attempt %d/%d failed: %s; retrying in %.1fs",
+            url,
+            attempt,
+            FETCH_ATTEMPTS,
+            error,
+            delay,
+        )
+        time.sleep(delay)
+
+    raise AssertionError("unreachable")
+
+
 def fetch_live_rides() -> list[dict]:
     park_configs = _load_park_configs()
     rides = []
     for park in park_configs:
         excluded = set(park["excludedRideIds"])
-        res = httpx.get(park["queueTimesUrl"], timeout=20.0)
-        res.raise_for_status()
-        parsed = _QueueTimesResponse.model_validate(res.json())
+        parsed = _fetch_park(park["queueTimesUrl"])
         for land in parsed.lands:
             for ride in land.rides:
                 if ride.id in excluded:

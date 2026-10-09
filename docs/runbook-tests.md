@@ -164,7 +164,7 @@ python -m pytest tests/test_model.py -v
 
 ### `tests/test_train.py`
 - `train.main()` exits non-zero without `DATABASE_URL` / `DIRECT_URL`
-- `build_forecast_slots(days=30)` spans exactly 30 Pacific calendar days; the 06:00 UTC run covers tonight plus 29 full days
+- `build_forecast_slots(days=30)` spans exactly 30 Pacific calendar days; the 06:17 UTC run covers tonight plus 29 full days
 
 ### `tests/test_archive_main.py`
 - Hour-truncated raw cutoff, forecast cutoff, statement shape (two counts, never rows), run logging

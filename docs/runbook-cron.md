@@ -6,8 +6,9 @@
 
 | Workflow | Trigger | Timeout | Purpose |
 |---|---|---|---|
-| `collect.yml` | Dispatch every 30 min (cron-job.org) | 10 min | Record live waits; keep scheduled workflows enabled; daily freshness check |
-| `train.yml` | Daily 06:00 UTC + dispatch | 20 min | Retrain on all history, write the 30-day forecast window |
+| `collect.yml` | Dispatch every 30 min (cron-job.org) | 10 min | Record live waits; keep scheduled workflows enabled |
+| `freshness.yml` | Daily 13:47 UTC + dispatch | 10 min | Alert when the forecast window, training, or archive is stale |
+| `train.yml` | Daily 06:17 UTC + dispatch | 20 min | Retrain on all history, write the 30-day forecast window |
 | `archive.yml` | Sundays 09:00 UTC + dispatch | 10 min | Raw rows older than 30 days → `HourlyWaitSummary`; delete old forecasts |
 | `sync-date-context.yml` | 1st of month 10:00 UTC + dispatch | 10 min | Tier, holiday, weather and Groq adjustments via the Vercel endpoint |
 | `import-dca-history.yml` | Dispatch only | 15 min | One-time DCA Kaggle backfill |
@@ -23,7 +24,7 @@ GitHub disables `schedule:` workflows in public repositories after 60 days witho
 
 **Trigger:** `workflow_dispatch` only, fired every 30 minutes by a cron-job.org job (~48 runs/day). Do not add a `schedule:` block; `tests/test_workflows.py` fails if one appears.
 
-Three jobs:
+Two jobs:
 
 ### `collect`
 
@@ -39,21 +40,21 @@ It reads nothing from the database and trains nothing.
 
 Runs `gh workflow enable` for every workflow in `SCHEDULED_WORKFLOWS`, using the job's `GITHUB_TOKEN` with `actions: write`. It is the only job with that permission. A workflow GitHub disables is re-enabled within 30 minutes. `tests/test_workflows.py` fails when a workflow with a `schedule:` trigger is missing from the list.
 
-### Forecast freshness (`check-freshness` job)
+## `freshness.yml`: forecast freshness
 
-Runs `ml-service/check_freshness.py`, which writes nothing and reads a single aggregate row. Outside 12:00–12:30 UTC it exits immediately. Inside that window it fails the run (one GitHub email a day) when any of these hold:
+Runs `ml-service/check_freshness.py --force`, which writes nothing and reads a single aggregate row. It runs separately from collection, so a stale-data alert cannot make a successful collection look failed. It fails only the freshness workflow when any of these hold:
 
-- the latest successful `CollectRun` with `job = 'train'` is older than 24 h (one missed nightly run);
+- the latest successful `CollectRun` with `job = 'train'` is older than 30 h (one missed nightly run plus routine GitHub schedule delay);
 - `DailyForecast` ends less than 27 days ahead (a healthy run writes 29);
 - the oldest `WaitTimeRecord` row is more than 38 days old (archive has stopped).
 
-To check immediately: `gh workflow run collect.yml -f check_freshness=true`. If GitHub starts two collect runs inside the window, expect two emails that day.
+To check immediately: `gh workflow run freshness.yml`.
 
 ---
 
 ## `train.yml`: daily model training
 
-**Trigger:** 06:00 UTC daily (23:00 Pacific in summer, 22:00 in winter, after the parks close), or dispatch.
+**Trigger:** 06:17 UTC daily (23:17 Pacific in summer, 22:17 in winter, after the parks close), or dispatch. The nonzero minute avoids the scheduler's busiest boundary.
 
 Runs `python train.py`, logged as `CollectRun.job = 'train'`:
 
@@ -119,10 +120,10 @@ FROM "CollectRun" ORDER BY "ranAt" DESC LIMIT 20;
 
 Archive runs are logged from 2026-09-13 onwards; earlier archive runs left no row.
 
-- **Daily:** the `check-freshness` job fails and emails when forecasts or the archive are stale.
+- **Daily:** `freshness.yml` fails and emails when forecasts or the archive are stale.
 - **Any failed workflow:** GitHub sends a failure email.
 - **Workflows GitHub disabled:** `gh workflow list --all` shows any in state `disabled_inactivity`.
-- **Forecasts API:** `/api/forecast` reports `dataQualityOk: false` when none of the last 3 collect runs succeeded.
+- **Forecasts API:** `/api/forecast` reports `dataQualityOk: false` unless a successful collect run finished within the last 90 minutes.
 
 ---
 
@@ -134,7 +135,7 @@ Archive runs are logged from 2026-09-13 onwards; earlier archive runs left no ro
 ```bash
 gh workflow run train.yml
 gh workflow run archive.yml
-gh workflow run collect.yml -f check_freshness=true
+gh workflow run freshness.yml
 ```
 
 **Locally:** see [runbook-ml-service.md](runbook-ml-service.md#local-setup) for the Python jobs. For the date-context sync:
@@ -147,4 +148,4 @@ curl -fsS -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/sync-date-c
 ## Pausing
 
 - **Collect:** pause the cron-job.org job. Collect has no schedule of its own.
-- **train, archive, sync-date-context:** `gh workflow disable <file>` alone is undone within 30 minutes by collect's keepalive. Remove the workflow's `schedule:` block and its entry in `SCHEDULED_WORKFLOWS` (`collect.yml`) in the same commit; `tests/test_workflows.py` requires the two to match.
+- **freshness, train, archive, sync-date-context:** `gh workflow disable <file>` alone is undone within 30 minutes by collect's keepalive. Remove the workflow's `schedule:` block and its entry in `SCHEDULED_WORKFLOWS` (`collect.yml`) in the same commit; `tests/test_workflows.py` requires the two to match.

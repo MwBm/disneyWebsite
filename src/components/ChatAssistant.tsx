@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import DisneyDatePicker from "./DisneyDatePicker";
+import { parkDateKey } from "@/lib/park-time";
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -18,6 +20,7 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
     const [streaming, setStreaming] = useState(false);
+    const [visitDate, setVisitDate] = useState(() => parkDateKey(new Date()));
     const bottomRef = useRef<HTMLDivElement>(null);
     const abortRef = useRef<AbortController | null>(null);
 
@@ -49,7 +52,7 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: nextMessages }),
+          body: JSON.stringify({ messages: nextMessages, date: visitDate }),
           signal: controller.signal,
         });
 
@@ -82,7 +85,7 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
       } finally {
         setStreaming(false);
       }
-    }, [messages, streaming]);
+    }, [messages, streaming, visitDate]);
 
     useImperativeHandle(ref, () => ({ send: sendMessage }), [sendMessage]);
 
@@ -93,6 +96,9 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
 
     return (
       <div className="flex flex-col flex-1 min-h-[400px] bg-space-card border border-space-700 rounded-2xl shadow-sm overflow-hidden neon">
+        <div className="border-b border-space-700 px-4 py-3 bg-cream-100">
+          <DisneyDatePicker value={visitDate} onChange={setVisitDate} label="Plan for date" />
+        </div>
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center gap-4 h-full min-h-[200px]">

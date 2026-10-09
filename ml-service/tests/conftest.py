@@ -149,6 +149,7 @@ def fake_db(monkeypatch) -> FakeDatabase:
 
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/db")
     monkeypatch.delenv("DIRECT_URL", raising=False)
+    monkeypatch.setattr(common, "JOB_RETRY_BASE_SECONDS", 0)
     db = FakeDatabase()
     real_connect = common.connect
     for module in list(sys.modules.values()):

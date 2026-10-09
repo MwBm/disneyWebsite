@@ -6,11 +6,6 @@ name: Collect Wait Times
 # fails if a schedule is added here.
 on:
   workflow_dispatch:
-    inputs:
-      check_freshness:
-        description: "Check forecast freshness now instead of only at 12:00 UTC"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -48,7 +43,7 @@ jobs:
     env:
       # Every workflow with a `schedule:` trigger. tests/test_workflows.py
       # fails when this list and the workflow files disagree.
-      SCHEDULED_WORKFLOWS: archive.yml sync-date-context.yml train.yml
+      SCHEDULED_WORKFLOWS: archive.yml freshness.yml sync-date-context.yml train.yml
     steps:
       - name: Re-enable scheduled workflows
         env:
@@ -58,33 +53,3 @@ jobs:
           for workflow in "${workflows[@]}"; do
             gh workflow enable "$workflow" --repo "$GITHUB_REPOSITORY"
           done
-
-  check-freshness:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: ml-service/requirements.txt
-
-      - name: Install dependencies
-        working-directory: ml-service
-        run: pip install -r requirements.txt
-
-      # Exits 0 immediately outside 12:00-12:30 UTC, so a stale forecast fails
-      # one run a day rather than all 48.
-      - name: Check forecast freshness
-        working-directory: ml-service
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          FORCE: ${{ inputs.check_freshness }}
-        run: |
-          if [ "$FORCE" = "true" ]; then
-            python check_freshness.py --force
-          else
-            python check_freshness.py
-          fi

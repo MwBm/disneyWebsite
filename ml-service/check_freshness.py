@@ -1,15 +1,13 @@
 """Fail loudly when forecasts go stale. A monitor, not a job: it writes nothing.
 
-collect.yml runs this after every collect, but it only checks during
-CHECK_WINDOW_START_UTC..+30 min, so a stale forecast produces one failed run
-and one GitHub email a day rather than 48. If GitHub starts two collect runs in
-that window (a delayed :30 run plus the next :00), expect two emails that day.
-Pass --force to check immediately.
+freshness.yml runs this once daily after the scheduled training window. The
+time-window guard remains for manual or legacy callers that invoke it without
+--force; the workflow always passes --force.
 
 Problems it reports:
 - no successful train run for longer than MAX_TRAIN_AGE. train.yml fires at
-  06:00 UTC, so at the noon check a healthy run is ~6 h old and one missed
-  night makes it ~30 h.
+  06:17 UTC, and freshness.yml checks later that day to allow for routine
+  GitHub scheduler delay while still reporting a missed nightly run.
 - a forecast horizon shorter than MIN_HORIZON. Each healthy train run writes
   29 days ahead, so this catches a run that "succeeds" with a short window.
 - raw wait times older than RAW_RETENTION_DAYS + ARCHIVE_GRACE_DAYS, meaning
@@ -23,7 +21,7 @@ from datetime import datetime, time, timedelta, timezone
 
 from common import ARCHIVE_GRACE_DAYS, RAW_RETENTION_DAYS, as_utc, connect, database_url_from_env
 
-MAX_TRAIN_AGE = timedelta(hours=24)
+MAX_TRAIN_AGE = timedelta(hours=30)
 MIN_HORIZON = timedelta(days=27)
 CHECK_WINDOW_START_UTC = time(12, 0)
 CHECK_WINDOW = timedelta(minutes=30)

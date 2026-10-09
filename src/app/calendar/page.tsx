@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
 import { crowdBgOpacity, crowdColor, crowdLabelText, crowdLegend } from "@/lib/crowd";
 import { weatherEmoji, weatherLabel, type WeatherDay } from "@/lib/weather";
+import { parkDateKey } from "@/lib/park-time";
 
 type DayScore = {
   date: string;
@@ -100,9 +101,9 @@ function ScoreBar({ score }: { score: number }) {
 }
 
 export default function CalendarPage() {
-  const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1);
+  const todayStr = parkDateKey(new Date());
+  const [year, setYear] = useState(() => Number(todayStr.slice(0, 4)));
+  const [month, setMonth] = useState(() => Number(todayStr.slice(5, 7)));
   const [days, setDays] = useState<DayScore[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<DayScore | null>(null);
@@ -175,8 +176,6 @@ export default function CalendarPage() {
       cells.push(days.find((d) => d.date === key) ?? { date: key, crowdScore: null, source: null, tier: null, specialEvent: null, isHoliday: false });
     }
   }
-
-  const todayStr = format(today, "yyyy-MM-dd");
 
   const scoredDays = days.filter(d => d.crowdScore !== null && d.source !== "unavailable");
   const avgScore = scoredDays.length

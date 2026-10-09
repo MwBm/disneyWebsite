@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { getCrowdScoresForMonth } from "@/lib/forecast";
 import { estimateDowCrowdScores } from "@/lib/groq";
 import { prisma } from "@/lib/db";
-import { parkDateDow } from "@/lib/park-time";
+import { addParkDays, dateContextDate, parkDateDow, parkDateKey } from "@/lib/park-time";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
 
@@ -40,7 +40,8 @@ export async function GET(req: NextRequest) {
   if (hasMissingDays) {
     let groqDow: Map<number, number> = new Map();
 
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const todayKey = parkDateKey(new Date());
+    const sevenDaysAgo = dateContextDate(addParkDays(todayKey, -7));
     const cached = await prisma.dateContext.findFirst({
       where: { groqDowEstimate: { not: Prisma.JsonNull }, date: { gte: sevenDaysAgo } },
       orderBy: { date: "desc" },
@@ -56,8 +57,7 @@ export async function GET(req: NextRequest) {
       try {
         groqDow = await estimateDowCrowdScores();
         if (groqDow.size > 0) {
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
+          const today = dateContextDate(todayKey);
           await prisma.dateContext.upsert({
             where: { date: today },
             update: { groqDowEstimate: Object.fromEntries(groqDow) },

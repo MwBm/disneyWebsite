@@ -56,7 +56,7 @@ const historicalSpaceMountain = {
   peakWait: 90,
 };
 
-const recentRun = { success: true, ranAt: new Date("2026-05-31T12:00:00Z") };
+const recentRun: { success: boolean; ranAt: Date } = { success: true, ranAt: new Date() };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -86,7 +86,7 @@ describe("forecast route — ML path", () => {
     expect(body.crowdScore).toBe(60);
     expect(body.forecasts).toEqual([spaceMountain, hauntedMansion]);
     expect(body.dataQualityOk).toBe(true);
-    expect(body.lastCollectedAt).toBe("2026-05-31T12:00:00.000Z");
+    expect(body.lastCollectedAt).toBe(recentRun.ranAt.toISOString());
   });
 
   it("does not expose a per-slot time or per-row crowd score", async () => {
@@ -152,6 +152,16 @@ describe("forecast route — ML path", () => {
     const body = await (await GET(makeReq("2026-06-01"))).json();
     expect(body.dataQualityOk).toBe(false);
     expect(body.lastCollectedAt).toBeNull();
+  });
+
+  it("uses the latest successful collection and rejects stale data", async () => {
+    const failedJustNow = { success: false, ranAt: new Date() };
+    const staleSuccess = { success: true, ranAt: new Date(Date.now() - 91 * 60_000) };
+    mockGetRuns.mockResolvedValue([failedJustNow, staleSuccess]);
+
+    const body = await (await GET(makeReq("2026-06-01"))).json();
+    expect(body.dataQualityOk).toBe(false);
+    expect(body.lastCollectedAt).toBe(staleSuccess.ranAt.toISOString());
   });
 });
 
@@ -333,3 +343,5 @@ describe("forecast route — caching and rate limiting", () => {
     expect(mockGetRides.mock.calls.length).toBe(callsBefore);
   });
 });
+  recentRun.success = true;
+  recentRun.ranAt = new Date();

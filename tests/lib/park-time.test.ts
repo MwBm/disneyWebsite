@@ -1,4 +1,6 @@
 import {
+  addParkDays,
+  dateContextDate,
   dateContextMonthRangeUtc,
   parkDateKey,
   parkDateRangeUtc,
@@ -22,6 +24,11 @@ describe("park-time helpers", () => {
 
   it("groups late UTC slots under the prior Pacific date", () => {
     expect(parkDateKey(new Date("2026-06-02T03:30:00.000Z"))).toBe("2026-06-01");
+  });
+
+  it("adds calendar days and stores DateContext dates at UTC midnight", () => {
+    expect(addParkDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(dateContextDate("2026-06-01").toISOString()).toBe("2026-06-01T00:00:00.000Z");
   });
 
   it("builds a Pacific month range and a UTC DateContext month range", () => {
