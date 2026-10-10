@@ -3,8 +3,10 @@ import {
   FORECAST_FIRST_LOCAL_HOUR,
   getDailyMlCrowdScores,
   getHistoricalDowMeanWaits,
+  getHistoricalRideForecastHoursForDate,
   getHistoricalRideWaitsForDate,
   getRecentCollectRuns,
+  getRideForecastHoursForDate,
   getRideForecastsForDate,
 } from "@/lib/forecast-queries";
 import { getCrowdScoreForDate, getCrowdScoresForMonth } from "@/lib/forecast";
@@ -114,6 +116,24 @@ describeWithDatabase("forecast queries on Postgres", () => {
     });
   });
 
+  describe("getRideForecastHoursForDate", () => {
+    it("groups 30-minute forecast slots into one Pacific-hour point", async () => {
+      await prisma.dailyForecast.createMany({
+        data: [
+          forecastRow(1, pacific("2026-06-01T09:00:00", -7), 20),
+          forecastRow(1, pacific("2026-06-01T09:30:00", -7), 40),
+          forecastRow(1, pacific("2026-06-01T10:00:00", -7), 55),
+          forecastRow(1, pacific("2026-06-02T09:00:00", -7), 999),
+        ],
+      });
+
+      expect(await getRideForecastHoursForDate("2026-06-01", 1)).toEqual([
+        { hour: 9, predictedWait: 30 },
+        { hour: 10, predictedWait: 55 },
+      ]);
+    });
+  });
+
   describe("getDailyMlCrowdScores / getCrowdScoreForDate", () => {
     it("groups slots by Pacific date and reports each day's busy-period score", async () => {
       await prisma.dailyForecast.createMany({
@@ -213,6 +233,29 @@ describeWithDatabase("forecast queries on Postgres", () => {
       });
 
       expect(await getHistoricalRideWaitsForDate(tuesday)).toEqual([]);
+    });
+  });
+
+  describe("getHistoricalRideForecastHoursForDate", () => {
+    it("returns open same-weekday hourly averages for a selected ride", async () => {
+      const tuesday = recentWeekday(2, 1);
+      const earlierTuesday = recentWeekday(2, 2);
+      const wednesday = recentWeekday(3, 1);
+      await prisma.hourlyWaitSummary.createMany({
+        data: [
+          hourlyRow(1, tuesday, 9, 20),
+          hourlyRow(1, earlierTuesday, 9, 40),
+          hourlyRow(1, tuesday, 10, 70),
+          hourlyRow(1, tuesday, 11, 99, { isOpen: false }),
+          hourlyRow(1, wednesday, 9, 999),
+          hourlyRow(2, tuesday, 9, 999),
+        ],
+      });
+
+      expect(await getHistoricalRideForecastHoursForDate(tuesday, 1)).toEqual([
+        { hour: 9, predictedWait: 30 },
+        { hour: 10, predictedWait: 70 },
+      ]);
     });
   });
 

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import DisneyDatePicker from "./DisneyDatePicker";
-import RidePredictionTable from "./RidePredictionTable";
-import { crowdLabel } from "@/lib/crowd";
+import RideForecastChart from "./RideForecastChart";
+import { crowdLabel, waitColor } from "@/lib/crowd";
 import type { RideDayForecast } from "@/lib/forecast-queries";
 
 
@@ -17,18 +17,69 @@ type ForecastResponse = {
   lastCollectedAt: string | null;
 };
 
+const EMPTY_RIDES: RideDayForecast[] = [];
+
 /** How the numbers were produced, stated plainly rather than implied. */
 const SOURCE_NOTES: Record<ForecastResponse["source"], string> = {
-  ml: "Per-ride XGBoost predictions, averaged and peaked over 8 AM–midnight.",
-  historical: "No model output for this date — showing typical waits for this day of week over the last two years.",
+  ml: "Per-ride XGBoost predictions for each park hour.",
+  historical: "No model output for this date — showing typical hourly waits for this day of week over the last two years.",
   groq: "No per-ride data for this date yet.",
 };
+
+function defaultRideId(rides: RideDayForecast[]): number | null {
+  return rides.reduce<RideDayForecast | null>(
+    (highest, ride) =>
+      highest === null || ride.peakWait > highest.peakWait ? ride : highest,
+    null
+  )?.rideId ?? null;
+}
+
+function RideCard({
+  ride,
+  selected,
+  onClick,
+}: {
+  ride: RideDayForecast;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`w-full text-left rounded-2xl border p-4 transition-all cursor-pointer ${
+        selected
+          ? "border-orange-400 bg-orange-500/10 ring-2 ring-orange-400/20"
+          : "border-space-700 bg-space-card neon hover:shadow-md"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium text-warm-900 leading-snug">{ride.rideName}</p>
+          <p className="text-xs text-warm-700 mt-0.5">{ride.landName}</p>
+        </div>
+        <span
+          className="shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold text-white"
+          style={{ backgroundColor: waitColor(ride.peakWait) }}
+        >
+          {ride.peakWait} min peak
+        </span>
+      </div>
+      <div className="mt-3 flex items-center justify-between text-xs text-warm-700">
+        <span>Day average: {ride.avgWait} min</span>
+        <span>{Math.round(ride.mlConfidence * 100)}% confidence</span>
+      </div>
+    </button>
+  );
+}
 
 export default function WaitTimesView({ initialDate }: { initialDate: string }) {
   const [date, setDate] = useState(initialDate);
   const [data, setData] = useState<ForecastResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedRideId, setSelectedRideId] = useState<number | null>(null);
 
   useEffect(() => {
     // Inline rather than behind a useCallback so no setState runs
@@ -44,7 +95,13 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
         if (!res.ok) {
           throw new Error(typeof body.error === "string" ? body.error : "Request failed");
         }
-        setData(body);
+        const nextData = body as ForecastResponse;
+        setData(nextData);
+        setSelectedRideId((current) =>
+          nextData.forecasts.some((ride) => ride.rideId === current)
+            ? current
+            : defaultRideId(nextData.forecasts)
+        );
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
@@ -65,7 +122,12 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
     window.history.replaceState(null, "", `/wait-times?date=${next}`);
   }
 
-  const rides = data?.forecasts ?? [];
+  const rides = data?.forecasts ?? EMPTY_RIDES;
+  const sortedRides = useMemo(
+    () => [...rides].sort((a, b) => b.peakWait - a.peakWait || a.rideName.localeCompare(b.rideName)),
+    [rides]
+  );
+  const selectedRide = rides.find((ride) => ride.rideId === selectedRideId) ?? sortedRides[0] ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -113,7 +175,44 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
             {SOURCE_NOTES[data!.source]}{" "}
             {!data!.dataQualityOk && "Recent data collection failed, so these may be stale."}
           </p>
-          <RidePredictionTable rides={rides} />
+
+          {selectedRide && (
+            <div className="bg-space-card border border-space-700 rounded-2xl p-6 shadow-sm neon">
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div>
+                  <h2 className="font-medium text-warm-900">Hourly Wait Forecast</h2>
+                  <p className="text-xs text-warm-700 mt-0.5">
+                    {selectedRide.rideName} · Park time (Pacific)
+                  </p>
+                </div>
+                <span className="text-xs text-warm-700 border border-space-700 rounded-lg px-2.5 py-1 bg-cream-100">
+                  Select a ride below to switch
+                </span>
+              </div>
+              <RideForecastChart
+                rideId={selectedRide.rideId}
+                rideName={selectedRide.rideName}
+                date={date}
+              />
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2 className="font-medium text-warm-900">Ride Forecasts</h2>
+              <p className="text-xs text-warm-700">Sorted by peak wait</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {sortedRides.map((ride) => (
+                <RideCard
+                  key={ride.rideId}
+                  ride={ride}
+                  selected={ride.rideId === selectedRide?.rideId}
+                  onClick={() => setSelectedRideId(ride.rideId)}
+                />
+              ))}
+            </div>
+          </div>
         </>
       )}
     </div>

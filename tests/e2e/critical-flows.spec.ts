@@ -56,9 +56,9 @@ test.describe("Wait Times page", () => {
 
   test("resolves to a terminal state rather than hanging on the spinner", async ({ page }) => {
     await page.goto("/wait-times");
-    // Table, empty-state or error — any is fine; a permanent spinner is not.
+    // Hourly forecast, empty-state or error — any is fine; a permanent spinner is not.
     await expect(
-      page.locator("table, text=/No per-ride predictions/, text=/Couldn.t load/")
+      page.locator("text=/Hourly Wait Forecast/, text=/No per-ride predictions/, text=/Couldn.t load/")
     ).toBeVisible({ timeout: 20_000 });
   });
 });

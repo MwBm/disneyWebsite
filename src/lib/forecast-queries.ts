@@ -40,6 +40,12 @@ export type RideDayForecast = {
 
 export type HistoricalRideWaits = Omit<RideDayForecast, "mlConfidence">;
 
+/** One Pacific-hour point in a selected ride's day forecast. */
+export type RideForecastHour = {
+  hour: number;
+  predictedWait: number;
+};
+
 /** Per-ride average and peak predicted wait for one park date. */
 export async function getRideForecastsForDate(date: Date | string): Promise<RideDayForecast[]> {
   const { start, endExclusive } = parkDateRangeUtc(date);
@@ -64,6 +70,29 @@ export async function getRideForecastsForDate(date: Date | string): Promise<Ride
     avgWait: Number(r.avgWait),
     peakWait: Number(r.peakWait),
     mlConfidence: Number(r.mlConfidence),
+  }));
+}
+
+/** Hour-by-hour ML predictions for one ride on one Pacific park date. */
+export async function getRideForecastHoursForDate(
+  date: Date | string,
+  rideId: number
+): Promise<RideForecastHour[]> {
+  const { start, endExclusive } = parkDateRangeUtc(date);
+  const rows = await prisma.$queryRaw<RideForecastHour[]>(Prisma.sql`
+    SELECT
+      EXTRACT(HOUR FROM ("forecastFor" AT TIME ZONE 'UTC' AT TIME ZONE ${PARK_TZ_SQL}))::int AS hour,
+      ROUND(AVG("predictedWait"))::int AS "predictedWait"
+    FROM "DailyForecast"
+    WHERE "rideId" = ${rideId}
+      AND "forecastFor" >= ${start}
+      AND "forecastFor" < ${endExclusive}
+    GROUP BY 1
+    ORDER BY 1
+  `);
+  return rows.map((row) => ({
+    hour: Number(row.hour),
+    predictedWait: Number(row.predictedWait),
   }));
 }
 
@@ -138,6 +167,31 @@ export async function getHistoricalRideWaitsForDate(date: Date | string): Promis
     landName: r.landName,
     avgWait: Number(r.avgWait),
     peakWait: Number(r.peakWait),
+  }));
+}
+
+/** Typical same-weekday hourly waits for a ride when no ML forecast exists. */
+export async function getHistoricalRideForecastHoursForDate(
+  date: Date | string,
+  rideId: number
+): Promise<RideForecastHour[]> {
+  const dow = parkDateDow(normalizeParkDateKey(date));
+  const rows = await prisma.$queryRaw<RideForecastHour[]>(Prisma.sql`
+    SELECT
+      hour,
+      ROUND(AVG("avgWait"))::int AS "predictedWait"
+    FROM "HourlyWaitSummary"
+    WHERE "rideId" = ${rideId}
+      AND "isOpen"
+      AND hour >= ${FORECAST_FIRST_LOCAL_HOUR}
+      AND date >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
+      AND EXTRACT(DOW FROM date) = ${dow}
+    GROUP BY hour
+    ORDER BY hour
+  `);
+  return rows.map((row) => ({
+    hour: Number(row.hour),
+    predictedWait: Number(row.predictedWait),
   }));
 }
 

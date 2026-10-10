@@ -12,6 +12,7 @@ All routes are Next.js App Router route handlers with no shared state between re
 | Route | Method | Auth | Rate limit | CDN cache |
 |---|---|---|---|---|
 | `/api/forecast` | GET | none | 30/min | 30 min |
+| `/api/forecast/rides/[rideId]` | GET | none | 30/min | 30 min |
 | `/api/calendar` | GET | none | 30/min | 1 h |
 | `/api/accuracy` | GET | none | none | 30 min |
 | `/api/accuracy/rides/[rideId]` | GET | none | none | 30 min |
@@ -71,6 +72,15 @@ All routes are Next.js App Router route handlers with no shared state between re
 - `groqAdjustment` and `groqReasoning` are omitted when there is no adjustment.
 - `dataQualityOk` is true only when a successful collect run exists within the last 90 minutes. `lastCollectedAt` is that successful run, never a failed attempt.
 - `crowdScore` can be null if the date has ride forecasts but no daily score, or on the groq path if Groq fails.
+
+### `/api/forecast/rides/[rideId]`: hourly ride forecast
+
+**Query:** `?date=YYYY-MM-DD` (required). Returns the selected ride's hourly
+wait points in Pacific park time: `{ rideId, date, source, rows }`, where each
+row is `{ hour, predictedWait }`. It aggregates the model's 30-minute slots
+within each local hour. If the ML window does not cover the date, it returns
+same-weekday historical hourly waits for that ride; `source: "unavailable"`
+means neither source has points.
 
 ---
 

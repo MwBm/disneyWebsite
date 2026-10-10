@@ -4,9 +4,11 @@ import {
   FORECAST_FIRST_LOCAL_HOUR,
   HISTORICAL_LOOKBACK_YEARS,
   getDailyMlCrowdScores,
+  getHistoricalRideForecastHoursForDate,
   getHistoricalDowMeanWaits,
   getHistoricalRideWaitsForDate,
   getRecentCollectRuns,
+  getRideForecastHoursForDate,
   getRideForecastsForDate,
 } from "@/lib/forecast-queries";
 import { prisma } from "@/lib/db";
@@ -66,6 +68,23 @@ describe("getDailyMlCrowdScores", () => {
   });
 });
 
+describe("getRideForecastHoursForDate", () => {
+  it("groups a ride's half-hour ML slots into Pacific park hours", async () => {
+    mockQueryRaw.mockResolvedValue([{ hour: "8", predictedWait: BigInt(42) }]);
+
+    expect(await getRideForecastHoursForDate("2026-11-01", 7)).toEqual([
+      { hour: 8, predictedWait: 42 },
+    ]);
+    expect(lastSql().values).toEqual([
+      7,
+      new Date("2026-11-01T07:00:00Z"),
+      new Date("2026-11-02T08:00:00Z"),
+    ]);
+    expect(lastSql().sql).toContain('GROUP BY 1');
+    expect(lastSql().sql).toContain("AT TIME ZONE 'America/Los_Angeles'");
+  });
+});
+
 describe("getHistoricalRideWaitsForDate", () => {
   it("filters by the date's day of week, forecast hours and lookback, from HourlyWaitSummary", async () => {
     mockQueryRaw.mockResolvedValue([]);
@@ -83,6 +102,19 @@ describe("getHistoricalRideWaitsForDate", () => {
     expect(await getHistoricalRideWaitsForDate("2026-09-15")).toEqual([
       { rideId: 1, rideName: "R", landName: "L", avgWait: 40, peakWait: 66 },
     ]);
+  });
+});
+
+describe("getHistoricalRideForecastHoursForDate", () => {
+  it("returns same-weekday open hourly averages for one ride", async () => {
+    mockQueryRaw.mockResolvedValue([{ hour: BigInt(14), predictedWait: "52" }]);
+
+    expect(await getHistoricalRideForecastHoursForDate("2026-09-15", 7)).toEqual([
+      { hour: 14, predictedWait: 52 },
+    ]);
+    expect(lastSql().values).toEqual([7, FORECAST_FIRST_LOCAL_HOUR, HISTORICAL_LOOKBACK_YEARS, 2]);
+    expect(lastSql().sql).toContain('FROM "HourlyWaitSummary"');
+    expect(lastSql().sql).toContain('GROUP BY hour');
   });
 });
 

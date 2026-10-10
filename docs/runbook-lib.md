@@ -21,8 +21,10 @@ Every aggregate happens in Postgres, because each returned row counts against th
 | Export | Returns |
 |---|---|
 | `getRideForecastsForDate(date)` | `RideDayForecast[]`: one per ride, `avgWait`/`peakWait`/`mlConfidence` over the Pacific day, latest ride name |
+| `getRideForecastHoursForDate(date, rideId)` | `RideForecastHour[]`: one ML point per Pacific hour for the selected ride/date |
 | `getDailyMlCrowdScores(start, endExclusive)` | `Map<"YYYY-MM-DD", score>`: rounded 75th-percentile slot `crowdScore` per Pacific date |
 | `getHistoricalRideWaitsForDate(date)` | `HistoricalRideWaits[]`: per-ride average and peak of typical hourly waits on that weekday, last 2 years of `HourlyWaitSummary`, from 08:00; each name comes from a `LATERAL` probe on the `(rideId, date, hour)` index |
+| `getHistoricalRideForecastHoursForDate(date, rideId)` | `RideForecastHour[]`: same-weekday historical hourly points for a selected ride when ML data is absent |
 | `getHistoricalDowMeanWaits(month)` | `Map<dow, meanWait>` for the month over 3 years, last year weighted 2× |
 | `getRecentCollectRuns(limit = 3)` | Newest `CollectRun` rows with `job = 'collect'` |
 | `FORECAST_FIRST_LOCAL_HOUR` | `8`: must match `PARK_CLOSED_LOCAL_HOURS` in `ml-service/pipeline.py` (a pytest checks) |
