@@ -141,8 +141,8 @@ def compute_lag_features(history: list[RideHistory]) -> list[RideHistory]:
         d = pdt.date()
         h = pdt.hour
 
-        lag_7d = lookup.get((r.ride_id, str(d - timedelta(days=7)), h), 0.0)
-        lag_14d = lookup.get((r.ride_id, str(d - timedelta(days=14)), h), 0.0)
+        lag_7d = lookup.get((r.ride_id, str(d - timedelta(days=7)), h), float("nan"))
+        lag_14d = lookup.get((r.ride_id, str(d - timedelta(days=14)), h), float("nan"))
 
         # 7-day rolling mean/std: average over same hour for prior 7 calendar days
         week_waits: list[float] = []
@@ -153,10 +153,12 @@ def compute_lag_features(history: list[RideHistory]) -> list[RideHistory]:
 
         # Imputing r.wait_time here would leak the label into the feature: for
         # every row with no prior-week history the model could read the answer
-        # off rolling_7d_mean. Use 0.0, which is also what the prediction path
-        # imputes (build_prediction_lag_features) — train and serve must agree.
-        rolling_mean = float(np.mean(week_waits)) if week_waits else 0.0
-        rolling_std = float(np.std(week_waits)) if len(week_waits) > 1 else 0.0
+        # off rolling_7d_mean. Preserve an empty window as NaN instead. This
+        # matches inference, where a future source wait is unavailable, and
+        # lets XGBoost route missing values explicitly rather than treating
+        # them as a real zero-minute wait.
+        rolling_mean = float(np.mean(week_waits)) if week_waits else float("nan")
+        rolling_std = float(np.std(week_waits)) if week_waits else float("nan")
 
         existing = r.lag_features or LagFeatures()
         new_lag = LagFeatures(
@@ -289,10 +291,15 @@ def build_prediction_lag_features(
     slots: list[datetime],
     cross_ride_profile: dict[int, tuple[float, float]] | None = None,
 ) -> dict[tuple[int, str, int], LagFeatures]:
-    """Fetch historical lag features from HourlyWaitSummary for future prediction slots.
+    """Fetch available historical lag features for future prediction slots.
 
     For each (ride_id, slot), looks up the 7-day and 14-day prior waits and
-    computes a rolling 7-day mean/std.
+    computes a rolling 7-day mean/std. The lookup includes both archived and
+    recent raw waits: archive.py guarantees those sources do not overlap.
+
+    A missing lookup stays NaN, never 0.0. For a multi-day forecast, the
+    source date for a lag may still be in the future, so treating it as a
+    zero-minute wait creates train/serve skew. XGBoost handles NaN natively.
 
     pct_rides_open and is_headliner_open cannot be observed for a future slot.
     Pass `cross_ride_profile` (from compute_cross_ride_profile) to impute them
@@ -311,15 +318,30 @@ def build_prediction_lag_features(
         for days_back in range(1, 15):
             dates_needed.add(str(d - timedelta(days=days_back)))
 
-    sql = """
+    archive_sql = """
         SELECT "rideId", date::date, hour, "avgWait"
         FROM "HourlyWaitSummary"
         WHERE date::date = ANY(%s)
           AND "rideId" = ANY(%s)
     """
+    raw_sql = """
+        SELECT
+            "rideId",
+            ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            EXTRACT(HOUR FROM ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles'))::int AS hour,
+            AVG("waitTime")::float AS "avgWait"
+        FROM "WaitTimeRecord"
+        WHERE "rideId" = ANY(%s)
+          AND ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date = ANY(%s)
+        GROUP BY 1, 2, 3
+    """
     lookup: dict[tuple[int, str, int], float] = {}
     with conn.cursor() as cur:
-        cur.execute(sql, (list(dates_needed), ride_ids))
+        cur.execute(archive_sql, (list(dates_needed), ride_ids))
+        for row in cur.fetchall():
+            ride_id, d, hour, avg_wait = row
+            lookup[(ride_id, str(d), hour)] = float(avg_wait)
+        cur.execute(raw_sql, (ride_ids, list(dates_needed)))
         for row in cur.fetchall():
             ride_id, d, hour, avg_wait = row
             lookup[(ride_id, str(d), hour)] = float(avg_wait)
@@ -330,15 +352,15 @@ def build_prediction_lag_features(
         d = ps.date()
         h = ps.hour
         for ride_id in ride_ids:
-            lag_7d = lookup.get((ride_id, str(d - timedelta(days=7)), h), 0.0)
-            lag_14d = lookup.get((ride_id, str(d - timedelta(days=14)), h), 0.0)
+            lag_7d = lookup.get((ride_id, str(d - timedelta(days=7)), h), float("nan"))
+            lag_14d = lookup.get((ride_id, str(d - timedelta(days=14)), h), float("nan"))
             week_waits = [
                 lookup[(ride_id, str(d - timedelta(days=db)), h)]
                 for db in range(1, 8)
                 if (ride_id, str(d - timedelta(days=db)), h) in lookup
             ]
-            rolling_mean = float(np.mean(week_waits)) if week_waits else 0.0
-            rolling_std = float(np.std(week_waits)) if len(week_waits) > 1 else 0.0
+            rolling_mean = float(np.mean(week_waits)) if week_waits else float("nan")
+            rolling_std = float(np.std(week_waits)) if week_waits else float("nan")
             pct_open, headliner_open = _impute_cross_ride(cross_ride_profile, h)
             result[(ride_id, date_str, h)] = LagFeatures(
                 lag_7d_wait=lag_7d,

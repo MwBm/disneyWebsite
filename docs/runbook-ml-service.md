@@ -122,8 +122,8 @@ One transaction, one data statement, two counts read back:
 | `precip_mm` | Total precipitation, mm |
 | `is_extreme_heat` | 1.0 if temp_high > 95°F |
 | `hour_x_weekday`, `hour_x_weekend`, `month_x_weekday`, `month_x_school_break` | Interaction terms |
-| `lag_7d_wait`, `lag_14d_wait` | Same ride, same park hour, 7 and 14 days earlier; 0.0 when missing |
-| `rolling_7d_mean`, `rolling_7d_std` | Same ride and park hour over the previous 7 days; 0.0 when missing, **never** the record's own wait (that would leak the label) |
+| `lag_7d_wait`, `lag_14d_wait` | Same ride, same park hour, 7 and 14 days earlier; `NaN` when unavailable, which XGBoost handles as missing rather than as a zero-minute wait |
+| `rolling_7d_mean`, `rolling_7d_std` | Same ride and park hour over the previous 7 days; `NaN` for an empty window, **never** the record's own wait (that would leak the label) |
 | `pct_rides_open` | Fraction of rides open in that park hour. For future slots: the training mean for that hour |
 | `is_headliner_open` | 1.0 if any headliner was open in that hour. For future slots: the training mean for that hour |
 

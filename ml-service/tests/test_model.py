@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import pytest
 from datetime import datetime, timedelta, timezone
@@ -233,11 +234,12 @@ def test_lag_features_flow_through():
     assert _feat("rolling_7d_std", dt, lag=lag) == pytest.approx(5.0)
 
 
-def test_lag_features_zero_by_default():
+def test_lag_features_are_missing_by_default():
     dt = datetime(2026, 6, 15, 19, 0, tzinfo=timezone.utc)
-    assert _feat("lag_7d_wait", dt) == pytest.approx(0.0)
-    assert _feat("lag_14d_wait", dt) == pytest.approx(0.0)
-    assert _feat("rolling_7d_mean", dt) == pytest.approx(0.0)
+    assert math.isnan(_feat("lag_7d_wait", dt))
+    assert math.isnan(_feat("lag_14d_wait", dt))
+    assert math.isnan(_feat("rolling_7d_mean", dt))
+    assert math.isnan(_feat("rolling_7d_std", dt))
 
 
 def test_cross_ride_features_defaults():
@@ -359,8 +361,8 @@ def test_lag_7d_lookback_correct():
     assert target.lag_features.lag_7d_wait == pytest.approx(30.0)
 
 
-def test_lag_features_zero_when_no_prior_data():
-    """When no historical data exists 7/14 days prior, lags default to 0.0."""
+def test_lag_features_are_missing_when_no_prior_data():
+    """When no history exists 7/14 days prior, lags remain explicit missing values."""
     from pipeline import compute_lag_features
 
     record = RideHistory(
@@ -370,8 +372,8 @@ def test_lag_features_zero_when_no_prior_data():
     )
     enriched = compute_lag_features([record])
     assert enriched[0].lag_features is not None
-    assert enriched[0].lag_features.lag_7d_wait == 0.0
-    assert enriched[0].lag_features.lag_14d_wait == 0.0
+    assert math.isnan(enriched[0].lag_features.lag_7d_wait)
+    assert math.isnan(enriched[0].lag_features.lag_14d_wait)
 
 
 def test_rolling_7d_mean_uses_prior_days_at_same_hour():

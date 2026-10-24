@@ -1,5 +1,6 @@
 """Tests for pipeline.py — training-data loading, feature engineering, forecast writing."""
 
+import math
 import pytest
 from datetime import datetime, date, timedelta, timezone
 from unittest.mock import MagicMock
@@ -108,15 +109,15 @@ def test_lag_7d_populated_from_prior_record():
     assert target.lag_features.lag_7d_wait == pytest.approx(28.0)
 
 
-def test_lag_zero_when_no_prior_data():
+def test_lag_is_missing_when_no_prior_data():
     record = RideHistory(
         ride_id=99, ride_name="New", land_name="Land",
         wait_time=40, is_open=True,
         recorded_at=datetime(2026, 1, 8, 14, 0, tzinfo=timezone.utc),
     )
     enriched = compute_lag_features([record])
-    assert enriched[0].lag_features.lag_7d_wait == 0.0
-    assert enriched[0].lag_features.lag_14d_wait == 0.0
+    assert math.isnan(enriched[0].lag_features.lag_7d_wait)
+    assert math.isnan(enriched[0].lag_features.lag_14d_wait)
 
 
 def test_cross_ride_pct_open():
@@ -334,7 +335,40 @@ def test_rolling_mean_does_not_leak_the_label_when_no_prior_week_exists():
     )
     enriched = compute_lag_features([lone])
     assert enriched[0].lag_features.rolling_7d_mean != 77.0
-    assert enriched[0].lag_features.rolling_7d_mean == pytest.approx(0.0)
+    assert math.isnan(enriched[0].lag_features.rolling_7d_mean)
+
+
+def test_prediction_lags_keep_unavailable_future_history_missing():
+    """A 15-day forecast cannot know waits from one or eight days in the future."""
+    from pipeline import build_prediction_lag_features
+
+    conn = _make_mock_conn([])
+    # 19:00 UTC is noon Pacific in June, so this has a stable park-local hour.
+    slot = datetime(2026, 6, 16, 19, 0, tzinfo=timezone.utc)
+    lag = build_prediction_lag_features(conn, [1], [slot])[(1, "2026-06-16", 12)]
+
+    assert math.isnan(lag.lag_7d_wait)
+    assert math.isnan(lag.lag_14d_wait)
+    assert math.isnan(lag.rolling_7d_mean)
+    assert math.isnan(lag.rolling_7d_std)
+
+
+def test_prediction_lags_read_recent_raw_history():
+    """Unarchived waits are usable lags and must not be treated as missing."""
+    from pipeline import build_prediction_lag_features
+
+    cursor = MagicMock()
+    cursor.__enter__ = lambda s: s
+    cursor.__exit__ = MagicMock(return_value=False)
+    cursor.fetchall.side_effect = [[], [(1, date(2026, 6, 1), 12, 37.0)]]
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+
+    slot = datetime(2026, 6, 8, 19, 0, tzinfo=timezone.utc)
+    lag = build_prediction_lag_features(conn, [1], [slot])[(1, "2026-06-08", 12)]
+
+    assert lag.lag_7d_wait == pytest.approx(37.0)
+    assert "WaitTimeRecord" in cursor.execute.call_args_list[1].args[0]
 
 
 def test_rolling_mean_still_uses_real_history_when_present():
