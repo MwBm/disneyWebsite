@@ -184,8 +184,8 @@ def test_training_context_tier_flows_through():
         for i in range(MIN_SAMPLES + 10)  # must exceed MIN_SAMPLES to train a model
     ]
     trained = train_ride_models(records)
-    assert 1 in trained
-    assert trained[1].model is not None
+    assert (16, 1) in trained
+    assert trained[(16, 1)].model is not None
 
     sample = records[0]
     features = _extract_features(sample.recorded_at, sample.context)

@@ -221,15 +221,15 @@ def resolve_headliner_ids(
     return frozenset(ride_id for ride_id, _ in ranked[:take])
 
 
-def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
-    """Train one XGBRegressor per ride. Rides below MIN_SAMPLES use hour-mean fallback."""
-    ride_groups: Dict[int, List[RideHistory]] = {}
+def train_ride_models(rides: List[RideHistory]) -> Dict[Tuple[int, int], TrainedModel]:
+    """Train one XGBRegressor per (park, ride). Low-sample rides use hourly means."""
+    ride_groups: Dict[Tuple[int, int], List[RideHistory]] = {}
     for r in rides:
         if r.is_open:
-            ride_groups.setdefault(r.ride_id, []).append(r)
+            ride_groups.setdefault((r.park_id, r.ride_id), []).append(r)
 
-    result: Dict[int, TrainedModel] = {}
-    for ride_id, records in ride_groups.items():
+    result: Dict[Tuple[int, int], TrainedModel] = {}
+    for (park_id, ride_id), records in ride_groups.items():
         waits = [r.wait_time for r in records]
         global_mean = int(np.mean(waits)) if waits else 0
         by_hour: Dict[int, List[float]] = {}
@@ -238,12 +238,12 @@ def train_ride_models(rides: List[RideHistory]) -> Dict[int, TrainedModel]:
         hour_means = {h: int(np.mean(v)) for h, v in by_hour.items()}
 
         if len(records) < MIN_SAMPLES:
-            logger.info("Ride %d: fallback (only %d samples, need %d)", ride_id, len(records), MIN_SAMPLES)
-            result[ride_id] = TrainedModel(None, FALLBACK_CONFIDENCE, 0.0, hour_means, global_mean)
+            logger.info("Park %d ride %d: fallback (only %d samples, need %d)", park_id, ride_id, len(records), MIN_SAMPLES)
+            result[(park_id, ride_id)] = TrainedModel(None, FALLBACK_CONFIDENCE, 0.0, hour_means, global_mean)
         else:
             model, confidence, cv_mae = _train_ride_model(records, float(global_mean))
-            logger.info("Ride %d: trained, CV MAE=%.1f min, confidence=%.2f", ride_id, cv_mae, confidence)
-            result[ride_id] = TrainedModel(model, confidence, cv_mae, hour_means, global_mean)
+            logger.info("Park %d ride %d: trained, CV MAE=%.1f min, confidence=%.2f", park_id, ride_id, cv_mae, confidence)
+            result[(park_id, ride_id)] = TrainedModel(model, confidence, cv_mae, hour_means, global_mean)
 
     return result
 
@@ -393,14 +393,14 @@ def predict_for_ride(
 
 
 def predict_for_slot(
-    trained_models: Dict[int, TrainedModel],
+    trained_models: Dict[Tuple[int, int], TrainedModel],
     slot: datetime,
     context: Optional[DateContext] = None,
 ) -> Tuple[List[RideForecast], int]:
     """Predictions for one slot across every trained ride, plus its crowd score."""
     forecasts: List[RideForecast] = []
-    for ride_id, tm in trained_models.items():
-        result = predict_for_ride(tm, ride_id, [slot], [context], [None])
+    for (park_id, ride_id), tm in trained_models.items():
+        result = predict_for_ride(tm, ride_id, [slot], [context], [None], park_id)
         forecasts.extend(result)
     return forecasts, _compute_crowd_score(forecasts, context)
 

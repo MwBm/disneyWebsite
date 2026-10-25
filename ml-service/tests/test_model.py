@@ -263,7 +263,7 @@ def test_cv_mae_in_trained_model():
     """Trained ride (≥ MIN_SAMPLES records) gets a real model with finite cv_mae."""
     records = _make_records_with_lags(1, MIN_SAMPLES + 50, base_wait=40)
     models = train_ride_models(records)
-    tm = models[1]
+    tm = models[(16, 1)]
     assert tm.model is not None
     assert tm.cv_mae_minutes >= 0.0
     assert 0.0 <= tm.confidence <= 1.0
@@ -272,17 +272,28 @@ def test_cv_mae_in_trained_model():
 def test_fallback_model_has_zero_cv_mae():
     records = _make_records(2, MIN_SAMPLES - 1, base_wait=20)
     models = train_ride_models(records)
-    tm = models[2]
+    tm = models[(16, 2)]
     assert tm.model is None
     assert tm.cv_mae_minutes == 0.0
     assert tm.confidence == 0.3
+
+
+def test_same_ride_id_in_two_parks_trains_two_independent_models():
+    """A future upstream ID collision must not blend parks into one wait model."""
+    disneyland = _make_records(42, 20, base_wait=15)
+    dca = [record.model_copy(update={"park_id": 17, "wait_time": record.wait_time + 45}) for record in disneyland]
+
+    models = train_ride_models(disneyland + dca)
+
+    assert set(models) == {(16, 42), (17, 42)}
+    assert models[(16, 42)].global_mean < models[(17, 42)].global_mean
 
 
 def test_cv_mae_bounded_confidence():
     """Confidence must stay in [0, 1] regardless of wait magnitude."""
     records = _make_records_with_lags(1, MIN_SAMPLES + 100, base_wait=5)
     models = train_ride_models(records)
-    tm = models.get(1)
+    tm = models.get((16, 1))
     if tm and tm.model is not None:
         assert 0.0 <= tm.confidence <= 1.0
 
@@ -412,7 +423,7 @@ def test_predict_for_ride_batch_matches_single():
     """Batch predict_for_ride must produce same values as single-slot calls."""
     records = _make_records(1, 50, base_wait=40)
     models = train_ride_models(records)
-    tm = models[1]
+    tm = models[(16, 1)]
 
     slots = [
         datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc),
@@ -432,8 +443,8 @@ def test_predict_for_ride_all_rides_in_range():
     models = train_ride_models(records)
     slot = datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)
 
-    for ride_id, tm in models.items():
-        result = predict_for_ride(tm, ride_id, [slot], [None], [None])
+    for (park_id, ride_id), tm in models.items():
+        result = predict_for_ride(tm, ride_id, [slot], [None], [None], park_id)
         assert len(result) == 1
         assert 0 <= result[0].predicted_wait <= 300
 
@@ -443,13 +454,13 @@ def test_predict_for_ride_all_rides_in_range():
 # ---------------------------------------------------------------------------
 
 def _xgboost_model():
-    tm = train_ride_models(_make_records_with_lags(1, MIN_SAMPLES + 50))[1]
+    tm = train_ride_models(_make_records_with_lags(1, MIN_SAMPLES + 50))[(16, 1)]
     assert tm.model is not None, "fixture must produce a real XGBoost model, not the fallback"
     return tm
 
 
 def _fallback_model():
-    tm = train_ride_models(_make_records(1, 10))[1]
+    tm = train_ride_models(_make_records(1, 10))[(16, 1)]
     assert tm.model is None
     return tm
 

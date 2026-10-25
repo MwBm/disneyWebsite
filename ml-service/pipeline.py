@@ -691,14 +691,7 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
 
     # One XGBoost call per ride covers every slot.
     all_ride_forecasts: dict[tuple[int, int, datetime], RideForecast] = {}
-    for ride_id, tm in trained_models.items():
-        # Queue-Times IDs are globally unique today. Park scope is still
-        # carried everywhere after this point to make that an implementation
-        # detail rather than an accidental product assumption.
-        matching_keys = [key for key in ride_keys if key[1] == ride_id]
-        if len(matching_keys) != 1:
-            raise RuntimeError(f"ambiguous park mapping for ride ID {ride_id}")
-        park_id, _ = matching_keys[0]
+    for (park_id, ride_id), tm in trained_models.items():
         lags_list = [
             lag_map.get((park_id, ride_id, park_date_key(s), park_hour(s)), LagFeatures())
             for s in slots
