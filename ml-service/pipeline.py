@@ -479,7 +479,7 @@ def upsert_ride_catalog(conn, ride_meta: dict[tuple[int, int], dict]) -> int:
 
 def create_model_run(conn, now: datetime, trained_models: dict) -> str:
     """Record only aggregate validation metadata for a reproducible scoring run."""
-    cv_maes = [float(model.cv_mae) for model in trained_models.values() if model.model is not None]
+    cv_maes = [float(model.cv_mae_minutes) for model in trained_models.values() if model.model is not None]
     metrics = {
         "rideModelCount": len(trained_models),
         "xgboostModelCount": len(cv_maes),
