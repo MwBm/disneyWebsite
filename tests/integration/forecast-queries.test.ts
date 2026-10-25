@@ -299,13 +299,11 @@ describeWithDatabase("forecast queries on Postgres", () => {
   });
 
   describe("getCrowdScoresForMonth", () => {
-    it("combines SQL daily scores with stored Groq adjustments", async () => {
-      // An ML score wins whatever the date's position relative to the forecast window.
-      await prisma.dailyForecast.createMany({
-        data: [
-          forecastRow(1, pacific("2026-06-15T10:00:00", -7), 1, { crowdScore: 40 }),
-          forecastRow(2, pacific("2026-06-15T23:30:00", -7), 1, { crowdScore: 50 }),
-        ],
+    it("uses the materialized score without a stored LLM adjustment", async () => {
+      // The calendar reads its compact serving projection, so rendering does
+      // not depend on a raw-slot aggregate or an LLM request/adjustment.
+      await prisma.parkDayForecast.create({
+        data: { id: "p-calendar", parkId: 16, date: projectionDate("2026-06-15"), crowdScore: 45 },
       });
       await prisma.dateContext.create({
         data: { date: new Date("2026-06-15T00:00:00Z"), groqAdjustment: 6, tier: 2 },
@@ -314,7 +312,7 @@ describeWithDatabase("forecast queries on Postgres", () => {
       const days = await getCrowdScoresForMonth(2026, 6);
 
       expect(days).toHaveLength(30);
-      expect(days.find((d) => d.date === "2026-06-15")).toMatchObject({ source: "ml", crowdScore: 51, tier: 2 });
+      expect(days.find((d) => d.date === "2026-06-15")).toMatchObject({ source: "ml", crowdScore: 45, tier: 2 });
       expect(days.find((d) => d.date === "2026-06-16")!.source).not.toBe("ml");
     });
   });
