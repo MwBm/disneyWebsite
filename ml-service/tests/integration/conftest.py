@@ -18,7 +18,10 @@ from urllib.parse import urlsplit
 import psycopg
 import pytest
 
-APP_TABLES = ("WaitTimeRecord", "DailyForecast", "HourlyWaitSummary", "CollectRun", "Prediction", "DateContext")
+APP_TABLES = (
+    "WaitTimeRecord", "DailyForecast", "HourlyWaitSummary", "CollectRun", "Prediction", "DateContext",
+    "RideCatalog", "ModelRun", "ParkDayForecast", "RideDayForecast", "ForecastEvaluation",
+)
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 

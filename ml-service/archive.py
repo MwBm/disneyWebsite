@@ -18,7 +18,16 @@ import logging
 import sys
 from datetime import datetime, timedelta, timezone
 
-from common import FORECAST_RETENTION_DAYS, RAW_RETENTION_DAYS, run_logged_job
+from common import (
+    COLLECT_RUN_RETENTION_DAYS,
+    EVALUATION_RETENTION_DAYS,
+    FORECAST_RETENTION_DAYS,
+    HOURLY_RETENTION_DAYS,
+    MODEL_RUN_RETENTION_DAYS,
+    RAW_RETENTION_DAYS,
+    SERVING_FORECAST_RETENTION_DAYS,
+    run_logged_job,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -86,6 +95,12 @@ ARCHIVE_SQL = """
 """
 
 DELETE_OLD_FORECASTS_SQL = 'DELETE FROM "DailyForecast" WHERE "forecastFor" < %(cutoff)s'
+DELETE_OLD_HOURLY_SQL = 'DELETE FROM "HourlyWaitSummary" WHERE date < %(cutoff)s'
+DELETE_OLD_PARK_DAY_SQL = 'DELETE FROM "ParkDayForecast" WHERE date < %(cutoff)s'
+DELETE_OLD_RIDE_DAY_SQL = 'DELETE FROM "RideDayForecast" WHERE date < %(cutoff)s'
+DELETE_OLD_EVALUATIONS_SQL = 'DELETE FROM "ForecastEvaluation" WHERE "targetDate" < %(cutoff)s'
+DELETE_OLD_MODEL_RUNS_SQL = 'DELETE FROM "ModelRun" WHERE "trainedAt" < %(cutoff)s'
+DELETE_OLD_COLLECT_RUNS_SQL = 'DELETE FROM "CollectRun" WHERE "ranAt" < %(cutoff)s'
 
 
 def raw_cutoff(now: datetime) -> datetime:
@@ -100,6 +115,10 @@ def forecast_cutoff(now: datetime) -> datetime:
     return now - timedelta(days=FORECAST_RETENTION_DAYS)
 
 
+def retention_cutoff(now: datetime, days: int) -> datetime:
+    return now - timedelta(days=days)
+
+
 def archive(conn) -> int:
     now = datetime.now(timezone.utc)
     cutoff = raw_cutoff(now)
@@ -109,10 +128,24 @@ def archive(conn) -> int:
         raw_deleted, buckets_written = cur.fetchone()
         cur.execute(DELETE_OLD_FORECASTS_SQL, {"cutoff": forecast_cutoff(now)})
         forecasts_deleted = cur.rowcount
+        cur.execute(DELETE_OLD_HOURLY_SQL, {"cutoff": retention_cutoff(now, HOURLY_RETENTION_DAYS)})
+        hourly_deleted = cur.rowcount
+        cur.execute(DELETE_OLD_PARK_DAY_SQL, {"cutoff": retention_cutoff(now, SERVING_FORECAST_RETENTION_DAYS)})
+        park_days_deleted = cur.rowcount
+        cur.execute(DELETE_OLD_RIDE_DAY_SQL, {"cutoff": retention_cutoff(now, SERVING_FORECAST_RETENTION_DAYS)})
+        ride_days_deleted = cur.rowcount
+        cur.execute(DELETE_OLD_EVALUATIONS_SQL, {"cutoff": retention_cutoff(now, EVALUATION_RETENTION_DAYS)})
+        evaluations_deleted = cur.rowcount
+        cur.execute(DELETE_OLD_MODEL_RUNS_SQL, {"cutoff": retention_cutoff(now, MODEL_RUN_RETENTION_DAYS)})
+        model_runs_deleted = cur.rowcount
+        cur.execute(DELETE_OLD_COLLECT_RUNS_SQL, {"cutoff": retention_cutoff(now, COLLECT_RUN_RETENTION_DAYS)})
+        collect_runs_deleted = cur.rowcount
 
     logger.info(
-        "Archived %d raw rows older than %s into %d hourly buckets; deleted %d forecasts older than %d days",
-        raw_deleted, cutoff.isoformat(), buckets_written, forecasts_deleted, FORECAST_RETENTION_DAYS,
+        "Archived %d raw rows older than %s into %d hourly buckets; removed %d slot forecasts, %d hourly summaries, "
+        "%d park-day forecasts, %d ride-day forecasts, %d evaluations, %d model runs, and %d job runs",
+        raw_deleted, cutoff.isoformat(), buckets_written, forecasts_deleted, hourly_deleted,
+        park_days_deleted, ride_days_deleted, evaluations_deleted, model_runs_deleted, collect_runs_deleted,
     )
     return buckets_written
 

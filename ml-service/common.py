@@ -32,6 +32,14 @@ RAW_RETENTION_DAYS = 30
 # archive run is late. tests/test_common.py pins both relationships.
 FORECAST_RETENTION_DAYS = 35
 
+# Summaries are small enough to retain longer than the slot-level source rows,
+# but not indefinitely. The model reads the same three-year history window.
+HOURLY_RETENTION_DAYS = 3 * 365
+SERVING_FORECAST_RETENTION_DAYS = 60
+EVALUATION_RETENTION_DAYS = 2 * 365
+MODEL_RUN_RETENTION_DAYS = 180
+COLLECT_RUN_RETENTION_DAYS = 90
+
 # How long raw rows may outlive RAW_RETENTION_DAYS before check_freshness.py
 # reports that archive.yml has stopped. Archive runs weekly, so a healthy
 # backlog peaks just under 7 days.

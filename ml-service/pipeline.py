@@ -4,6 +4,7 @@ Owned by train.py, the only job that writes DailyForecast rows.
 """
 
 import logging
+import json
 import uuid
 from collections import defaultdict
 from datetime import datetime, time, timedelta, timezone
@@ -25,6 +26,16 @@ from schemas import DateContext, LagFeatures, RideForecast, RideHistory
 logger = logging.getLogger(__name__)
 
 FORECAST_SLOTS_PER_DAY = 24 * 60 // WINDOW_MINUTES
+MODEL_VERSION = "xgboost-per-ride-v2"
+FEATURE_VERSION = "park-aware-calendar-weather-lags-v1"
+EVALUATION_HORIZONS = {
+    0: "same_day",
+    1: "1_day",
+    3: "3_days",
+    7: "7_days",
+    14: "14_days",
+    28: "28_days",
+}
 
 # Midnight–7:59 AM Pacific has little useful training signal.
 PARK_CLOSED_LOCAL_HOURS = frozenset(range(0, 8))
@@ -49,6 +60,11 @@ def build_forecast_slots(now: datetime, days: int = 1) -> list[datetime]:
             if slot >= now:
                 slots.append(slot)
     return slots
+
+
+def forecast_date(slot: datetime) -> datetime:
+    """The UTC-midnight key representing a park-local forecast date."""
+    return datetime.combine(as_utc(slot).astimezone(PARK_TZ).date(), time.min, tzinfo=timezone.utc)
 
 
 # The training reads carry only stable identifiers and measurements; names are
@@ -430,6 +446,179 @@ def upsert_forecasts(
     return len(rows)
 
 
+def upsert_ride_catalog(conn, ride_meta: dict[tuple[int, int], dict]) -> int:
+    """Refresh compact ride metadata once per model run.
+
+    Slot predictions intentionally retain their historical display fields for
+    backwards compatibility. The serving projection tables refer to this
+    small catalogue instead, avoiding 48 copies of a ride name every day.
+    """
+    if not ride_meta:
+        return 0
+    park_ids = sorted({park_id for park_id, _ in ride_meta})
+    rows = [
+        (park_id, ride_id, meta["name"], meta["land_name"])
+        for (park_id, ride_id), meta in ride_meta.items()
+    ]
+    sql = """
+        INSERT INTO "RideCatalog" ("parkId", "rideId", "rideName", "landName", "isActive", "updatedAt")
+        VALUES (%s, %s, %s, %s, true, CURRENT_TIMESTAMP)
+        ON CONFLICT ("parkId", "rideId") DO UPDATE SET
+            "rideName" = EXCLUDED."rideName",
+            "landName" = EXCLUDED."landName",
+            "isActive" = true,
+            "updatedAt" = CURRENT_TIMESTAMP
+    """
+    with conn.cursor() as cur:
+        # A ride that disappears from a successful complete source response is
+        # no longer selectable, but its historical projection remains intact.
+        cur.execute('UPDATE "RideCatalog" SET "isActive" = false WHERE "parkId" = ANY(%s)', (park_ids,))
+        cur.executemany(sql, rows)
+    return len(rows)
+
+
+def create_model_run(conn, now: datetime, trained_models: dict) -> str:
+    """Record only aggregate validation metadata for a reproducible scoring run."""
+    cv_maes = [float(model.cv_mae) for model in trained_models.values() if model.model is not None]
+    metrics = {
+        "rideModelCount": len(trained_models),
+        "xgboostModelCount": len(cv_maes),
+        "meanCvMae": round(float(np.mean(cv_maes)), 3) if cv_maes else None,
+    }
+    model_run_id = str(uuid.uuid4())
+    sql = """
+        INSERT INTO "ModelRun" (id, version, "featureVersion", "trainingCutoff", metrics)
+        VALUES (%s, %s, %s, %s, %s::jsonb)
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (model_run_id, MODEL_VERSION, FEATURE_VERSION, now, json.dumps(metrics)))
+    return model_run_id
+
+
+def build_serving_projection_rows(
+    forecasts_per_slot: list[tuple[datetime, list[RideForecast], dict[int, int]]],
+    model_run_id: str,
+) -> tuple[list[tuple], list[tuple]]:
+    """Collapse slot predictions into one small row per park/day and ride/day."""
+    generated_at = datetime.now(timezone.utc)
+    scores: dict[tuple[int, datetime], list[int]] = defaultdict(list)
+    ride_values: dict[tuple[int, int, datetime], dict[str, list[float]]] = defaultdict(
+        lambda: {"waits": [], "confidences": []}
+    )
+    for slot, ride_forecasts, crowd_scores in forecasts_per_slot:
+        day = forecast_date(slot)
+        for park_id, score in crowd_scores.items():
+            scores[(park_id, day)].append(score)
+        for forecast in ride_forecasts:
+            values = ride_values[(forecast.park_id, forecast.ride_id, day)]
+            values["waits"].append(forecast.predicted_wait)
+            values["confidences"].append(forecast.confidence)
+
+    park_rows = [
+        (str(uuid.uuid4()), park_id, day, int(round(float(np.percentile(day_scores, 75)))), model_run_id, generated_at)
+        for (park_id, day), day_scores in scores.items()
+        if day_scores
+    ]
+    ride_rows = [
+        (
+            str(uuid.uuid4()), park_id, ride_id, day,
+            int(round(float(np.mean(values["waits"])))), int(max(values["waits"])),
+            float(np.mean(values["confidences"])), model_run_id, generated_at,
+        )
+        for (park_id, ride_id, day), values in ride_values.items()
+        if values["waits"]
+    ]
+    return park_rows, ride_rows
+
+
+def upsert_serving_projections(conn, park_rows: list[tuple], ride_rows: list[tuple]) -> int:
+    """Write compact calendar and wait-table projections without a delete gap."""
+    park_sql = """
+        INSERT INTO "ParkDayForecast" (id, "parkId", date, "crowdScore", "modelRunId", "createdAt")
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT ("parkId", date) DO UPDATE SET
+            "crowdScore" = EXCLUDED."crowdScore",
+            "modelRunId" = EXCLUDED."modelRunId",
+            "createdAt" = EXCLUDED."createdAt"
+    """
+    ride_sql = """
+        INSERT INTO "RideDayForecast"
+            (id, "parkId", "rideId", date, "avgWait", "peakWait", "mlConfidence", "modelRunId", "createdAt")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT ("parkId", "rideId", date) DO UPDATE SET
+            "avgWait" = EXCLUDED."avgWait",
+            "peakWait" = EXCLUDED."peakWait",
+            "mlConfidence" = EXCLUDED."mlConfidence",
+            "modelRunId" = EXCLUDED."modelRunId",
+            "createdAt" = EXCLUDED."createdAt"
+    """
+    with conn.cursor() as cur:
+        if park_rows:
+            cur.executemany(park_sql, park_rows)
+        if ride_rows:
+            cur.executemany(ride_sql, ride_rows)
+    return len(park_rows) + len(ride_rows)
+
+
+def issue_evaluations(conn, model_run_id: str, ride_rows: list[tuple], now: datetime) -> int:
+    """Keep only selected forecast horizons, not every predicted 30-minute slot."""
+    today = as_utc(now).astimezone(PARK_TZ).date()
+    rows = []
+    for _, park_id, ride_id, target_date, avg_wait, *_ in ride_rows:
+        # `forecast_date` is intentionally UTC midnight for a *park-local*
+        # calendar day, so do not convert that storage key back to Pacific.
+        horizon = (as_utc(target_date).date() - today).days
+        if horizon not in EVALUATION_HORIZONS:
+            continue
+        rows.append((
+            str(uuid.uuid4()), model_run_id, park_id, ride_id, target_date,
+            EVALUATION_HORIZONS[horizon], avg_wait,
+        ))
+    if not rows:
+        return 0
+    sql = """
+        INSERT INTO "ForecastEvaluation"
+            (id, "modelRunId", "parkId", "rideId", "targetDate", "horizonBucket", "predictedAvgWait")
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT ("modelRunId", "parkId", "rideId", "targetDate") DO UPDATE SET
+            "horizonBucket" = EXCLUDED."horizonBucket",
+            "predictedAvgWait" = EXCLUDED."predictedAvgWait"
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, rows)
+    return len(rows)
+
+
+def backfill_evaluations(conn) -> int:
+    """Fill finalized wait averages while raw observations are still retained."""
+    sql = """
+        WITH actuals AS (
+            SELECT
+                "parkId",
+                "rideId",
+                ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date::timestamp AS "targetDate",
+                ROUND(AVG("waitTime") FILTER (WHERE "isOpen"))::int AS "actualAvgWait"
+            FROM "WaitTimeRecord"
+            WHERE "windowedAt" >= NOW() - INTERVAL '31 days'
+            GROUP BY 1, 2, 3
+        )
+        UPDATE "ForecastEvaluation" AS evaluation
+        SET
+            "actualAvgWait" = actuals."actualAvgWait",
+            mae = ABS(evaluation."predictedAvgWait" - actuals."actualAvgWait")::float
+        FROM actuals
+        WHERE evaluation."parkId" = actuals."parkId"
+          AND evaluation."rideId" = actuals."rideId"
+          AND evaluation."targetDate" = actuals."targetDate"
+          AND evaluation."targetDate" < DATE_TRUNC('day', NOW() AT TIME ZONE 'America/Los_Angeles')
+          AND evaluation."actualAvgWait" IS NULL
+          AND actuals."actualAvgWait" IS NOT NULL
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        return cur.rowcount
+
+
 def generate_forecasts(conn, now: datetime, days: int) -> int:
     """Load history, train per-ride models, and upsert `days` of DailyForecast rows.
 
@@ -482,6 +671,7 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
             f"No ride models trained from {len(history)} history records; refusing to report success"
         )
     logger.info("Trained %d ride models", len(trained_models))
+    model_run_id = create_model_run(conn, now, trained_models)
 
     ride_meta: dict[tuple[int, int], dict] = {}
     for r in history:
@@ -539,8 +729,15 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
         forecasts_per_slot.append((slot, slot_forecasts, crowd_scores))
 
     rows_upserted = upsert_forecasts(conn, forecasts_per_slot, ride_meta)
+    catalog_rows = upsert_ride_catalog(conn, ride_meta)
+    park_rows, ride_rows = build_serving_projection_rows(forecasts_per_slot, model_run_id)
+    projection_rows = upsert_serving_projections(conn, park_rows, ride_rows)
+    issued_evaluations = issue_evaluations(conn, model_run_id, ride_rows, now)
+    completed_evaluations = backfill_evaluations(conn)
     logger.info(
-        "Upserted %d DailyForecast rows across %d slots (%d days)",
-        rows_upserted, len(forecasts_per_slot), days,
+        "Upserted %d slot forecasts, %d catalogue rows, and %d serving projections across %d slots (%d days); "
+        "issued %d evaluations and completed %d",
+        rows_upserted, catalog_rows, projection_rows, len(forecasts_per_slot), days,
+        issued_evaluations, completed_evaluations,
     )
     return rows_upserted

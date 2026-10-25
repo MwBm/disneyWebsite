@@ -2,7 +2,10 @@ import { prisma } from "@/lib/db";
 
 export const describeWithDatabase = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 
-const APP_TABLES = ["WaitTimeRecord", "DailyForecast", "HourlyWaitSummary", "CollectRun", "Prediction", "DateContext"];
+const APP_TABLES = [
+  "WaitTimeRecord", "DailyForecast", "HourlyWaitSummary", "CollectRun", "Prediction", "DateContext",
+  "RideCatalog", "ModelRun", "ParkDayForecast", "RideDayForecast", "ForecastEvaluation",
+];
 
 export async function truncateAppTables(): Promise<void> {
   await prisma.$executeRawUnsafe(`TRUNCATE ${APP_TABLES.map((t) => `"${t}"`).join(", ")} CASCADE`);

@@ -11,7 +11,15 @@ import pytest
 
 import archive
 import common
-from common import FORECAST_RETENTION_DAYS, RAW_RETENTION_DAYS
+from common import (
+    COLLECT_RUN_RETENTION_DAYS,
+    EVALUATION_RETENTION_DAYS,
+    FORECAST_RETENTION_DAYS,
+    HOURLY_RETENTION_DAYS,
+    MODEL_RUN_RETENTION_DAYS,
+    RAW_RETENTION_DAYS,
+    SERVING_FORECAST_RETENTION_DAYS,
+)
 
 
 @pytest.mark.parametrize(
@@ -51,7 +59,7 @@ def test_archive_runs_one_server_side_statement_then_forecast_retention(fake_db)
     assert archive.main() == 0
 
     [conn] = fake_db.connections
-    archive_stmt, retention_stmt, log_stmt = conn.statements
+    archive_stmt, retention_stmt, hourly_stmt, park_day_stmt, ride_day_stmt, evaluation_stmt, model_run_stmt, collect_run_stmt, log_stmt = conn.statements
     assert archive_stmt.sql.startswith('WITH moved AS ( DELETE FROM "WaitTimeRecord"')
     assert "ON CONFLICT (\"rideId\", date, hour) DO UPDATE" in archive_stmt.sql
     assert archive_stmt.params["cutoff"] == archive.raw_cutoff(archive_stmt.params["cutoff"] + timedelta(days=RAW_RETENTION_DAYS))
@@ -59,6 +67,18 @@ def test_archive_runs_one_server_side_statement_then_forecast_retention(fake_db)
 
     assert retention_stmt.sql == 'DELETE FROM "DailyForecast" WHERE "forecastFor" < %(cutoff)s'
     assert abs(retention_stmt.params["cutoff"] - (before - timedelta(days=FORECAST_RETENTION_DAYS))) < timedelta(seconds=5)
+    assert hourly_stmt.sql == 'DELETE FROM "HourlyWaitSummary" WHERE date < %(cutoff)s'
+    assert abs(hourly_stmt.params["cutoff"] - (before - timedelta(days=HOURLY_RETENTION_DAYS))) < timedelta(seconds=5)
+    assert park_day_stmt.sql == 'DELETE FROM "ParkDayForecast" WHERE date < %(cutoff)s'
+    assert abs(park_day_stmt.params["cutoff"] - (before - timedelta(days=SERVING_FORECAST_RETENTION_DAYS))) < timedelta(seconds=5)
+    assert ride_day_stmt.sql == 'DELETE FROM "RideDayForecast" WHERE date < %(cutoff)s'
+    assert abs(ride_day_stmt.params["cutoff"] - (before - timedelta(days=SERVING_FORECAST_RETENTION_DAYS))) < timedelta(seconds=5)
+    assert evaluation_stmt.sql == 'DELETE FROM "ForecastEvaluation" WHERE "targetDate" < %(cutoff)s'
+    assert abs(evaluation_stmt.params["cutoff"] - (before - timedelta(days=EVALUATION_RETENTION_DAYS))) < timedelta(seconds=5)
+    assert model_run_stmt.sql == 'DELETE FROM "ModelRun" WHERE "trainedAt" < %(cutoff)s'
+    assert abs(model_run_stmt.params["cutoff"] - (before - timedelta(days=MODEL_RUN_RETENTION_DAYS))) < timedelta(seconds=5)
+    assert collect_run_stmt.sql == 'DELETE FROM "CollectRun" WHERE "ranAt" < %(cutoff)s'
+    assert abs(collect_run_stmt.params["cutoff"] - (before - timedelta(days=COLLECT_RUN_RETENTION_DAYS))) < timedelta(seconds=5)
 
     assert log_stmt.sql.startswith('INSERT INTO "CollectRun"')
     assert conn.events[-1] == "commit" and conn.events.count("commit") == 1

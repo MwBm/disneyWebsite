@@ -613,8 +613,18 @@ def test_generate_forecasts_upserts_one_row_per_ride_per_slot_without_committing
     assert {row[2] for row in upsert.params} == {1, 2}
     assert {row[5] for row in upsert.params} == set(slots)
     assert all(row[3] in ("Ride 1", "Ride 2") and row[4] == "Land" for row in upsert.params)
-    # Writing is the last statement, and committing is the caller's job.
-    assert conn.statements[-1] is upsert
+    [model_run] = [s for s in conn.statements if 'INSERT INTO "ModelRun"' in s.sql]
+    [catalog] = [s for s in conn.statements if 'INSERT INTO "RideCatalog"' in s.sql]
+    [park_days] = [s for s in conn.statements if 'INSERT INTO "ParkDayForecast"' in s.sql]
+    [ride_days] = [s for s in conn.statements if 'INSERT INTO "RideDayForecast"' in s.sql]
+    [evaluations] = [s for s in conn.statements if 'INSERT INTO "ForecastEvaluation"' in s.sql]
+    assert model_run.many is False
+    assert catalog.many is True and len(catalog.params) == 2
+    assert park_days.many is True and len(park_days.params) == 1
+    assert ride_days.many is True and len(ride_days.params) == 2
+    # One model run records selected horizons only, not every forecast slot.
+    assert evaluations.many is True and len(evaluations.params) == 2
+    # Committing remains the caller's job.
     assert "commit" not in conn.events
 
 

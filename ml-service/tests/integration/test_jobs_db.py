@@ -18,7 +18,7 @@ from pipeline import build_forecast_slots
 pytestmark = pytest.mark.integration
 
 PT = ZoneInfo("America/Los_Angeles")
-RIDE = {"id": 1, "name": "Space Mountain", "land_name": "Tomorrowland", "is_open": True, "wait_time": 45}
+RIDE = {"id": 1, "park_id": 16, "name": "Space Mountain", "land_name": "Tomorrowland", "is_open": True, "wait_time": 45}
 
 
 def _count(pg, table, where="TRUE", params=()):
@@ -190,7 +190,7 @@ def test_archive_aggregates_old_rows_by_park_hour_and_keeps_recent_ones(pg):
         'SELECT "rideId", date, hour, "avgWait", "peakWait", "sampleCount", "isOpen" FROM "HourlyWaitSummary" ORDER BY "rideId"'
     ).fetchall()
     assert buckets == [
-        (1, datetime(2026, 6, 1), 14, 40.0, 50, 2, True),
+        (1, datetime(2026, 6, 1), 14, 30.0, 30, 2, True),
         (2, datetime(2026, 6, 1), 14, 10.0, 10, 1, True),
     ]
     assert _count(pg, "WaitTimeRecord") == 1
@@ -252,8 +252,9 @@ def test_archive_merges_into_an_existing_bucket_instead_of_dropping_rows(pg):
 
     assert archive.main() == 0
 
-    # (20*2 + 40 + 60) / 4 = 35
-    assert _bucket(pg, 7) == [("Ride 7", 35.0, 60, 4, True)]
+    # The pre-existing samples were all closed, so only observed open waits
+    # affect the training target: (40 + 60) / 2 = 50.
+    assert _bucket(pg, 7) == [("Ride 7", 50.0, 60, 4, True)]
     assert _count(pg, "WaitTimeRecord") == 0
     assert _runs(pg) == [("archive", 1, True, None)]
 
