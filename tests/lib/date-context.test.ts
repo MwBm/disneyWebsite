@@ -251,7 +251,8 @@ describe("syncDateContext", () => {
   it("skips all dates when all are fresh (fetched within 24h)", async () => {
     const now = new Date();
     mockDateContextFindMany.mockResolvedValue([
-      { date: new Date(now.toISOString().slice(0, 10)) },
+      { parkId: 16, date: new Date(now.toISOString().slice(0, 10)) },
+      { parkId: 17, date: new Date(now.toISOString().slice(0, 10)) },
     ]);
     mockFetch(makeScheduleResponse([
       {
@@ -303,7 +304,7 @@ describe("syncDateContext", () => {
 
   it("returns correct synced/skipped counts", async () => {
     mockDateContextFindMany.mockResolvedValue([
-      { date: new Date("2026-06-01") }, // fresh
+      { parkId: 16, date: new Date("2026-06-01") }, // Disneyland fresh; DCA remains stale
     ]);
     mockFetch(makeScheduleResponse([
       {
@@ -323,7 +324,7 @@ describe("syncDateContext", () => {
     ]));
     mockDateContextUpsert.mockResolvedValue({});
     const result = await syncDateContext(2);
-    expect(result.synced).toBe(1);
+    expect(result.synced).toBe(3);
     expect(result.skipped).toBe(1);
   });
 });

@@ -103,7 +103,7 @@ def fetch_live_rides() -> list[dict]:
                 if ride.id in excluded:
                     continue
                 rides.append({
-                    "id": ride.id,
+                    "id": ride.id, "park_id": park["id"],
                     "name": ride.name,
                     "land_name": land.name,
                     "is_open": ride.is_open,
@@ -113,7 +113,7 @@ def fetch_live_rides() -> list[dict]:
             if ride.id in excluded:
                 continue
             rides.append({
-                "id": ride.id,
+                "id": ride.id, "park_id": park["id"],
                 "name": ride.name,
                 "land_name": "Other",
                 "is_open": ride.is_open,
@@ -125,9 +125,10 @@ def fetch_live_rides() -> list[dict]:
 def upsert_wait_records(conn, rides: list[dict], windowed_at: datetime, now: datetime) -> int:
     sql = """
         INSERT INTO "WaitTimeRecord"
-            (id, "rideId", "rideName", "landName", "waitTime", "isOpen", "windowedAt", "recordedAt")
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            (id, "rideId", "rideName", "landName", "parkId", "waitTime", "isOpen", "windowedAt", "recordedAt")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT ("rideId", "windowedAt") DO UPDATE SET
+            "parkId" = EXCLUDED."parkId",
             "waitTime" = EXCLUDED."waitTime",
             "isOpen" = EXCLUDED."isOpen",
             "recordedAt" = EXCLUDED."recordedAt"
@@ -135,7 +136,7 @@ def upsert_wait_records(conn, rides: list[dict], windowed_at: datetime, now: dat
     rows = [
         (
             str(uuid.uuid4()),
-            r["id"], r["name"], r["land_name"],
+            r["id"], r["name"], r["land_name"], r["park_id"],
             r["wait_time"], r["is_open"], windowed_at, now,
         )
         for r in rides

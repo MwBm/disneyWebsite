@@ -14,6 +14,7 @@ import { parkDateRangeUtc } from "@/lib/park-time";
 import { prisma } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
+import { DISNEYLAND_PARK_ID } from "@/lib/parks";
 
 /** Seconds the CDN may serve a cached forecast for a given date. */
 const CACHE_SECONDS = 1800;
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
     getCrowdScoreForDate(dateKey),
     getRecentCollectRuns(3),
     prisma.dateContext.findUnique({
-      where: { date },
+      where: { parkId_date: { parkId: DISNEYLAND_PARK_ID, date } },
       select: { groqAdjustment: true, groqReasoning: true },
     }),
   ]);

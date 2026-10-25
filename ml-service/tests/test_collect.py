@@ -19,8 +19,8 @@ def _ride(ride_id, name, wait=30, is_open=True):
 
 
 PARKS = [
-    {"queueTimesUrl": "https://queue-times.test/parks/16/queue_times.json", "excludedRideIds": [3]},
-    {"queueTimesUrl": "https://queue-times.test/parks/17/queue_times.json", "excludedRideIds": [12]},
+    {"id": 16, "queueTimesUrl": "https://queue-times.test/parks/16/queue_times.json", "excludedRideIds": [3]},
+    {"id": 17, "queueTimesUrl": "https://queue-times.test/parks/17/queue_times.json", "excludedRideIds": [12]},
 ]
 
 PAYLOADS = {
@@ -79,9 +79,9 @@ def test_fetch_live_rides_flattens_every_park_and_skips_excluded(queue_times):
     rides = fetch_live_rides()
 
     assert rides == [
-        {"id": 1, "name": "Space Mountain", "land_name": "Tomorrowland", "is_open": True, "wait_time": 45},
-        {"id": 2, "name": "Loose Ride", "land_name": "Other", "is_open": False, "wait_time": 10},
-        {"id": 11, "name": "Radiator Springs Racers", "land_name": "Cars Land", "is_open": True, "wait_time": 70},
+        {"id": 1, "park_id": 16, "name": "Space Mountain", "land_name": "Tomorrowland", "is_open": True, "wait_time": 45},
+        {"id": 2, "park_id": 16, "name": "Loose Ride", "land_name": "Other", "is_open": False, "wait_time": 10},
+        {"id": 11, "park_id": 17, "name": "Radiator Springs Racers", "land_name": "Cars Land", "is_open": True, "wait_time": 70},
     ]
 
 
@@ -132,7 +132,7 @@ def test_upsert_wait_records_row_shape(fake_db):
     conn = fake_db.connect("x")
     windowed_at = datetime(2026, 9, 13, 17, 0, tzinfo=timezone.utc)
     now = datetime(2026, 9, 13, 17, 2, tzinfo=timezone.utc)
-    rides = [{"id": 1, "name": "Space Mountain", "land_name": "Tomorrowland", "is_open": True, "wait_time": 45}]
+    rides = [{"id": 1, "park_id": 16, "name": "Space Mountain", "land_name": "Tomorrowland", "is_open": True, "wait_time": 45}]
 
     assert upsert_wait_records(conn, rides, windowed_at, now) == 1
 
@@ -141,7 +141,7 @@ def test_upsert_wait_records_row_shape(fake_db):
     assert "ON CONFLICT (\"rideId\", \"windowedAt\") DO UPDATE" in statement.sql
     [(row_id, *rest)] = statement.params
     uuid.UUID(row_id)
-    assert rest == [1, "Space Mountain", "Tomorrowland", 45, True, windowed_at, now]
+    assert rest == [1, "Space Mountain", "Tomorrowland", 16, 45, True, windowed_at, now]
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ def test_main_writes_wait_records_and_a_success_run(fake_db, queue_times):
     assert conn.events[-1] == "commit"
     [upsert] = [s for s in conn.statements if 'INSERT INTO "WaitTimeRecord"' in s.sql]
     assert len(upsert.params) == 3
-    windowed_at = upsert.params[0][6]
+    windowed_at = upsert.params[0][7]
     assert windowed_at.minute in (0, 30) and windowed_at.second == 0 and windowed_at.microsecond == 0
     [run] = fake_db.collect_runs()
     assert run["job"] == "collect"

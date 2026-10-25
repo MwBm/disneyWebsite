@@ -352,6 +352,7 @@ def predict_for_ride(
     slots: List[datetime],
     contexts: List[Optional[DateContext]],
     lag_features_list: List[Optional[LagFeatures]],
+    park_id: int = 16,
 ) -> List[RideForecast]:
     """Batch-predict all slots for one ride with a single XGBoost call.
 
@@ -370,7 +371,7 @@ def predict_for_ride(
     if tm.model is None:
         return [
             RideForecast(
-                ride_id=ride_id,
+                ride_id=ride_id, park_id=park_id,
                 predicted_wait=max(0, tm.hour_means.get(_park_time(slot).hour, tm.global_mean)),
                 confidence=tm.confidence,
             )
@@ -386,7 +387,7 @@ def predict_for_ride(
     )
     preds = np.clip(tm.model.predict(X), 0, 300).astype(int)
     return [
-        RideForecast(ride_id=ride_id, predicted_wait=int(p), confidence=tm.confidence)
+        RideForecast(ride_id=ride_id, park_id=park_id, predicted_wait=int(p), confidence=tm.confidence)
         for p in preds
     ]
 

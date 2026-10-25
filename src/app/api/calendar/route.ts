@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { addParkDays, dateContextDate, parkDateDow, parkDateKey } from "@/lib/park-time";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
+import { DISNEYLAND_PARK_ID } from "@/lib/parks";
 
 /** Seconds the CDN may serve a cached month. */
 const CACHE_SECONDS = 3600;
@@ -59,9 +60,9 @@ export async function GET(req: NextRequest) {
         if (groqDow.size > 0) {
           const today = dateContextDate(todayKey);
           await prisma.dateContext.upsert({
-            where: { date: today },
+            where: { parkId_date: { parkId: DISNEYLAND_PARK_ID, date: today } },
             update: { groqDowEstimate: Object.fromEntries(groqDow) },
-            create: { date: today, groqDowEstimate: Object.fromEntries(groqDow) },
+            create: { parkId: DISNEYLAND_PARK_ID, date: today, groqDowEstimate: Object.fromEntries(groqDow) },
           });
         }
       } catch (err) {

@@ -11,6 +11,7 @@ model WaitTimeRecord {
   rideId     Int
   rideName   String
   landName   String
+  parkId     Int      @default(16)
   waitTime   Int
   isOpen     Boolean
   windowedAt DateTime
@@ -19,6 +20,7 @@ model WaitTimeRecord {
   @@unique([rideId, windowedAt])
   @@index([rideId, recordedAt])
   @@index([recordedAt])
+  @@index([parkId, windowedAt])
 }
 
 model DailyForecast {
@@ -26,6 +28,7 @@ model DailyForecast {
   rideId        Int
   rideName      String
   landName      String
+  parkId        Int      @default(16)
   forecastFor   DateTime
   predictedWait Int
   crowdScore    Int
@@ -34,13 +37,15 @@ model DailyForecast {
 
   @@unique([rideId, forecastFor])
   @@index([forecastFor])
+  @@index([parkId, forecastFor])
 }
 
 // Stores per-date signals used to improve crowd score accuracy:
 // Disney ticket tier, holiday/school-break flags, weather forecast, and Groq adjustment.
 model DateContext {
   id              String    @id @default(uuid())
-  date            DateTime  @unique // midnight UTC for the local park date
+  date            DateTime // midnight UTC for the local park date
+  parkId          Int       @default(16)
   tier            Int?      // Disney ticket tier 0–5 (higher = pricier/busier)
   isHoliday       Boolean   @default(false)
   isSchoolBreak   Boolean   @default(false)
@@ -61,6 +66,7 @@ model DateContext {
 
   predictions     Prediction[]
 
+  @@unique([parkId, date])
   @@index([date])
 }
 
@@ -97,6 +103,8 @@ model CollectRun {
   rowsUpserted Int
   success      Boolean
   errorMessage String?
+
+  @@index([job, ranAt(sort: Desc)])
 }
 
 // Hourly aggregates of WaitTimeRecord after the 30-day raw retention window.
@@ -107,14 +115,96 @@ model HourlyWaitSummary {
   rideId      Int
   rideName    String
   landName    String
+  parkId      Int      @default(16)
   date        DateTime // midnight UTC of the park date
   hour        Int      // 0–23
   avgWait     Float
   peakWait    Int
   sampleCount Int
+  observedSampleCount Int @default(0)
+  openSampleCount Int @default(0)
   isOpen      Boolean
 
   @@unique([rideId, date, hour])
   @@index([rideId, date])
   @@index([date])
+  @@index([parkId, date])
+}
+
+// Current metadata for one Queue-Times attraction. This prevents new serving
+// tables from repeating mutable display strings in every fact row.
+model RideCatalog {
+  parkId    Int
+  rideId    Int
+  rideName  String
+  landName  String
+  isActive  Boolean  @default(true)
+  updatedAt DateTime @default(now())
+
+  @@id([parkId, rideId])
+}
+
+// One reproducible train/scoring run. `metrics` holds compact aggregate
+// validation results, never per-slot observations or model binaries.
+model ModelRun {
+  id             String   @id @default(uuid())
+  version        String
+  featureVersion String
+  trainedAt      DateTime @default(now())
+  trainingCutoff DateTime
+  metrics        Json?
+  parkDayForecasts ParkDayForecast[]
+  rideDayForecasts RideDayForecast[]
+  evaluations      ForecastEvaluation[]
+}
+
+// Fast calendar-serving projection, one row per park-local day.
+model ParkDayForecast {
+  id         String    @id @default(uuid())
+  parkId     Int
+  date       DateTime
+  crowdScore Int
+  modelRunId String?
+  modelRun   ModelRun? @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
+
+  @@unique([parkId, date])
+  @@index([date])
+}
+
+// Fast per-ride day-serving projection; slot records remain available only
+// for a selected ride's chart.
+model RideDayForecast {
+  id           String    @id @default(uuid())
+  parkId       Int
+  rideId       Int
+  date         DateTime
+  avgWait      Int
+  peakWait     Int
+  mlConfidence Float
+  modelRunId   String?
+  modelRun     ModelRun? @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+
+  @@unique([parkId, rideId, date])
+  @@index([parkId, date])
+}
+
+// A daily issued prediction is retained long enough to compare model versions
+// and forecast horizons without keeping every historical slot prediction.
+model ForecastEvaluation {
+  id               String   @id @default(uuid())
+  modelRunId       String
+  modelRun         ModelRun @relation(fields: [modelRunId], references: [id], onDelete: Cascade)
+  parkId           Int
+  rideId           Int
+  targetDate       DateTime
+  horizonBucket    String
+  predictedAvgWait Int
+  actualAvgWait    Int?
+  mae              Float?
+  createdAt        DateTime @default(now())
+
+  @@unique([modelRunId, parkId, rideId, targetDate])
+  @@index([targetDate])
 }

@@ -1,6 +1,7 @@
 import rideConfig from "./ride-config.json";
 
 export type ParkName = "Disneyland" | "Disney California Adventure";
+export type ParkId = 16 | 17;
 
 /**
  * Lands belonging to Disney California Adventure.
@@ -20,6 +21,8 @@ const DCA_LANDS: ReadonlySet<string> = new Set([
 
 export const DISNEYLAND: ParkName = "Disneyland";
 export const DCA: ParkName = "Disney California Adventure";
+export const DISNEYLAND_PARK_ID = 16 as const;
+export const DCA_PARK_ID = 17 as const;
 
 /**
  * Falls back to Disneyland for an unrecognised land — a newly opened land
@@ -27,6 +30,11 @@ export const DCA: ParkName = "Disney California Adventure";
  */
 export function getParkName(landName: string): ParkName {
   return DCA_LANDS.has(landName) ? DCA : DISNEYLAND;
+}
+
+/** Park identity for legacy rows that pre-date the explicit `parkId` column. */
+export function getParkId(landName: string): ParkId {
+  return DCA_LANDS.has(landName) ? DCA_PARK_ID : DISNEYLAND_PARK_ID;
 }
 
 /** Park display names as configured for data collection. */

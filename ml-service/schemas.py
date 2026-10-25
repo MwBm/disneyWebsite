@@ -28,6 +28,7 @@ class LagFeatures(BaseModel):
 
 class RideHistory(BaseModel):
     ride_id: int
+    park_id: int = 16
     ride_name: str
     land_name: str
     wait_time: int
@@ -39,5 +40,6 @@ class RideHistory(BaseModel):
 
 class RideForecast(BaseModel):
     ride_id: int
+    park_id: int = 16
     predicted_wait: int
     confidence: float

@@ -238,9 +238,9 @@ def build_hourly_summaries(
 def insert_summaries(conn, summaries: list[SummaryBucket], batch_size: int) -> int:
     sql = """
         INSERT INTO "HourlyWaitSummary"
-            (id, "rideId", "rideName", "landName", date, hour,
-             "avgWait", "peakWait", "sampleCount", "isOpen")
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (id, "parkId", "rideId", "rideName", "landName", date, hour,
+             "avgWait", "peakWait", "sampleCount", "observedSampleCount", "openSampleCount", "isOpen")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT ("rideId", date, hour) DO NOTHING
     """
     inserted = 0
@@ -253,6 +253,7 @@ def insert_summaries(conn, summaries: list[SummaryBucket], batch_size: int) -> i
                 [
                     (
                         str(uuid.uuid4()),
+                        DCA_PARK_ID,
                         b.ride_id,
                         b.ride_name,
                         b.land_name,
@@ -260,6 +261,8 @@ def insert_summaries(conn, summaries: list[SummaryBucket], batch_size: int) -> i
                         b.hour,
                         b.avg_wait,
                         b.peak_wait,
+                        b.sample_count,
+                        b.sample_count,
                         b.sample_count,
                         True,
                     )

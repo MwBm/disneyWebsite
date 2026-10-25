@@ -46,29 +46,29 @@ def _make_mock_conn(fetchall_rows):
 
 def test_fetch_date_contexts_returns_keyed_dict():
     rows = [
-        (date(2026, 6, 1), 3, None, True, False, 82.0, 60.0, 0.0, False),
-        (date(2026, 6, 2), 0, "Oogie Boogie", False, True, None, None, 3.2, None),
+        (16, date(2026, 6, 1), 3, None, True, False, 82.0, 60.0, 0.0, False),
+        (17, date(2026, 6, 2), 0, "Oogie Boogie", False, True, None, None, 3.2, None),
     ]
     conn = _make_mock_conn(rows)
     dates = [
-        datetime(2026, 6, 1, 19, 0, tzinfo=timezone.utc),
-        datetime(2026, 6, 2, 19, 0, tzinfo=timezone.utc),
+        (16, datetime(2026, 6, 1, 19, 0, tzinfo=timezone.utc)),
+        (17, datetime(2026, 6, 2, 19, 0, tzinfo=timezone.utc)),
     ]
     result = fetch_date_contexts(conn, dates)
 
-    assert "2026-06-01" in result
-    assert result["2026-06-01"].tier == 3
-    assert result["2026-06-01"].is_holiday is True
-    assert result["2026-06-01"].temp_high == 82.0
-    assert result["2026-06-01"].temp_low == 60.0
-    assert result["2026-06-01"].precip_mm == pytest.approx(0.0)
-    assert result["2026-06-01"].is_rainy is False
+    assert (16, "2026-06-01") in result
+    assert result[(16, "2026-06-01")].tier == 3
+    assert result[(16, "2026-06-01")].is_holiday is True
+    assert result[(16, "2026-06-01")].temp_high == 82.0
+    assert result[(16, "2026-06-01")].temp_low == 60.0
+    assert result[(16, "2026-06-01")].precip_mm == pytest.approx(0.0)
+    assert result[(16, "2026-06-01")].is_rainy is False
 
-    assert "2026-06-02" in result
-    assert result["2026-06-02"].has_special_event is True
-    assert result["2026-06-02"].temp_high is None
-    assert result["2026-06-02"].precip_mm == pytest.approx(3.2)
-    assert result["2026-06-02"].is_rainy is False  # None → default False
+    assert (17, "2026-06-02") in result
+    assert result[(17, "2026-06-02")].has_special_event is True
+    assert result[(17, "2026-06-02")].temp_high is None
+    assert result[(17, "2026-06-02")].precip_mm == pytest.approx(3.2)
+    assert result[(17, "2026-06-02")].is_rainy is False  # None → default False
 
 
 def test_fetch_date_contexts_empty_dates_returns_empty():
@@ -238,11 +238,11 @@ def test_upsert_forecasts_no_delete_step():
     conn.cursor.return_value = cursor
 
     slot = datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)
-    fake_forecast = RideForecast(ride_id=1, predicted_wait=30, confidence=0.8)
-    ride_meta = {1: {"name": "Test Ride", "land_name": "Land"}}
+    fake_forecast = RideForecast(park_id=16, ride_id=1, predicted_wait=30, confidence=0.8)
+    ride_meta = {(16, 1): {"name": "Test Ride", "land_name": "Land"}}
 
     with pytest.raises(Exception, match="simulated DB failure"):
-        upsert_forecasts(conn, [(slot, [fake_forecast], 50)], ride_meta)
+        upsert_forecasts(conn, [(slot, [fake_forecast], {16: 50})], ride_meta)
 
     # Critical: cursor.execute (single SQL call) was never called — no DELETE issued.
     # Only executemany (the INSERT ... ON CONFLICT) was attempted, and it failed.
@@ -281,8 +281,8 @@ def test_cross_ride_profile_averages_by_park_hour():
     )
     profile = compute_cross_ride_profile(morning + afternoon)
 
-    assert profile[7][0] == pytest.approx(0.25)
-    assert profile[15][0] == pytest.approx(1.0)
+    assert profile[(16, 7)][0] == pytest.approx(0.25)
+    assert profile[(16, 15)][0] == pytest.approx(1.0)
 
 
 def test_cross_ride_profile_ignores_records_without_lag_features():
@@ -296,16 +296,16 @@ def test_impute_uses_training_mean_not_a_constant_one():
     """Training saw 0.25 open at 7am, so prediction must not send 1.0."""
     from pipeline import _impute_cross_ride
 
-    profile = {7: (0.25, 0.0), 15: (1.0, 1.0)}
-    assert _impute_cross_ride(profile, 7) == (0.25, 0.0)
-    assert _impute_cross_ride(profile, 15) == (1.0, 1.0)
+    profile = {(16, 7): (0.25, 0.0), (16, 15): (1.0, 1.0)}
+    assert _impute_cross_ride(profile, 16, 7) == (0.25, 0.0)
+    assert _impute_cross_ride(profile, 16, 15) == (1.0, 1.0)
 
 
 def test_impute_falls_back_to_overall_mean_for_an_unseen_hour():
     from pipeline import _impute_cross_ride
 
-    profile = {10: (0.5, 0.0), 14: (1.0, 1.0)}
-    pct, headliner = _impute_cross_ride(profile, 23)
+    profile = {(16, 10): (0.5, 0.0), (16, 14): (1.0, 1.0)}
+    pct, headliner = _impute_cross_ride(profile, 16, 23)
     assert pct == pytest.approx(0.75)
     assert headliner == pytest.approx(0.5)
 
@@ -313,9 +313,9 @@ def test_impute_falls_back_to_overall_mean_for_an_unseen_hour():
 def test_impute_without_a_profile_returns_neutral_constants():
     from pipeline import _impute_cross_ride
 
-    pct, _ = _impute_cross_ride(None, 12)
+    pct, _ = _impute_cross_ride(None, 16, 12)
     assert pct == pytest.approx(1.0)
-    assert _impute_cross_ride({}, 12)[0] == pytest.approx(1.0)
+    assert _impute_cross_ride({}, 16, 12)[0] == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +345,7 @@ def test_prediction_lags_keep_unavailable_future_history_missing():
     conn = _make_mock_conn([])
     # 19:00 UTC is noon Pacific in June, so this has a stable park-local hour.
     slot = datetime(2026, 6, 16, 19, 0, tzinfo=timezone.utc)
-    lag = build_prediction_lag_features(conn, [1], [slot])[(1, "2026-06-16", 12)]
+    lag = build_prediction_lag_features(conn, [(16, 1)], [slot])[(16, 1, "2026-06-16", 12)]
 
     assert math.isnan(lag.lag_7d_wait)
     assert math.isnan(lag.lag_14d_wait)
@@ -360,12 +360,12 @@ def test_prediction_lags_read_recent_raw_history():
     cursor = MagicMock()
     cursor.__enter__ = lambda s: s
     cursor.__exit__ = MagicMock(return_value=False)
-    cursor.fetchall.side_effect = [[], [(1, date(2026, 6, 1), 12, 37.0)]]
+    cursor.fetchall.side_effect = [[], [(16, 1, date(2026, 6, 1), 12, 37.0)]]
     conn = MagicMock()
     conn.cursor.return_value = cursor
 
     slot = datetime(2026, 6, 8, 19, 0, tzinfo=timezone.utc)
-    lag = build_prediction_lag_features(conn, [1], [slot])[(1, "2026-06-08", 12)]
+    lag = build_prediction_lag_features(conn, [(16, 1)], [slot])[(16, 1, "2026-06-08", 12)]
 
     assert lag.lag_7d_wait == pytest.approx(37.0)
     assert "WaitTimeRecord" in cursor.execute.call_args_list[1].args[0]
@@ -490,22 +490,22 @@ def test_build_forecast_slots_on_dst_days_has_32_unique_open_slots(day, first_sl
 # generate_forecasts
 # ---------------------------------------------------------------------------
 
-RAW_KEY = 'SELECT "rideId", "waitTime", "isOpen", "recordedAt" FROM "WaitTimeRecord"'
-ARCHIVE_KEY = 'SELECT "rideId", "avgWait", "isOpen", date::date, hour FROM "HourlyWaitSummary"'
-NAMES_KEY = 'SELECT DISTINCT ON ("rideId")'
+RAW_KEY = 'SELECT "parkId", "rideId", "waitTime", "isOpen", "windowedAt" FROM "WaitTimeRecord"'
+ARCHIVE_KEY = 'SELECT "parkId", "rideId", "avgWait", "isOpen", date::date, hour FROM "HourlyWaitSummary"'
+NAMES_KEY = 'SELECT DISTINCT ON ("parkId", "rideId")'
 
 
 def _raw_history_rows(ride_ids, now, n_per_ride=12):
-    """Rows shaped like RAW_HISTORY_SQL: rideId, waitTime, isOpen, recordedAt (naive UTC)."""
+    """Rows shaped like RAW_HISTORY_SQL: parkId, rideId, waitTime, isOpen, windowedAt (naive UTC)."""
     return [
-        (rid, 20 + i, True, (now - timedelta(days=i + 1)).replace(tzinfo=None))
+        (16, rid, 20 + i, True, (now - timedelta(days=i + 1)).replace(tzinfo=None))
         for rid in ride_ids
         for i in range(n_per_ride)
     ]
 
 
 def _names(ride_ids):
-    return [(rid, f"Ride {rid}", "Land") for rid in ride_ids]
+    return [(16, rid, f"Ride {rid}", "Land") for rid in ride_ids]
 
 
 # ---------------------------------------------------------------------------
@@ -516,9 +516,9 @@ def test_training_history_joins_names_onto_id_only_rows(fake_db):
     from pipeline import fetch_training_history
 
     raw_at = datetime(2026, 9, 1, 19, 0)
-    fake_db.results[NAMES_KEY] = [(1, "Soarin' Around the World", "Grizzly Peak"), (2, "Matterhorn", "Fantasyland")]
-    fake_db.results[RAW_KEY] = [(1, 45, True, raw_at)]
-    fake_db.results[ARCHIVE_KEY] = [(2, 32.6, False, date(2026, 7, 4), 14)]
+    fake_db.results[NAMES_KEY] = [(17, 1, "Soarin' Around the World", "Grizzly Peak"), (16, 2, "Matterhorn", "Fantasyland")]
+    fake_db.results[RAW_KEY] = [(17, 1, 45, True, raw_at)]
+    fake_db.results[ARCHIVE_KEY] = [(16, 2, 32.6, False, date(2026, 7, 4), 14)]
     conn = fake_db.connect("x")
 
     raw, archived = fetch_training_history(conn)
@@ -551,10 +551,10 @@ def test_training_history_reads_all_raw_rows_and_no_names_per_row(fake_db):
 def test_hourly_archive_hour_in_the_repeated_fall_back_hour_resolves_to_daylight_time(fake_db):
     from pipeline import fetch_hourly_archive
 
-    fake_db.results[ARCHIVE_KEY] = [(1, 10.0, True, date(2026, 11, 1), 1)]
+    fake_db.results[ARCHIVE_KEY] = [(16, 1, 10.0, True, date(2026, 11, 1), 1)]
     conn = fake_db.connect("x")
 
-    [record] = fetch_hourly_archive(conn, {1: ("R", "L")})
+    [record] = fetch_hourly_archive(conn, {(16, 1): ("R", "L")})
     # fold=0: the first 01:00, still PDT (UTC-7).
     assert record.recorded_at == datetime(2026, 11, 1, 8, 0, tzinfo=timezone.utc)
 
@@ -609,9 +609,10 @@ def test_generate_forecasts_upserts_one_row_per_ride_per_slot_without_committing
     [upsert] = [s for s in conn.statements if 'INSERT INTO "DailyForecast"' in s.sql]
     assert upsert.many is True
     assert written == len(upsert.params) == 2 * len(slots)
-    assert {row[1] for row in upsert.params} == {1, 2}
-    assert {row[4] for row in upsert.params} == set(slots)
-    assert all(row[2] in ("Ride 1", "Ride 2") and row[3] == "Land" for row in upsert.params)
+    assert {row[1] for row in upsert.params} == {16}
+    assert {row[2] for row in upsert.params} == {1, 2}
+    assert {row[5] for row in upsert.params} == set(slots)
+    assert all(row[3] in ("Ride 1", "Ride 2") and row[4] == "Land" for row in upsert.params)
     # Writing is the last statement, and committing is the caller's job.
     assert conn.statements[-1] is upsert
     assert "commit" not in conn.events

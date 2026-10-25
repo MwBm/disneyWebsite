@@ -51,58 +51,64 @@ def build_forecast_slots(now: datetime, days: int = 1) -> list[datetime]:
     return slots
 
 
-# The training reads carry ride IDs only; names would be ~45% of the bytes.
-# RIDE_NAMES_SQL returns one name row per ride instead.
-RAW_HISTORY_SQL = 'SELECT "rideId", "waitTime", "isOpen", "recordedAt" FROM "WaitTimeRecord"'
+# The training reads carry only stable identifiers and measurements; names are
+# loaded once per (park, ride) pair. `windowedAt`, not collection time, is the
+# canonical observation slot used by predictions and accuracy joins.
+RAW_HISTORY_SQL = 'SELECT "parkId", "rideId", "waitTime", "isOpen", "windowedAt" FROM "WaitTimeRecord"'
 
 ARCHIVE_HISTORY_SQL = """
-    SELECT "rideId", "avgWait", "isOpen", date::date, hour
+    SELECT "parkId", "rideId", "avgWait", "isOpen", date::date, hour
     FROM "HourlyWaitSummary"
     WHERE date >= NOW() - INTERVAL '3 years'
 """
 
 # Latest name per ride across both tables; five rides have been renamed.
 RIDE_NAMES_SQL = """
-    SELECT DISTINCT ON ("rideId") "rideId", "rideName", "landName"
+    SELECT DISTINCT ON ("parkId", "rideId") "parkId", "rideId", "rideName", "landName"
     FROM (
-        SELECT "rideId", "rideName", "landName", "windowedAt" AS seen_at FROM "WaitTimeRecord"
+        SELECT "parkId", "rideId", "rideName", "landName", "windowedAt" AS seen_at FROM "WaitTimeRecord"
         UNION ALL
-        SELECT "rideId", "rideName", "landName", date + make_interval(hours => hour) FROM "HourlyWaitSummary"
+        SELECT "parkId", "rideId", "rideName", "landName", date + make_interval(hours => hour) FROM "HourlyWaitSummary"
     ) AS sightings
-    ORDER BY "rideId", seen_at DESC
+    ORDER BY "parkId", "rideId", seen_at DESC
 """
 
 
-def fetch_ride_names(conn) -> dict[int, tuple[str, str]]:
-    """rideId -> (rideName, landName), the most recently seen pair."""
+def fetch_ride_names(conn) -> dict[tuple[int, int], tuple[str, str]]:
+    """(parkId, rideId) -> (rideName, landName), using the newest sighting."""
     with conn.cursor() as cur:
         cur.execute(RIDE_NAMES_SQL)
-        return {ride_id: (ride_name, land_name) for ride_id, ride_name, land_name in cur.fetchall()}
+        return {
+            (park_id, ride_id): (ride_name, land_name)
+            for park_id, ride_id, ride_name, land_name in cur.fetchall()
+        }
 
 
-def fetch_raw_history(conn, names: dict[int, tuple[str, str]]) -> list[RideHistory]:
+def fetch_raw_history(conn, names: dict[tuple[int, int], tuple[str, str]]) -> list[RideHistory]:
     with conn.cursor() as cur:
         cur.execute(RAW_HISTORY_SQL)
         return [
             RideHistory(
-                ride_id=ride_id, ride_name=names[ride_id][0], land_name=names[ride_id][1],
-                wait_time=wait_time, is_open=is_open, recorded_at=as_utc(recorded_at),
+                park_id=park_id, ride_id=ride_id,
+                ride_name=names[(park_id, ride_id)][0], land_name=names[(park_id, ride_id)][1],
+                wait_time=wait_time, is_open=is_open, recorded_at=as_utc(windowed_at),
             )
-            for ride_id, wait_time, is_open, recorded_at in cur.fetchall()
+            for park_id, ride_id, wait_time, is_open, windowed_at in cur.fetchall()
         ]
 
 
-def fetch_hourly_archive(conn, names: dict[int, tuple[str, str]]) -> list[RideHistory]:
+def fetch_hourly_archive(conn, names: dict[tuple[int, int], tuple[str, str]]) -> list[RideHistory]:
     """HourlyWaitSummary rows; each stands for one Pacific-local hour, rebuilt as UTC."""
     with conn.cursor() as cur:
         cur.execute(ARCHIVE_HISTORY_SQL)
         return [
             RideHistory(
-                ride_id=ride_id, ride_name=names[ride_id][0], land_name=names[ride_id][1],
+                park_id=park_id, ride_id=ride_id,
+                ride_name=names[(park_id, ride_id)][0], land_name=names[(park_id, ride_id)][1],
                 wait_time=round(avg_wait), is_open=is_open,
                 recorded_at=datetime.combine(park_date, time(hour), tzinfo=PARK_TZ).astimezone(timezone.utc),
             )
-            for ride_id, avg_wait, is_open, park_date, hour in cur.fetchall()
+            for park_id, ride_id, avg_wait, is_open, park_date, hour in cur.fetchall()
         ]
 
 
@@ -128,11 +134,11 @@ def compute_lag_features(history: list[RideHistory]) -> list[RideHistory]:
     Uses Python dict lookups rather than SQL LAG() to correctly handle gaps
     (closed days, missing data) without producing wrong values.
     """
-    # (ride_id, date_str_pacific, hour) -> avg_wait
-    lookup: dict[tuple[int, str, int], float] = {}
+    # (park_id, ride_id, date_str_pacific, hour) -> avg_wait
+    lookup: dict[tuple[int, int, str, int], float] = {}
     for r in history:
         pdt = r.recorded_at.astimezone(PARK_TZ)
-        key = (r.ride_id, pdt.strftime("%Y-%m-%d"), pdt.hour)
+        key = (r.park_id, r.ride_id, pdt.strftime("%Y-%m-%d"), pdt.hour)
         lookup[key] = r.wait_time
 
     enriched: list[RideHistory] = []
@@ -141,13 +147,13 @@ def compute_lag_features(history: list[RideHistory]) -> list[RideHistory]:
         d = pdt.date()
         h = pdt.hour
 
-        lag_7d = lookup.get((r.ride_id, str(d - timedelta(days=7)), h), float("nan"))
-        lag_14d = lookup.get((r.ride_id, str(d - timedelta(days=14)), h), float("nan"))
+        lag_7d = lookup.get((r.park_id, r.ride_id, str(d - timedelta(days=7)), h), float("nan"))
+        lag_14d = lookup.get((r.park_id, r.ride_id, str(d - timedelta(days=14)), h), float("nan"))
 
         # 7-day rolling mean/std: average over same hour for prior 7 calendar days
         week_waits: list[float] = []
         for days_back in range(1, 8):
-            w = lookup.get((r.ride_id, str(d - timedelta(days=days_back)), h))
+            w = lookup.get((r.park_id, r.ride_id, str(d - timedelta(days=days_back)), h))
             if w is not None:
                 week_waits.append(w)
 
@@ -181,7 +187,7 @@ def attach_cross_ride_features(
     """Compute pct_rides_open and is_headliner_open from concurrent records."""
     slot_stats: dict = defaultdict(lambda: {"open": 0, "total": 0, "headliner_open": False})
     for r in history:
-        slot = r.recorded_at.astimezone(PARK_TZ).replace(minute=0, second=0, microsecond=0)
+        slot = (r.park_id, r.recorded_at.astimezone(PARK_TZ).replace(minute=0, second=0, microsecond=0))
         slot_stats[slot]["total"] += 1
         if r.is_open:
             slot_stats[slot]["open"] += 1
@@ -190,7 +196,7 @@ def attach_cross_ride_features(
 
     enriched: list[RideHistory] = []
     for r in history:
-        slot = r.recorded_at.astimezone(PARK_TZ).replace(minute=0, second=0, microsecond=0)
+        slot = (r.park_id, r.recorded_at.astimezone(PARK_TZ).replace(minute=0, second=0, microsecond=0))
         stats = slot_stats[slot]
         total = stats["total"]
         pct_open = stats["open"] / total if total > 0 else 1.0
@@ -208,8 +214,8 @@ def attach_cross_ride_features(
 
 def compute_cross_ride_profile(
     history: list[RideHistory],
-) -> dict[int, tuple[float, float]]:
-    """Park hour -> (mean pct_rides_open, mean is_headliner_open) seen in training.
+) -> dict[tuple[int, int], tuple[float, float]]:
+    """(park ID, park hour) -> availability profile observed in training.
 
     Future slots have no live open/closed data, so the prediction path has to
     impute these two features. Imputing a constant 1.0 feeds the model a value
@@ -220,13 +226,13 @@ def compute_cross_ride_profile(
 
     Requires history already enriched by attach_cross_ride_features.
     """
-    by_hour: dict[int, list[tuple[float, float]]] = defaultdict(list)
+    by_hour: dict[tuple[int, int], list[tuple[float, float]]] = defaultdict(list)
     for r in history:
         lag = r.lag_features
         if lag is None:
             continue
         hour = r.recorded_at.astimezone(PARK_TZ).hour
-        by_hour[hour].append((lag.pct_rides_open, lag.is_headliner_open))
+        by_hour[(r.park_id, hour)].append((lag.pct_rides_open, lag.is_headliner_open))
 
     return {
         hour: (
@@ -237,36 +243,43 @@ def compute_cross_ride_profile(
     }
 
 
-def fetch_date_contexts(conn, dates: list[datetime]) -> dict[str, DateContext]:
-    unique_strs = list({park_date_key(d) for d in dates})
-    if not unique_strs:
+def fetch_date_contexts(
+    conn,
+    park_dates: list[tuple[int, datetime]],
+) -> dict[tuple[int, str], DateContext]:
+    """Fetch contexts keyed by the park and Pacific-local date they describe."""
+    unique_strs = list({park_date_key(d) for _, d in park_dates})
+    park_ids = list({park_id for park_id, _ in park_dates})
+    if not unique_strs or not park_ids:
         return {}
     sql = """
-        SELECT date::date, tier, "specialEvent", "isHoliday", "isSchoolBreak",
+        SELECT "parkId", date::date, tier, "specialEvent", "isHoliday", "isSchoolBreak",
                "tempHigh", "tempLow", "precipMm", "isRainy"
         FROM "DateContext"
         WHERE date::date = ANY(%s)
+          AND "parkId" = ANY(%s)
     """
-    result: dict[str, DateContext] = {}
+    result: dict[tuple[int, str], DateContext] = {}
     with conn.cursor() as cur:
-        cur.execute(sql, (unique_strs,))
+        cur.execute(sql, (unique_strs, park_ids))
         for row in cur.fetchall():
-            key = row[0].strftime("%Y-%m-%d")
-            result[key] = DateContext(
-                tier=row[1] or 0,
-                has_special_event=bool(row[2]),
-                is_holiday=bool(row[3]),
-                is_school_break=bool(row[4]),
-                temp_high=float(row[5]) if row[5] is not None else None,
-                temp_low=float(row[6]) if row[6] is not None else None,
-                precip_mm=float(row[7]) if row[7] is not None else 0.0,
-                is_rainy=bool(row[8]) if row[8] is not None else False,
+            park_id, date_value = row[0], row[1]
+            result[(park_id, date_value.strftime("%Y-%m-%d"))] = DateContext(
+                tier=row[2] or 0,
+                has_special_event=bool(row[3]),
+                is_holiday=bool(row[4]),
+                is_school_break=bool(row[5]),
+                temp_high=float(row[6]) if row[6] is not None else None,
+                temp_low=float(row[7]) if row[7] is not None else None,
+                precip_mm=float(row[8]) if row[8] is not None else 0.0,
+                is_rainy=bool(row[9]) if row[9] is not None else False,
             )
     return result
 
 
 def _impute_cross_ride(
-    profile: dict[int, tuple[float, float]] | None,
+    profile: dict[tuple[int, int], tuple[float, float]] | None,
+    park_id: int,
     hour: int,
 ) -> tuple[float, float]:
     """Cross-ride feature values for a future slot at `hour`.
@@ -277,20 +290,22 @@ def _impute_cross_ride(
     """
     if not profile:
         return 1.0, 1.0 if HEADLINER_RIDE_IDS else 0.0
-    if hour in profile:
-        return profile[hour]
+    if (park_id, hour) in profile:
+        return profile[(park_id, hour)]
+    park_values = [values for (profile_park_id, _), values in profile.items() if profile_park_id == park_id]
+    values = park_values or list(profile.values())
     return (
-        float(np.mean([p for p, _ in profile.values()])),
-        float(np.mean([h for _, h in profile.values()])),
+        float(np.mean([p for p, _ in values])),
+        float(np.mean([h for _, h in values])),
     )
 
 
 def build_prediction_lag_features(
     conn,
-    ride_ids: list[int],
+    ride_keys: list[tuple[int, int]],
     slots: list[datetime],
-    cross_ride_profile: dict[int, tuple[float, float]] | None = None,
-) -> dict[tuple[int, str, int], LagFeatures]:
+    cross_ride_profile: dict[tuple[int, int], tuple[float, float]] | None = None,
+) -> dict[tuple[int, int, str, int], LagFeatures]:
     """Fetch available historical lag features for future prediction slots.
 
     For each (ride_id, slot), looks up the 7-day and 14-day prior waits and
@@ -307,7 +322,7 @@ def build_prediction_lag_features(
     neutral constants, which is the skew this parameter exists to avoid — so
     production callers should always pass it.
     """
-    if not ride_ids or not slots:
+    if not ride_keys or not slots:
         return {}
 
     park_slots = [s.astimezone(PARK_TZ) for s in slots]
@@ -318,51 +333,55 @@ def build_prediction_lag_features(
         for days_back in range(1, 15):
             dates_needed.add(str(d - timedelta(days=days_back)))
 
+    park_ids = list({park_id for park_id, _ in ride_keys})
+    ride_ids = list({ride_id for _, ride_id in ride_keys})
     archive_sql = """
-        SELECT "rideId", date::date, hour, "avgWait"
+        SELECT "parkId", "rideId", date::date, hour, "avgWait"
         FROM "HourlyWaitSummary"
         WHERE date::date = ANY(%s)
           AND "rideId" = ANY(%s)
+          AND "parkId" = ANY(%s)
     """
     raw_sql = """
         SELECT
-            "rideId",
+            "parkId", "rideId",
             ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
             EXTRACT(HOUR FROM ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles'))::int AS hour,
             AVG("waitTime")::float AS "avgWait"
         FROM "WaitTimeRecord"
         WHERE "rideId" = ANY(%s)
+          AND "parkId" = ANY(%s)
           AND ("windowedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date = ANY(%s)
-        GROUP BY 1, 2, 3
+        GROUP BY 1, 2, 3, 4
     """
-    lookup: dict[tuple[int, str, int], float] = {}
+    lookup: dict[tuple[int, int, str, int], float] = {}
     with conn.cursor() as cur:
-        cur.execute(archive_sql, (list(dates_needed), ride_ids))
+        cur.execute(archive_sql, (list(dates_needed), ride_ids, park_ids))
         for row in cur.fetchall():
-            ride_id, d, hour, avg_wait = row
-            lookup[(ride_id, str(d), hour)] = float(avg_wait)
-        cur.execute(raw_sql, (ride_ids, list(dates_needed)))
+            park_id, ride_id, d, hour, avg_wait = row
+            lookup[(park_id, ride_id, str(d), hour)] = float(avg_wait)
+        cur.execute(raw_sql, (ride_ids, park_ids, list(dates_needed)))
         for row in cur.fetchall():
-            ride_id, d, hour, avg_wait = row
-            lookup[(ride_id, str(d), hour)] = float(avg_wait)
+            park_id, ride_id, d, hour, avg_wait = row
+            lookup[(park_id, ride_id, str(d), hour)] = float(avg_wait)
 
-    result: dict[tuple[int, str, int], LagFeatures] = {}
+    result: dict[tuple[int, int, str, int], LagFeatures] = {}
     for ps in park_slots:
         date_str = ps.strftime("%Y-%m-%d")
         d = ps.date()
         h = ps.hour
-        for ride_id in ride_ids:
-            lag_7d = lookup.get((ride_id, str(d - timedelta(days=7)), h), float("nan"))
-            lag_14d = lookup.get((ride_id, str(d - timedelta(days=14)), h), float("nan"))
+        for park_id, ride_id in ride_keys:
+            lag_7d = lookup.get((park_id, ride_id, str(d - timedelta(days=7)), h), float("nan"))
+            lag_14d = lookup.get((park_id, ride_id, str(d - timedelta(days=14)), h), float("nan"))
             week_waits = [
-                lookup[(ride_id, str(d - timedelta(days=db)), h)]
+                lookup[(park_id, ride_id, str(d - timedelta(days=db)), h)]
                 for db in range(1, 8)
-                if (ride_id, str(d - timedelta(days=db)), h) in lookup
+                if (park_id, ride_id, str(d - timedelta(days=db)), h) in lookup
             ]
             rolling_mean = float(np.mean(week_waits)) if week_waits else float("nan")
             rolling_std = float(np.std(week_waits)) if week_waits else float("nan")
-            pct_open, headliner_open = _impute_cross_ride(cross_ride_profile, h)
-            result[(ride_id, date_str, h)] = LagFeatures(
+            pct_open, headliner_open = _impute_cross_ride(cross_ride_profile, park_id, h)
+            result[(park_id, ride_id, date_str, h)] = LagFeatures(
                 lag_7d_wait=lag_7d,
                 lag_14d_wait=lag_14d,
                 rolling_7d_mean=rolling_mean,
@@ -376,16 +395,17 @@ def build_prediction_lag_features(
 
 def upsert_forecasts(
     conn,
-    forecasts_per_slot: list[tuple[datetime, list, int]],
-    ride_meta: dict[int, dict],
+    forecasts_per_slot: list[tuple[datetime, list[RideForecast], dict[int, int]]],
+    ride_meta: dict[tuple[int, int], dict],
 ) -> int:
     """Upsert DailyForecast rows — ON CONFLICT updates existing rows in place."""
     sql = """
         INSERT INTO "DailyForecast"
-            (id, "rideId", "rideName", "landName", "forecastFor",
+            (id, "parkId", "rideId", "rideName", "landName", "forecastFor",
              "predictedWait", "crowdScore", "mlConfidence", "createdAt")
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT ("rideId", "forecastFor") DO UPDATE SET
+            "parkId"       = EXCLUDED."parkId",
             "predictedWait" = EXCLUDED."predictedWait",
             "crowdScore"    = EXCLUDED."crowdScore",
             "mlConfidence"  = EXCLUDED."mlConfidence",
@@ -393,15 +413,15 @@ def upsert_forecasts(
     """
     now = datetime.now(timezone.utc)
     rows = []
-    for slot, ride_forecasts, crowd_score in forecasts_per_slot:
+    for slot, ride_forecasts, crowd_scores in forecasts_per_slot:
         for f in ride_forecasts:
-            meta = ride_meta.get(f.ride_id)
+            meta = ride_meta.get((f.park_id, f.ride_id))
             if not meta:
                 continue
             rows.append((
                 str(uuid.uuid4()),
-                f.ride_id, meta["name"], meta["land_name"],
-                slot, f.predicted_wait, crowd_score, f.confidence, now,
+                f.park_id, f.ride_id, meta["name"], meta["land_name"],
+                slot, f.predicted_wait, crowd_scores[f.park_id], f.confidence, now,
             ))
     if not rows:
         return 0
@@ -433,9 +453,9 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
     history = fetch_training_history(conn)
     logger.info("Loaded %d training records", len(history))
 
-    training_contexts = fetch_date_contexts(conn, [r.recorded_at for r in history])
+    training_contexts = fetch_date_contexts(conn, [(r.park_id, r.recorded_at) for r in history])
     history = [
-        r.model_copy(update={"context": training_contexts.get(park_date_key(r.recorded_at), DateContext())})
+        r.model_copy(update={"context": training_contexts.get((r.park_id, park_date_key(r.recorded_at)), DateContext())})
         for r in history
     ]
 
@@ -443,12 +463,17 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
     headliner_ids = resolve_headliner_ids(history)
     history = attach_cross_ride_features(history, headliner_ids)
     cross_ride_profile = compute_cross_ride_profile(history)
-    crowd_calibration = build_crowd_calibration(history, headliner_ids)
+    park_calibrations = {
+        park_id: build_crowd_calibration(
+            [r for r in history if r.park_id == park_id], headliner_ids
+        )
+        for park_id in {r.park_id for r in history}
+    }
     logger.info("Resolved %d headliner rides", len(headliner_ids))
     logger.info(
         "Crowd calibration anchors (P%s): %s",
         "/P".join(str(int(p)) for p in CROWD_CALIBRATION_PERCENTILES),
-        crowd_calibration.anchors,
+        {park_id: calibration.anchors for park_id, calibration in park_calibrations.items()},
     )
 
     trained_models = train_ride_models(history)
@@ -458,40 +483,60 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
         )
     logger.info("Trained %d ride models", len(trained_models))
 
-    ride_meta: dict[int, dict] = {}
+    ride_meta: dict[tuple[int, int], dict] = {}
     for r in history:
-        if r.ride_id not in ride_meta:
-            ride_meta[r.ride_id] = {"name": r.ride_name, "land_name": r.land_name}
+        ride_meta.setdefault(
+            (r.park_id, r.ride_id),
+            {"name": r.ride_name, "land_name": r.land_name},
+        )
 
-    date_contexts = fetch_date_contexts(conn, slots)
+    ride_keys = list(ride_meta)
+    date_contexts = fetch_date_contexts(
+        conn,
+        [(park_id, slot) for park_id, _ in ride_keys for slot in slots],
+    )
     lag_map = build_prediction_lag_features(
-        conn, list(trained_models.keys()), slots, cross_ride_profile
+        conn, ride_keys, slots, cross_ride_profile
     )
 
     # One XGBoost call per ride covers every slot.
-    contexts_list = [date_contexts.get(park_date_key(s)) for s in slots]
-    all_ride_forecasts: dict[tuple[int, datetime], RideForecast] = {}
+    all_ride_forecasts: dict[tuple[int, int, datetime], RideForecast] = {}
     for ride_id, tm in trained_models.items():
+        # Queue-Times IDs are globally unique today. Park scope is still
+        # carried everywhere after this point to make that an implementation
+        # detail rather than an accidental product assumption.
+        matching_keys = [key for key in ride_keys if key[1] == ride_id]
+        if len(matching_keys) != 1:
+            raise RuntimeError(f"ambiguous park mapping for ride ID {ride_id}")
+        park_id, _ = matching_keys[0]
         lags_list = [
-            lag_map.get((ride_id, park_date_key(s), park_hour(s)), LagFeatures())
+            lag_map.get((park_id, ride_id, park_date_key(s), park_hour(s)), LagFeatures())
             for s in slots
         ]
-        for slot, f in zip(slots, predict_for_ride(tm, ride_id, slots, contexts_list, lags_list)):
-            all_ride_forecasts[(ride_id, slot)] = f
+        contexts_list = [date_contexts.get((park_id, park_date_key(s))) for s in slots]
+        for slot, f in zip(
+            slots,
+            predict_for_ride(tm, ride_id, slots, contexts_list, lags_list, park_id),
+        ):
+            all_ride_forecasts[(park_id, ride_id, slot)] = f
 
     forecasts_per_slot = []
     for slot in slots:
-        ctx = date_contexts.get(park_date_key(slot))
         slot_forecasts = [
-            all_ride_forecasts[(rid, slot)]
-            for rid in trained_models
-            if (rid, slot) in all_ride_forecasts
+            all_ride_forecasts[(park_id, ride_id, slot)]
+            for park_id, ride_id in ride_keys
+            if (park_id, ride_id, slot) in all_ride_forecasts
         ]
-        forecasts_per_slot.append((
-            slot,
-            slot_forecasts,
-            _compute_crowd_score(slot_forecasts, ctx, crowd_calibration, headliner_ids),
-        ))
+        crowd_scores = {}
+        for park_id in {f.park_id for f in slot_forecasts}:
+            park_forecasts = [f for f in slot_forecasts if f.park_id == park_id]
+            crowd_scores[park_id] = _compute_crowd_score(
+                park_forecasts,
+                date_contexts.get((park_id, park_date_key(slot))),
+                park_calibrations[park_id],
+                headliner_ids,
+            )
+        forecasts_per_slot.append((slot, slot_forecasts, crowd_scores))
 
     rows_upserted = upsert_forecasts(conn, forecasts_per_slot, ride_meta)
     logger.info(

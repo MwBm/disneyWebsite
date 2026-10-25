@@ -1,4 +1,9 @@
-const DISNEYLAND_PARK_ID = "7340550b-c14d-4def-80bb-acdb51d49a66";
+import { DCA_PARK_ID, DISNEYLAND_PARK_ID, type ParkId } from "./parks";
+
+const THEMEPARKS_WIKI_PARK_IDS = {
+  [DISNEYLAND_PARK_ID]: "7340550b-c14d-4def-80bb-acdb51d49a66",
+  [DCA_PARK_ID]: "832fcd51-ea19-4e77-85c7-75d5843b127c",
+} satisfies Record<ParkId, string>;
 const THEMEPARKS_API_BASE = "https://api.themeparks.wiki/v1";
 
 // LLMP (Lightning Lane Multi Pass) price ranges reflect Disney's demand tiers.
@@ -37,11 +42,14 @@ export type DateScheduleInfo = {
   specialEvent: string | null;
 };
 
-export async function fetchDateSchedule(
+export type ParkDateScheduleInfo = DateScheduleInfo & { parkId: ParkId };
+
+async function fetchScheduleForPark(
+  parkId: ParkId,
   startDate: string,
   endDate: string
 ): Promise<DateScheduleInfo[]> {
-  const url = `${THEMEPARKS_API_BASE}/entity/${DISNEYLAND_PARK_ID}/schedule?startDate=${startDate}&endDate=${endDate}`;
+  const url = `${THEMEPARKS_API_BASE}/entity/${THEMEPARKS_WIKI_PARK_IDS[parkId]}/schedule?startDate=${startDate}&endDate=${endDate}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`ThemeParks.wiki responded ${res.status}`);
   const data: { schedule: ScheduleEntry[] } = await res.json();
@@ -82,4 +90,22 @@ export async function fetchDateSchedule(
           : 2,
     specialEvent: info.specialEvent,
   }));
+}
+
+/** Disneyland schedule retained as the simple public helper used by callers/tests. */
+export function fetchDateSchedule(startDate: string, endDate: string): Promise<DateScheduleInfo[]> {
+  return fetchScheduleForPark(DISNEYLAND_PARK_ID, startDate, endDate);
+}
+
+/** Both parks' independently published hours, prices and ticketed events. */
+export async function fetchParkDateSchedules(
+  startDate: string,
+  endDate: string,
+): Promise<ParkDateScheduleInfo[]> {
+  const entries = await Promise.all(
+    ([DISNEYLAND_PARK_ID, DCA_PARK_ID] as const).map(async (parkId) =>
+      (await fetchScheduleForPark(parkId, startDate, endDate)).map((entry) => ({ ...entry, parkId }))
+    )
+  );
+  return entries.flat();
 }

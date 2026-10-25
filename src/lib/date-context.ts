@@ -2,7 +2,7 @@ import { prisma } from "./db";
 import { adjustCrowdScore } from "./groq";
 import { isHolidayDate, isSchoolBreakDate } from "./calendar";
 import { fetchWeatherForecast, climatologicalWeather, WeatherDay } from "./weather";
-import { fetchDateSchedule } from "./park-schedule";
+import { fetchDateSchedule, fetchParkDateSchedules } from "./park-schedule";
 import { mapWithConcurrency } from "./concurrency";
 import { addParkDays, dateContextDate, parkDateKey, parkDateRangeUtc } from "./park-time";
 import { getDailyMlCrowdScores } from "./forecast-queries";
@@ -18,7 +18,7 @@ const SYNC_CONCURRENCY = 5;
 // return the previous calendar day in negative-offset timezones.
 
 export { isHolidayDate, isSchoolBreakDate } from "./calendar";
-export { fetchDateSchedule } from "./park-schedule";
+export { fetchDateSchedule, fetchParkDateSchedules } from "./park-schedule";
 
 export async function syncDateContext(
   days = 90
@@ -33,12 +33,12 @@ export async function syncDateContext(
       date: { gte: dateContextDate(startDate), lte: dateContextDate(endDate) },
       tierFetchedAt: { gte: staleThreshold },
     },
-    select: { date: true },
+    select: { parkId: true, date: true },
   });
 
-  const freshDates = new Set(existing.map((c) => c.date.toISOString().slice(0, 10)));
-  const schedule = await fetchDateSchedule(startDate, endDate);
-  const toSync = schedule.filter((s) => !freshDates.has(s.date));
+  const freshDates = new Set(existing.map((c) => `${c.parkId}:${c.date.toISOString().slice(0, 10)}`));
+  const schedule = await fetchParkDateSchedules(startDate, endDate);
+  const toSync = schedule.filter((s) => !freshDates.has(`${s.parkId}:${s.date}`));
 
   if (toSync.length === 0) return { synced: 0, skipped: schedule.length };
 
@@ -63,7 +63,7 @@ export async function syncDateContext(
       const isSchoolBreak = isSchoolBreakDate(d);
       const weather = weatherMap.get(s.date) ?? climatologicalWeather(s.date);
       return prisma.dateContext.upsert({
-        where: { date: d },
+        where: { parkId_date: { parkId: s.parkId, date: d } },
         update: {
           tier: s.tier,
           specialEvent: s.specialEvent,
@@ -78,6 +78,7 @@ export async function syncDateContext(
           weatherFetchedAt: fetchedAt,
         },
         create: {
+          parkId: s.parkId,
           date: d,
           tier: s.tier,
           specialEvent: s.specialEvent,
@@ -121,6 +122,7 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
     },
     select: {
       id: true,
+      parkId: true,
       date: true,
       tier: true,
       isHoliday: true,
@@ -136,14 +138,14 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
   // DateContext.date is midnight UTC standing for a park-local date, while
   // DailyForecast.forecastFor is a 30-minute slot inside that day, so match on
   // the park-day span rather than on timestamps.
-  const pendingKeys = pending.map((c) => c.date.toISOString().slice(0, 10)).sort();
-  const spanStart = parkDateRangeUtc(pendingKeys[0]).start;
-  const spanEnd = parkDateRangeUtc(pendingKeys[pendingKeys.length - 1]).endExclusive;
-
-  const crowdByDate = await getDailyMlCrowdScores(spanStart, spanEnd);
-
   const outcomes = await mapWithConcurrency(pending, SYNC_CONCURRENCY, async (ctx) => {
       const dateKey = ctx.date.toISOString().slice(0, 10);
+      // The serving projections are introduced independently. Until then this
+      // remains the legacy Disneyland score; DCA gets the conservative neutral
+      // value rather than silently borrowing Disneyland's wait index.
+      const crowdByDate = ctx.parkId === 16
+        ? await getDailyMlCrowdScores(parkDateRangeUtc(dateKey).start, parkDateRangeUtc(dateKey).endExclusive)
+        : new Map<string, number>();
       const mlCrowdScore = crowdByDate.get(dateKey) ?? 50;
 
       const result = await adjustCrowdScore({

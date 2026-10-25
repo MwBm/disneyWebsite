@@ -10,6 +10,7 @@ import {
   parkDateRangeUtc,
   parkMonthRangeUtc,
 } from "./park-time";
+import { DISNEYLAND_PARK_ID } from "./parks";
 
 /**
  * Crowd-score logic. The SQL it depends on lives in ./forecast-queries, so
@@ -61,7 +62,10 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     // Kept as a raw mean wait so each date's own tier can scale it below.
     getHistoricalDowMeanWaits(month),
     prisma.dateContext.findMany({
-      where: { date: { gte: dateContextRange.start, lt: dateContextRange.endExclusive } },
+      where: {
+        parkId: DISNEYLAND_PARK_ID,
+        date: { gte: dateContextRange.start, lt: dateContextRange.endExclusive },
+      },
       select: { date: true, tier: true, specialEvent: true, isHoliday: true, groqAdjustment: true },
     }),
   ]);

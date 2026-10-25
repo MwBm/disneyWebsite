@@ -105,7 +105,10 @@ describe("forecast route — ML path", () => {
     expect(mockCrowdScore).toHaveBeenCalledWith("2026-06-01");
     expect(mockGetRuns).toHaveBeenCalledWith(3);
     // Pacific midnight of Jun 1 is 07:00 UTC.
-    expect(mockDateContextFindUnique.mock.calls[0][0].where.date).toEqual(new Date("2026-06-01T07:00:00Z"));
+    expect(mockDateContextFindUnique.mock.calls[0][0].where.parkId_date).toEqual({
+      parkId: 16,
+      date: new Date("2026-06-01T07:00:00Z"),
+    });
     expect(mockGetHistorical).not.toHaveBeenCalled();
   });
 
