@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { cachedJson } from "@/lib/http";
-import { getParkName } from "@/lib/parks";
+import { getParkName, PARK_LABELS, type ParkId } from "@/lib/parks";
 
 /**
  * Without this, Next prerenders the route at build time: `next build` would
@@ -21,6 +21,7 @@ type SummaryRow = {
 };
 
 type PerRideRow = {
+  parkId: number;
   rideId: bigint | number;
   rideName: string;
   landName: string;
@@ -45,6 +46,7 @@ export async function GET() {
       FROM "DailyForecast" df
       JOIN "WaitTimeRecord" w
         ON  w."rideId"     = df."rideId"
+        AND w."parkId"     = df."parkId"
         AND w."windowedAt" = df."forecastFor"
         AND w."isOpen"     = true
       WHERE df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')
@@ -52,6 +54,7 @@ export async function GET() {
     `,
     prisma.$queryRaw<PerRideRow[]>`
       SELECT
+        df."parkId",
         df."rideId",
         MAX(df."rideName")                                                     AS "rideName",
         MAX(df."landName")                                                     AS "landName",
@@ -61,11 +64,12 @@ export async function GET() {
       FROM "DailyForecast" df
       JOIN "WaitTimeRecord" w
         ON  w."rideId"     = df."rideId"
+        AND w."parkId"     = df."parkId"
         AND w."windowedAt" = df."forecastFor"
         AND w."isOpen"     = true
       WHERE df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')
         AND df."forecastFor" < NOW()
-      GROUP BY df."rideId"
+      GROUP BY df."parkId", df."rideId"
       ORDER BY AVG(ABS(df."predictedWait" - w."waitTime")) ASC
     `,
   ]);
@@ -90,7 +94,7 @@ export async function GET() {
         rideId: Number(r.rideId),
         rideName: r.rideName,
         landName: r.landName,
-        parkName: getParkName(r.landName),
+        parkName: PARK_LABELS[Number(r.parkId) as ParkId] ?? getParkName(r.landName),
         mae: Number(r.mae),
         within10: Number(r.within10),
         sampleCount: Number(r.sampleCount),

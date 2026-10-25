@@ -1,6 +1,7 @@
 import PageHeader from "@/components/PageHeader";
 import WaitTimesView from "@/components/WaitTimesView";
 import { parkDateKey } from "@/lib/park-time";
+import { DISNEYLAND_PARK_ID, isParkId, type ParkId } from "@/lib/parks";
 
 const HourglassIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -36,12 +37,18 @@ function resolveInitialDate(raw: string | string[] | undefined): string {
   return parkDateKey(new Date());
 }
 
+function resolveInitialPark(raw: string | string[] | undefined): ParkId {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const parkId = Number(value);
+  return isParkId(parkId) ? parkId : DISNEYLAND_PARK_ID;
+}
+
 export default async function WaitTimesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string | string[] }>;
+  searchParams: Promise<{ date?: string | string[]; park?: string | string[] }>;
 }) {
-  const { date } = await searchParams;
+  const { date, park } = await searchParams;
 
   return (
     <div className="flex flex-col gap-6">
@@ -50,7 +57,7 @@ export default async function WaitTimesPage({
         title="Wait Time Predictions"
         subtitle="Per-ride predicted waits for a selected date, from the XGBoost model."
       />
-      <WaitTimesView initialDate={resolveInitialDate(date)} />
+      <WaitTimesView initialDate={resolveInitialDate(date)} initialParkId={resolveInitialPark(park)} />
     </div>
   );
 }

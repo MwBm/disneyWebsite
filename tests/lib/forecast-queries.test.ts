@@ -1,6 +1,5 @@
 import { Prisma } from "@prisma/client";
 import {
-  DAILY_CROWD_SCORE_PERCENTILE,
   FORECAST_FIRST_LOCAL_HOUR,
   HISTORICAL_LOOKBACK_YEARS,
   getDailyMlCrowdScores,
@@ -29,14 +28,14 @@ function lastSql(): Prisma.Sql {
 beforeEach(() => jest.clearAllMocks());
 
 describe("getRideForecastsForDate", () => {
-  it("bounds the query to the Pacific day", async () => {
+  it("reads one compact projection for the requested park date", async () => {
     mockQueryRaw.mockResolvedValue([]);
 
     await getRideForecastsForDate("2026-11-01"); // DST ends: a 25-hour park day
 
-    expect(lastSql().values).toEqual([new Date("2026-11-01T07:00:00Z"), new Date("2026-11-02T08:00:00Z")]);
-    expect(lastSql().sql).toContain('GROUP BY "rideId"');
-    expect(lastSql().sql).not.toContain("DISTINCT ON");
+    expect(lastSql().values).toEqual([16, new Date("2026-11-01T00:00:00Z")]);
+    expect(lastSql().sql).toContain('FROM "RideDayForecast"');
+    expect(lastSql().sql).toContain('JOIN "RideCatalog"');
   });
 
   it("normalises BigInt and numeric strings to numbers", async () => {
@@ -62,9 +61,9 @@ describe("getDailyMlCrowdScores", () => {
     const scores = await getDailyMlCrowdScores(start, end);
 
     expect([...scores.entries()]).toEqual([["2026-06-01", 41], ["2026-06-02", 58]]);
-    expect(lastSql().values).toEqual([start, end, DAILY_CROWD_SCORE_PERCENTILE]);
-    expect(lastSql().sql).toContain("AT TIME ZONE 'America/Los_Angeles'");
-    expect(lastSql().sql).toContain("PERCENTILE_CONT");
+    expect(lastSql().values).toEqual([16, new Date("2026-06-01T00:00:00Z"), new Date("2026-06-03T00:00:00Z")]);
+    expect(lastSql().sql).toContain('FROM "ParkDayForecast"');
+    expect(lastSql().sql).not.toContain("PERCENTILE_CONT");
   });
 });
 
@@ -76,6 +75,7 @@ describe("getRideForecastHoursForDate", () => {
       { hour: 8, predictedWait: 42 },
     ]);
     expect(lastSql().values).toEqual([
+      16,
       7,
       new Date("2026-11-01T07:00:00Z"),
       new Date("2026-11-02T08:00:00Z"),
@@ -91,7 +91,7 @@ describe("getHistoricalRideWaitsForDate", () => {
 
     await getHistoricalRideWaitsForDate("2026-09-15"); // a Tuesday
 
-    expect(lastSql().values).toEqual([FORECAST_FIRST_LOCAL_HOUR, HISTORICAL_LOOKBACK_YEARS, 2]);
+    expect(lastSql().values).toEqual([16, FORECAST_FIRST_LOCAL_HOUR, HISTORICAL_LOOKBACK_YEARS, 2, 16]);
     expect(lastSql().sql).toContain('FROM "HourlyWaitSummary"');
     expect(lastSql().sql).not.toContain("WaitTimeRecord");
   });
@@ -112,7 +112,7 @@ describe("getHistoricalRideForecastHoursForDate", () => {
     expect(await getHistoricalRideForecastHoursForDate("2026-09-15", 7)).toEqual([
       { hour: 14, predictedWait: 52 },
     ]);
-    expect(lastSql().values).toEqual([7, FORECAST_FIRST_LOCAL_HOUR, HISTORICAL_LOOKBACK_YEARS, 2]);
+    expect(lastSql().values).toEqual([16, 7, FORECAST_FIRST_LOCAL_HOUR, HISTORICAL_LOOKBACK_YEARS, 2]);
     expect(lastSql().sql).toContain('FROM "HourlyWaitSummary"');
     expect(lastSql().sql).toContain('GROUP BY hour');
   });
@@ -125,7 +125,7 @@ describe("getHistoricalDowMeanWaits", () => {
     const means = await getHistoricalDowMeanWaits(12);
 
     expect([...means.entries()]).toEqual([[0, 22], [6, 35]]);
-    expect(lastSql().values).toEqual([12]);
+    expect(lastSql().values).toEqual([16, 12]);
   });
 });
 

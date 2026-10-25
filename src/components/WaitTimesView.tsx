@@ -1,18 +1,25 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import DisneyDatePicker from "./DisneyDatePicker";
-import RideForecastChart from "./RideForecastChart";
+import ParkPicker from "./ParkPicker";
 import { crowdLabel, waitColor } from "@/lib/crowd";
 import type { RideDayForecast } from "@/lib/forecast-queries";
+import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
+
+const RideForecastChart = dynamic(() => import("./RideForecastChart"), {
+  ssr: false,
+  loading: () => <div className="h-[260px] flex items-center justify-center text-warm-700 text-sm">Loading chart…</div>,
+});
 
 
 type ForecastResponse = {
   date: string;
   crowdScore: number | null;
   forecasts: RideDayForecast[];
-  source: "ml" | "historical" | "groq";
+  source: "ml" | "historical" | "unavailable";
   dataQualityOk: boolean;
   lastCollectedAt: string | null;
 };
@@ -23,7 +30,7 @@ const EMPTY_RIDES: RideDayForecast[] = [];
 const SOURCE_NOTES: Record<ForecastResponse["source"], string> = {
   ml: "Per-ride XGBoost predictions for each park hour.",
   historical: "No model output for this date — showing typical hourly waits for this day of week over the last two years.",
-  groq: "No per-ride data for this date yet.",
+  unavailable: "No per-ride data is available for this date yet.",
 };
 
 function defaultRideId(rides: RideDayForecast[]): number | null {
@@ -74,12 +81,20 @@ function RideCard({
   );
 }
 
-export default function WaitTimesView({ initialDate }: { initialDate: string }) {
+export default function WaitTimesView({
+  initialDate,
+  initialParkId = DISNEYLAND_PARK_ID,
+}: {
+  initialDate: string;
+  initialParkId?: ParkId;
+}) {
   const [date, setDate] = useState(initialDate);
+  const [parkId, setParkId] = useState<ParkId>(initialParkId);
   const [data, setData] = useState<ForecastResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRideId, setSelectedRideId] = useState<number | null>(null);
+  const [showChart, setShowChart] = useState(false);
 
   useEffect(() => {
     // Inline rather than behind a useCallback so no setState runs
@@ -90,7 +105,7 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
 
     (async () => {
       try {
-        const res = await fetch(`/api/forecast?date=${date}`, { signal: controller.signal });
+        const res = await fetch(`/api/forecast?date=${date}&park=${parkId}`, { signal: controller.signal });
         const body = await res.json();
         if (!res.ok) {
           throw new Error(typeof body.error === "string" ? body.error : "Request failed");
@@ -113,13 +128,21 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
     })();
 
     return () => controller.abort();
-  }, [date]);
+  }, [date, parkId]);
 
   function handleDateChange(next: string) {
     setLoading(true);
+    setShowChart(false);
     setDate(next);
     // Keep the URL shareable and back-navigable without a re-render round trip.
-    window.history.replaceState(null, "", `/wait-times?date=${next}`);
+    window.history.replaceState(null, "", `/wait-times?date=${next}&park=${parkId}`);
+  }
+
+  function handleParkChange(nextParkId: ParkId) {
+    setLoading(true);
+    setShowChart(false);
+    setParkId(nextParkId);
+    window.history.replaceState(null, "", `/wait-times?date=${date}&park=${nextParkId}`);
   }
 
   const rides = data?.forecasts ?? EMPTY_RIDES;
@@ -132,6 +155,7 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end gap-3">
+        <ParkPicker value={parkId} onChange={handleParkChange} />
         <DisneyDatePicker value={date} onChange={handleDateChange} label="Select a date" />
         {data?.crowdScore !== null && data?.crowdScore !== undefined && (
           <div
@@ -189,11 +213,24 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
                   Select a ride below to switch
                 </span>
               </div>
-              <RideForecastChart
-                rideId={selectedRide.rideId}
-                rideName={selectedRide.rideName}
-                date={date}
-              />
+              {showChart ? (
+                <RideForecastChart
+                  rideId={selectedRide.rideId}
+                  rideName={selectedRide.rideName}
+                  date={date}
+                  parkId={parkId}
+                />
+              ) : (
+                <div className="h-[260px] flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowChart(true)}
+                    className="text-sm text-orange-400 hover:text-orange-500 font-medium"
+                  >
+                    Load hourly chart
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -208,7 +245,10 @@ export default function WaitTimesView({ initialDate }: { initialDate: string }) 
                   key={ride.rideId}
                   ride={ride}
                   selected={ride.rideId === selectedRide?.rideId}
-                  onClick={() => setSelectedRideId(ride.rideId)}
+                  onClick={() => {
+                    setSelectedRideId(ride.rideId);
+                    setShowChart(false);
+                  }}
                 />
               ))}
             </div>

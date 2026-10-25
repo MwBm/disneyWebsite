@@ -37,7 +37,10 @@ FORECAST_RETENTION_DAYS = 35
 HOURLY_RETENTION_DAYS = 3 * 365
 SERVING_FORECAST_RETENTION_DAYS = 60
 EVALUATION_RETENTION_DAYS = 2 * 365
-MODEL_RUN_RETENTION_DAYS = 180
+# ModelRun contains only aggregate metadata, so retain it for the same period
+# as the evaluations that reference it. This keeps horizon comparisons useful
+# without retaining model binaries or slot-level predictions.
+MODEL_RUN_RETENTION_DAYS = EVALUATION_RETENTION_DAYS
 COLLECT_RUN_RETENTION_DAYS = 90
 
 # How long raw rows may outlive RAW_RETENTION_DAYS before check_freshness.py

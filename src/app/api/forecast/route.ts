@@ -7,21 +7,18 @@ import {
   getRideForecastsForDate,
   type RideDayForecast,
 } from "@/lib/forecast-queries";
-import { narrateForecast, narrateForecastNoDataWithScore } from "@/lib/groq";
 import { deriveCrowdScore, HISTORICAL_FALLBACK_CONFIDENCE } from "@/lib/crowd";
 import { parseISO, isValid } from "date-fns";
-import { parkDateRangeUtc } from "@/lib/park-time";
-import { prisma } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
-import { DISNEYLAND_PARK_ID } from "@/lib/parks";
+import { DISNEYLAND_PARK_ID, isParkId, type ParkId } from "@/lib/parks";
 
 /** Seconds the CDN may serve a cached forecast for a given date. */
 const CACHE_SECONDS = 1800;
 
 /**
- * Every cache miss here can cost a Groq call, and the date is caller-supplied,
- * so enumerating dates bypasses the cache entirely. The limit is the backstop.
+ * The date and park are caller-supplied, so this backstop prevents cache-key
+ * enumeration from bypassing the CDN cache.
  */
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 
@@ -33,6 +30,7 @@ const QuerySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .refine((v) => isValid(parseISO(v)), { message: "Invalid date" }),
+  park: z.coerce.number().int().refine(isParkId, { message: "Invalid park" }),
 });
 
 /**
@@ -44,7 +42,10 @@ export async function GET(req: NextRequest) {
   if (limited) return limited;
 
   const { searchParams } = req.nextUrl;
-  const parsed = QuerySchema.safeParse({ date: searchParams.get("date") });
+  const parsed = QuerySchema.safeParse({
+    date: searchParams.get("date"),
+    park: searchParams.get("park") ?? String(DISNEYLAND_PARK_ID),
+  });
 
   if (!parsed.success) {
     return NextResponse.json(
@@ -54,42 +55,32 @@ export async function GET(req: NextRequest) {
   }
 
   const dateKey = parsed.data.date;
-  const date = parkDateRangeUtc(dateKey).start;
-  const [rides, mlCrowdScore, recentRuns, dateCtx] = await Promise.all([
-    getRideForecastsForDate(dateKey),
-    getCrowdScoreForDate(dateKey),
+  const parkId = parsed.data.park as ParkId;
+  const [rides, mlCrowdScore, recentRuns] = await Promise.all([
+    getRideForecastsForDate(dateKey, parkId),
+    getCrowdScoreForDate(dateKey, parkId),
     getRecentCollectRuns(3),
-    prisma.dateContext.findUnique({
-      where: { parkId_date: { parkId: DISNEYLAND_PARK_ID, date } },
-      select: { groqAdjustment: true, groqReasoning: true },
-    }),
   ]);
 
   const latestSuccessfulCollection = recentRuns.find((run) => run.success) ?? null;
   const lastCollectedAt = latestSuccessfulCollection?.ranAt ?? null;
   const dataQualityOk =
     lastCollectedAt !== null && Date.now() - lastCollectedAt.getTime() <= MAX_COLLECT_AGE_MS;
-  const status = { date: dateKey, dataQualityOk, lastCollectedAt };
+  const status = { date: dateKey, parkId, dataQualityOk, lastCollectedAt };
 
   if (rides.length > 0) {
-    const groqAdjustment = dateCtx?.groqAdjustment ?? 0;
-    const crowdScore =
-      mlCrowdScore !== null
-        ? Math.min(100, Math.max(0, Math.round(mlCrowdScore + groqAdjustment)))
-        : null;
-
     return cachedJson({
       ...status,
-      crowdScore,
-      groqAdjustment: groqAdjustment !== 0 ? groqAdjustment : undefined,
-      groqReasoning: dateCtx?.groqReasoning ?? undefined,
-      crowdNarration: crowdScore !== null ? await narrate("ml path", crowdScore, rides, date) : null,
+      crowdScore: mlCrowdScore,
+      // Narrative advice is deliberately loaded through the optional endpoint
+      // after numeric predictions render; never put an LLM on this read path.
+      crowdNarration: null,
       forecasts: rides,
       source: "ml",
     }, CACHE_SECONDS);
   }
 
-  const historical = await getHistoricalRideWaitsForDate(dateKey);
+  const historical = await getHistoricalRideWaitsForDate(dateKey, parkId);
   if (historical.length > 0) {
     const forecasts: RideDayForecast[] = historical.map((r) => ({
       ...r,
@@ -101,43 +92,17 @@ export async function GET(req: NextRequest) {
     return cachedJson({
       ...status,
       crowdScore,
-      crowdNarration: await narrate("historical path", crowdScore, forecasts, date),
+      crowdNarration: null,
       forecasts,
       source: "historical",
     }, CACHE_SECONDS);
   }
 
-  // No data at all — Groq general estimate (score + narration in one call)
-  let crowdNarration: string | null = null;
-  let crowdScore: number | null = null;
-  try {
-    const groqResult = await narrateForecastNoDataWithScore(date);
-    crowdScore = groqResult.score;
-    crowdNarration = groqResult.narration;
-  } catch (err) {
-    console.error("narrateForecastNoDataWithScore failed", err);
-  }
-
   return cachedJson({
     ...status,
-    crowdScore,
-    crowdNarration,
+    crowdScore: null,
+    crowdNarration: null,
     forecasts: [],
-    source: "groq",
+    source: "unavailable",
   }, CACHE_SECONDS);
-}
-
-/** Narration is optional: the forecast is returned without it, and failures are logged. */
-async function narrate(
-  path: string,
-  crowdScore: number,
-  rides: RideDayForecast[],
-  date: Date
-): Promise<string | null> {
-  try {
-    return await narrateForecast(crowdScore, rides, date);
-  } catch (err) {
-    console.error(`narrateForecast failed (${path})`, err);
-    return null;
-  }
 }

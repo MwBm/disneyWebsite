@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { ParkId } from "@/lib/parks";
 
 type ForecastHour = {
   hour: number;
@@ -26,10 +27,12 @@ export default function RideForecastChart({
   rideId,
   rideName,
   date,
+  parkId,
 }: {
   rideId: number;
   rideName: string;
   date: string;
+  parkId: ParkId;
 }) {
   const [rows, setRows] = useState<ForecastHour[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +42,7 @@ export default function RideForecastChart({
 
     (async () => {
       try {
-        const res = await fetch(`/api/forecast/rides/${rideId}?date=${date}`, {
+        const res = await fetch(`/api/forecast/rides/${rideId}?date=${date}&park=${parkId}`, {
           signal: controller.signal,
         });
         const body = await res.json();
@@ -53,7 +56,7 @@ export default function RideForecastChart({
     })();
 
     return () => controller.abort();
-  }, [date, rideId]);
+  }, [date, parkId, rideId]);
 
   const data = rows.map((row) => ({
     time: hourLabel(row.hour),

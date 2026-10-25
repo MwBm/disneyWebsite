@@ -48,7 +48,11 @@ describe("syncGroqAdjustments", () => {
     await syncGroqAdjustments();
 
     expect(mockDailyScores).toHaveBeenCalledTimes(1);
-    expect(mockDailyScores).toHaveBeenCalledWith(new Date("2026-06-30T07:00:00Z"), new Date("2026-07-05T07:00:00Z"));
+    expect(mockDailyScores).toHaveBeenCalledWith(
+      new Date("2026-06-30T07:00:00Z"),
+      new Date("2026-07-05T07:00:00Z"),
+      16
+    );
   });
 
   it("passes each date's own ML score to the Groq adjuster and stores the result", async () => {

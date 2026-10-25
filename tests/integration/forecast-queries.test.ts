@@ -50,6 +50,34 @@ function hourlyRow(rideId: number, date: string, hour: number, avgWait: number, 
   };
 }
 
+function projectionDate(date: string): Date {
+  return new Date(`${date}T00:00:00Z`);
+}
+
+function rideDayRow(rideId: number, date: string, avgWait: number, peakWait: number, mlConfidence = 0.5) {
+  seq += 1;
+  return {
+    id: `r-${seq}`,
+    parkId: 16,
+    rideId,
+    date: projectionDate(date),
+    avgWait,
+    peakWait,
+    mlConfidence,
+  };
+}
+
+async function seedCatalog(...rideIds: number[]) {
+  await prisma.rideCatalog.createMany({
+    data: rideIds.map((rideId) => ({
+      parkId: 16,
+      rideId,
+      rideName: `Ride ${rideId}`,
+      landName: "Land",
+    })),
+  });
+}
+
 /** "YYYY-MM-DD" of weekday `dow` (0=Sunday) in the week `weeksAgo` weeks before this one (UTC). */
 function recentWeekday(dow: number, weeksAgo: number): string {
   const d = new Date();
@@ -62,15 +90,13 @@ describeWithDatabase("forecast queries on Postgres", () => {
   afterAll(() => prisma.$disconnect());
 
   describe("getRideForecastsForDate", () => {
-    it("averages and peaks each ride over exactly its Pacific day", async () => {
-      await prisma.dailyForecast.createMany({
+    it("reads one compact average/peak row per ride from the serving projection", async () => {
+      await seedCatalog(1, 2);
+      await prisma.rideDayForecast.createMany({
         data: [
-          forecastRow(1, pacific("2026-06-01T08:00:00", -7), 10),
-          forecastRow(1, pacific("2026-06-01T14:00:00", -7), 45),
-          forecastRow(1, pacific("2026-06-01T23:30:00", -7), 20), // 06:30 UTC Jun 2, still Jun 1 in Anaheim
-          forecastRow(1, pacific("2026-06-02T00:00:00", -7), 999), // next park day
-          forecastRow(1, pacific("2026-05-31T23:30:00", -7), 999), // previous park day
-          forecastRow(2, pacific("2026-06-01T12:00:00", -7), 30, { mlConfidence: 0.8 }),
+          rideDayRow(1, "2026-06-01", 25, 45),
+          rideDayRow(1, "2026-06-02", 999, 999),
+          rideDayRow(2, "2026-06-01", 30, 30, 0.8),
         ],
       });
 
@@ -80,35 +106,6 @@ describeWithDatabase("forecast queries on Postgres", () => {
         { rideId: 1, rideName: "Ride 1", landName: "Land", avgWait: 25, peakWait: 45, mlConfidence: 0.5 },
         { rideId: 2, rideName: "Ride 2", landName: "Land", avgWait: 30, peakWait: 30, mlConfidence: 0.8 },
       ]);
-    });
-
-    it("rounds a half-minute average up and keeps the newest name", async () => {
-      await prisma.dailyForecast.createMany({
-        data: [
-          forecastRow(312, pacific("2026-06-01T09:00:00", -7), 40, {
-            rideName: "Soarin' Over California", createdAt: new Date("2026-05-01T06:00:00Z"),
-          }),
-          forecastRow(312, pacific("2026-06-01T10:00:00", -7), 41, {
-            rideName: "Soarin' Around the World", createdAt: new Date("2026-05-31T06:00:00Z"),
-          }),
-        ],
-      });
-
-      const [ride] = await getRideForecastsForDate("2026-06-01");
-
-      expect(ride.avgWait).toBe(41); // 40.5 → 41
-      expect(ride.rideName).toBe("Soarin' Around the World");
-    });
-
-    it("covers a 25-hour park day at the end of daylight time", async () => {
-      await prisma.dailyForecast.createMany({
-        data: [
-          forecastRow(1, new Date("2026-11-02T07:30:00Z"), 60), // 23:30 PST Nov 1
-          forecastRow(1, new Date("2026-11-02T08:00:00Z"), 999), // 00:00 PST Nov 2
-        ],
-      });
-
-      expect((await getRideForecastsForDate("2026-11-01"))[0].peakWait).toBe(60);
     });
 
     it("returns nothing for a day without forecasts", async () => {
@@ -135,37 +132,30 @@ describeWithDatabase("forecast queries on Postgres", () => {
   });
 
   describe("getDailyMlCrowdScores / getCrowdScoreForDate", () => {
-    it("groups slots by Pacific date and reports each day's busy-period score", async () => {
-      await prisma.dailyForecast.createMany({
+    it("reads one precomputed busy-period score per park day", async () => {
+      await prisma.parkDayForecast.createMany({
         data: [
-          forecastRow(1, pacific("2026-06-01T09:00:00", -7), 1, { crowdScore: 10 }),
-          forecastRow(2, pacific("2026-06-01T14:00:00", -7), 1, { crowdScore: 30 }),
-          forecastRow(3, pacific("2026-06-01T23:30:00", -7), 1, { crowdScore: 70 }), // UTC date is Jun 2
-          forecastRow(1, pacific("2026-06-02T09:00:00", -7), 1, { crowdScore: 70 }),
+          { id: "p-1", parkId: 16, date: projectionDate("2026-06-01"), crowdScore: 50 },
+          { id: "p-2", parkId: 16, date: projectionDate("2026-06-02"), crowdScore: 70 },
         ],
       });
 
       const scores = await getDailyMlCrowdScores(pacific("2026-06-01T00:00:00", -7), pacific("2026-06-03T00:00:00", -7));
 
-      // percentile_cont(0.75) of 10, 30, 70 is 50; a mean would be 37.
       expect([...scores.entries()]).toEqual([["2026-06-01", 50], ["2026-06-02", 70]]);
       expect(await getCrowdScoreForDate("2026-06-01")).toBe(50);
       expect(await getCrowdScoreForDate("2026-06-03")).toBeNull();
     });
 
-    it("returns one row per day however many slots a month has", async () => {
+    it("returns one row per day however many source slots a month had", async () => {
       const data = [];
       for (let day = 1; day <= 30; day++) {
-        for (let hour = 8; hour < 24; hour++) {
-          for (const rideId of [1, 2, 3]) {
-            data.push(forecastRow(rideId, pacific(`2026-06-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:00:00`, -7), 1));
-          }
-        }
+        data.push({ id: `p-month-${day}`, parkId: 16, date: projectionDate(`2026-06-${String(day).padStart(2, "0")}`), crowdScore: 50 });
       }
-      await prisma.dailyForecast.createMany({ data });
+      await prisma.parkDayForecast.createMany({ data });
 
       const scores = await getDailyMlCrowdScores(pacific("2026-06-01T00:00:00", -7), pacific("2026-07-01T00:00:00", -7));
-      expect(data.length).toBe(1440);
+      expect(data.length).toBe(30);
       expect(scores.size).toBe(30);
     });
   });

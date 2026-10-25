@@ -11,8 +11,8 @@ jest.mock("@/lib/forecast-queries", () => ({
 const mockMlHours = queries.getRideForecastHoursForDate as jest.Mock;
 const mockHistoricalHours = queries.getHistoricalRideForecastHoursForDate as jest.Mock;
 
-function request(date: string) {
-  return new NextRequest(`http://localhost/api/forecast/rides/7?date=${date}`);
+function request(date: string, park = 16) {
+  return new NextRequest(`http://localhost/api/forecast/rides/7?date=${date}&park=${park}`);
 }
 
 function context(rideId = "7") {
@@ -38,10 +38,11 @@ describe("ride forecast hours route", () => {
     expect(await response.json()).toEqual({
       rideId: 7,
       date: "2026-07-04",
+      parkId: 16,
       source: "ml",
       rows: [{ hour: 8, predictedWait: 20 }, { hour: 9, predictedWait: 35 }],
     });
-    expect(mockMlHours).toHaveBeenCalledWith("2026-07-04", 7);
+    expect(mockMlHours).toHaveBeenCalledWith("2026-07-04", 7, 16);
     expect(mockHistoricalHours).not.toHaveBeenCalled();
   });
 
@@ -53,10 +54,11 @@ describe("ride forecast hours route", () => {
     expect(await response.json()).toEqual({
       rideId: 7,
       date: "2026-08-01",
+      parkId: 16,
       source: "historical",
       rows: [{ hour: 14, predictedWait: 50 }],
     });
-    expect(mockHistoricalHours).toHaveBeenCalledWith("2026-08-01", 7);
+    expect(mockHistoricalHours).toHaveBeenCalledWith("2026-08-01", 7, 16);
   });
 
   it("returns unavailable when neither source has hourly data", async () => {
@@ -65,6 +67,7 @@ describe("ride forecast hours route", () => {
     expect(await response.json()).toEqual({
       rideId: 7,
       date: "2026-08-01",
+      parkId: 16,
       source: "unavailable",
       rows: [],
     });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { cachedJson } from "@/lib/http";
+import { DISNEYLAND_PARK_ID, isParkId, type ParkId } from "@/lib/parks";
 
 /** Predicted-vs-actual points for one ride, for the accuracy chart. */
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ const ParamsSchema = z.object({
 
 const QuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
+  park: z.coerce.number().int().refine(isParkId, { message: "Invalid park" }),
 });
 
 type Row = {
@@ -37,6 +39,7 @@ export async function GET(
 
   const parsedQuery = QuerySchema.safeParse({
     limit: req.nextUrl.searchParams.get("limit") ?? undefined,
+    park: req.nextUrl.searchParams.get("park") ?? String(DISNEYLAND_PARK_ID),
   });
   if (!parsedQuery.success) {
     return NextResponse.json(
@@ -47,6 +50,7 @@ export async function GET(
 
   const { rideId } = parsedParams.data;
   const { limit } = parsedQuery.data;
+  const parkId = parsedQuery.data.park as ParkId;
 
   // Newest first so LIMIT keeps the most recent points, then reversed below so
   // the chart receives them in chronological order.
@@ -59,9 +63,11 @@ export async function GET(
     FROM "DailyForecast" df
     JOIN "WaitTimeRecord" w
       ON  w."rideId"     = df."rideId"
+      AND w."parkId"     = df."parkId"
       AND w."windowedAt" = df."forecastFor"
       AND w."isOpen"     = true
-    WHERE df."rideId" = ${rideId}
+    WHERE df."parkId" = ${parkId}
+      AND df."rideId" = ${rideId}
       AND df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')
       AND df."forecastFor" < NOW()
     ORDER BY df."forecastFor" DESC
@@ -71,6 +77,7 @@ export async function GET(
   return cachedJson(
     {
       rideId,
+      parkId,
       rows: rows
         .map((r) => ({
           predictedFor:

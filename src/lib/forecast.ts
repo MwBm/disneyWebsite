@@ -10,7 +10,7 @@ import {
   parkDateRangeUtc,
   parkMonthRangeUtc,
 } from "./park-time";
-import { DISNEYLAND_PARK_ID } from "./parks";
+import { DISNEYLAND_PARK_ID, type ParkId } from "./parks";
 
 /**
  * Crowd-score logic. The SQL it depends on lives in ./forecast-queries, so
@@ -20,9 +20,12 @@ import { DISNEYLAND_PARK_ID } from "./parks";
 export const ML_FORECAST_DAYS = 30;
 
 /** Mean ML crowd score for one park date, or null when no forecast covers it. */
-export async function getCrowdScoreForDate(date: Date | string): Promise<number | null> {
+export async function getCrowdScoreForDate(
+  date: Date | string,
+  parkId: ParkId = DISNEYLAND_PARK_ID
+): Promise<number | null> {
   const { start, endExclusive } = parkDateRangeUtc(date);
-  const scores = await getDailyMlCrowdScores(start, endExclusive);
+  const scores = await getDailyMlCrowdScores(start, endExclusive, parkId);
   return scores.get(normalizeParkDateKey(date)) ?? null;
 }
 
@@ -53,20 +56,24 @@ export function resolveCrowdScore({
   return { crowdScore: null, source: null };
 }
 
-export async function getCrowdScoresForMonth(year: number, month: number): Promise<DayCrowdScore[]> {
+export async function getCrowdScoresForMonth(
+  year: number,
+  month: number,
+  parkId: ParkId = DISNEYLAND_PARK_ID
+): Promise<DayCrowdScore[]> {
   const { start, endExclusive } = parkMonthRangeUtc(year, month);
   const dateContextRange = dateContextMonthRangeUtc(year, month);
 
   const [mlScoreByDate, meanWaitByDow, dateContexts] = await Promise.all([
-    getDailyMlCrowdScores(start, endExclusive),
+    getDailyMlCrowdScores(start, endExclusive, parkId),
     // Kept as a raw mean wait so each date's own tier can scale it below.
-    getHistoricalDowMeanWaits(month),
+    getHistoricalDowMeanWaits(month, parkId),
     prisma.dateContext.findMany({
       where: {
-        parkId: DISNEYLAND_PARK_ID,
+        parkId,
         date: { gte: dateContextRange.start, lt: dateContextRange.endExclusive },
       },
-      select: { date: true, tier: true, specialEvent: true, isHoliday: true, groqAdjustment: true },
+      select: { date: true, tier: true, specialEvent: true, isHoliday: true },
     }),
   ]);
 
@@ -84,8 +91,7 @@ export async function getCrowdScoresForMonth(year: number, month: number): Promi
     const tier = context?.tier ?? null;
 
     const rawMlScore = mlScoreByDate.get(key) ?? null;
-    const groqAdj = context?.groqAdjustment ?? 0;
-    const mlScore = rawMlScore !== null ? Math.min(100, Math.max(0, Math.round(rawMlScore + groqAdj))) : null;
+    const mlScore = rawMlScore;
     const dowMeanWait = meanWaitByDow.get(parkDateDow(key)) ?? null;
     const historicalScore = dowMeanWait !== null ? deriveCrowdScore(dowMeanWait, tier ?? undefined) : null;
 

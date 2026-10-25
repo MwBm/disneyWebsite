@@ -23,6 +23,16 @@ export const DISNEYLAND: ParkName = "Disneyland";
 export const DCA: ParkName = "Disney California Adventure";
 export const DISNEYLAND_PARK_ID = 16 as const;
 export const DCA_PARK_ID = 17 as const;
+export const PARK_IDS = [DISNEYLAND_PARK_ID, DCA_PARK_ID] as const;
+
+export const PARK_LABELS: Record<ParkId, string> = {
+  [DISNEYLAND_PARK_ID]: DISNEYLAND,
+  [DCA_PARK_ID]: DCA,
+};
+
+export function isParkId(value: number): value is ParkId {
+  return PARK_IDS.includes(value as ParkId);
+}
 
 /**
  * Falls back to Disneyland for an unrecognised land — a newly opened land

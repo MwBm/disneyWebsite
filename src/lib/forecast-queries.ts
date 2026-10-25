@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
-import { PARK_TIME_ZONE, normalizeParkDateKey, parkDateDow, parkDateRangeUtc } from "./park-time";
+import { PARK_TIME_ZONE, dateContextDate, normalizeParkDateKey, parkDateDow, parkDateRangeUtc } from "./park-time";
 import rideConfig from "./ride-config.json";
+import { DISNEYLAND_PARK_ID, type ParkId } from "./parks";
 
 /**
  * The SQL behind the forecast, calendar and crowd-score features. Every
@@ -47,21 +48,23 @@ export type RideForecastHour = {
 };
 
 /** Per-ride average and peak predicted wait for one park date. */
-export async function getRideForecastsForDate(date: Date | string): Promise<RideDayForecast[]> {
-  const { start, endExclusive } = parkDateRangeUtc(date);
+export async function getRideForecastsForDate(
+  date: Date | string,
+  parkId: ParkId = DISNEYLAND_PARK_ID
+): Promise<RideDayForecast[]> {
+  const projectionDate = dateContextDate(normalizeParkDateKey(date));
   const rows = await prisma.$queryRaw<RideDayForecast[]>(Prisma.sql`
     SELECT
-      "rideId",
-      (array_agg("rideName" ORDER BY "createdAt" DESC))[1] AS "rideName",
-      (array_agg("landName" ORDER BY "createdAt" DESC))[1] AS "landName",
-      ROUND(AVG("predictedWait"))::int                    AS "avgWait",
-      MAX("predictedWait")::int                           AS "peakWait",
-      AVG("mlConfidence")::float                          AS "mlConfidence"
-    FROM "DailyForecast"
-    WHERE "forecastFor" >= ${start}
-      AND "forecastFor" < ${endExclusive}
-    GROUP BY "rideId"
-    ORDER BY "rideId"
+      projection."rideId", catalog."rideName", catalog."landName",
+      projection."avgWait", projection."peakWait", projection."mlConfidence"
+    FROM "RideDayForecast" AS projection
+    INNER JOIN "RideCatalog" AS catalog
+      ON catalog."parkId" = projection."parkId"
+      AND catalog."rideId" = projection."rideId"
+    WHERE projection."parkId" = ${parkId}
+      AND projection.date = ${projectionDate}
+      AND catalog."isActive"
+    ORDER BY projection."rideId"
   `);
   return rows.map((r) => ({
     rideId: Number(r.rideId),
@@ -76,7 +79,8 @@ export async function getRideForecastsForDate(date: Date | string): Promise<Ride
 /** Hour-by-hour ML predictions for one ride on one Pacific park date. */
 export async function getRideForecastHoursForDate(
   date: Date | string,
-  rideId: number
+  rideId: number,
+  parkId: ParkId = DISNEYLAND_PARK_ID
 ): Promise<RideForecastHour[]> {
   const { start, endExclusive } = parkDateRangeUtc(date);
   const rows = await prisma.$queryRaw<RideForecastHour[]>(Prisma.sql`
@@ -84,7 +88,8 @@ export async function getRideForecastHoursForDate(
       EXTRACT(HOUR FROM ("forecastFor" AT TIME ZONE 'UTC' AT TIME ZONE ${PARK_TZ_SQL}))::int AS hour,
       ROUND(AVG("predictedWait"))::int AS "predictedWait"
     FROM "DailyForecast"
-    WHERE "rideId" = ${rideId}
+    WHERE "parkId" = ${parkId}
+      AND "rideId" = ${rideId}
       AND "forecastFor" >= ${start}
       AND "forecastFor" < ${endExclusive}
     GROUP BY 1
@@ -97,24 +102,22 @@ export async function getRideForecastHoursForDate(
 }
 
 /** Park date ("YYYY-MM-DD") → busy-period ML crowd score over that date's slots. */
-export async function getDailyMlCrowdScores(start: Date, endExclusive: Date): Promise<Map<string, number>> {
+export async function getDailyMlCrowdScores(
+  start: Date,
+  endExclusive: Date,
+  parkId: ParkId = DISNEYLAND_PARK_ID
+): Promise<Map<string, number>> {
+  const projectionStart = dateContextDate(normalizeParkDateKey(start));
+  const projectionEnd = dateContextDate(normalizeParkDateKey(endExclusive));
   const rows = await prisma.$queryRaw<{ date: string; crowdScore: number }[]>(Prisma.sql`
-    WITH slot_scores AS (
-      SELECT "forecastFor", MAX("crowdScore")::float AS "crowdScore"
-      FROM "DailyForecast"
-      WHERE "forecastFor" >= ${start}
-        AND "forecastFor" < ${endExclusive}
-      GROUP BY "forecastFor"
-    )
     SELECT
-      to_char(("forecastFor" AT TIME ZONE 'UTC' AT TIME ZONE ${PARK_TZ_SQL})::date, 'YYYY-MM-DD') AS date,
-      ROUND(
-        PERCENTILE_CONT(${DAILY_CROWD_SCORE_PERCENTILE})
-        WITHIN GROUP (ORDER BY "crowdScore")
-      )::int AS "crowdScore"
-    FROM slot_scores
-    GROUP BY 1
-    ORDER BY 1
+      to_char(date::date, 'YYYY-MM-DD') AS date,
+      "crowdScore"
+    FROM "ParkDayForecast"
+    WHERE "parkId" = ${parkId}
+      AND date >= ${projectionStart}
+      AND date < ${projectionEnd}
+    ORDER BY date
   `);
   return new Map(rows.map((r) => [r.date, Number(r.crowdScore)]));
 }
@@ -130,13 +133,17 @@ export async function getDailyMlCrowdScores(start: Date, endExclusive: Date): Pr
  * Each ride's latest name is a LATERAL probe on the ("rideId", date, hour)
  * unique index; a DISTINCT ON over the table would sort every archive row.
  */
-export async function getHistoricalRideWaitsForDate(date: Date | string): Promise<HistoricalRideWaits[]> {
+export async function getHistoricalRideWaitsForDate(
+  date: Date | string,
+  parkId: ParkId = DISNEYLAND_PARK_ID
+): Promise<HistoricalRideWaits[]> {
   const dow = parkDateDow(normalizeParkDateKey(date)); // 0=Sunday..6=Saturday
   const rows = await prisma.$queryRaw<HistoricalRideWaits[]>(Prisma.sql`
     WITH hourly AS (
       SELECT "rideId", hour, AVG("avgWait") AS mean_wait
       FROM "HourlyWaitSummary"
-      WHERE "isOpen"
+      WHERE "parkId" = ${parkId}
+        AND "isOpen"
         AND hour >= ${FORECAST_FIRST_LOCAL_HOUR}
         AND date >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
         AND EXTRACT(DOW FROM date) = ${dow}
@@ -155,7 +162,8 @@ export async function getHistoricalRideWaitsForDate(date: Date | string): Promis
     CROSS JOIN LATERAL (
       SELECT named."rideName", named."landName"
       FROM "HourlyWaitSummary" named
-      WHERE named."rideId" = per_ride."rideId"
+      WHERE named."parkId" = ${parkId}
+        AND named."rideId" = per_ride."rideId"
       ORDER BY named.date DESC, named.hour DESC
       LIMIT 1
     ) latest
@@ -173,7 +181,8 @@ export async function getHistoricalRideWaitsForDate(date: Date | string): Promis
 /** Typical same-weekday hourly waits for a ride when no ML forecast exists. */
 export async function getHistoricalRideForecastHoursForDate(
   date: Date | string,
-  rideId: number
+  rideId: number,
+  parkId: ParkId = DISNEYLAND_PARK_ID
 ): Promise<RideForecastHour[]> {
   const dow = parkDateDow(normalizeParkDateKey(date));
   const rows = await prisma.$queryRaw<RideForecastHour[]>(Prisma.sql`
@@ -181,7 +190,8 @@ export async function getHistoricalRideForecastHoursForDate(
       hour,
       ROUND(AVG("avgWait"))::int AS "predictedWait"
     FROM "HourlyWaitSummary"
-    WHERE "rideId" = ${rideId}
+    WHERE "parkId" = ${parkId}
+      AND "rideId" = ${rideId}
       AND "isOpen"
       AND hour >= ${FORECAST_FIRST_LOCAL_HOUR}
       AND date >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
@@ -199,7 +209,10 @@ export async function getHistoricalRideForecastHoursForDate(
  * Day of week (0=Sunday) → mean wait on that weekday in `month`, over the last
  * three years of HourlyWaitSummary, with dates from the last year weighted 2×.
  */
-export async function getHistoricalDowMeanWaits(month: number): Promise<Map<number, number>> {
+export async function getHistoricalDowMeanWaits(
+  month: number,
+  parkId: ParkId = DISNEYLAND_PARK_ID
+): Promise<Map<number, number>> {
   const rows = await prisma.$queryRaw<{ dow: number; meanWait: number }[]>(Prisma.sql`
     SELECT
       EXTRACT(DOW FROM sub.date)::int AS dow,
@@ -210,7 +223,8 @@ export async function getHistoricalDowMeanWaits(month: number): Promise<Map<numb
         AVG("avgWait") AS avg_wait,
         CASE WHEN date >= NOW() - INTERVAL '1 year' THEN 2.0 ELSE 1.0 END AS weight
       FROM "HourlyWaitSummary"
-      WHERE EXTRACT(MONTH FROM date) = ${month}
+      WHERE "parkId" = ${parkId}
+        AND EXTRACT(MONTH FROM date) = ${month}
         AND date >= NOW() - INTERVAL '3 years'
       GROUP BY date
     ) sub

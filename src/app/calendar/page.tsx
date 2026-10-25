@@ -5,6 +5,8 @@ import { format, parseISO } from "date-fns";
 import { crowdBgOpacity, crowdColor, crowdLabelText, crowdLegend } from "@/lib/crowd";
 import { weatherEmoji, weatherLabel, type WeatherDay } from "@/lib/weather";
 import { parkDateKey } from "@/lib/park-time";
+import ParkPicker from "@/components/ParkPicker";
+import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
 
 type DayScore = {
   date: string;
@@ -104,6 +106,7 @@ export default function CalendarPage() {
   const todayStr = parkDateKey(new Date());
   const [year, setYear] = useState(() => Number(todayStr.slice(0, 4)));
   const [month, setMonth] = useState(() => Number(todayStr.slice(5, 7)));
+  const [parkId, setParkId] = useState<ParkId>(DISNEYLAND_PARK_ID);
   const [days, setDays] = useState<DayScore[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<DayScore | null>(null);
@@ -130,7 +133,7 @@ export default function CalendarPage() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/calendar?year=${year}&month=${month}`, {
+        const res = await fetch(`/api/calendar?year=${year}&month=${month}&park=${parkId}`, {
           signal: controller.signal,
         });
         const data = await res.json();
@@ -146,7 +149,13 @@ export default function CalendarPage() {
     })();
 
     return () => controller.abort();
-  }, [year, month]);
+  }, [year, month, parkId]);
+
+  function handleParkChange(nextParkId: ParkId) {
+    setLoading(true);
+    setSelected(null);
+    setParkId(nextParkId);
+  }
 
   function prevMonth() {
     setLoading(true);
@@ -202,6 +211,9 @@ export default function CalendarPage() {
           <p className="text-warm-700 text-sm mt-0.5">
             Monthly view of predicted park busyness — click any day for details.
           </p>
+          <div className="mt-3">
+            <ParkPicker value={parkId} onChange={handleParkChange} />
+          </div>
         </div>
       </div>
 

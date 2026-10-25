@@ -7,6 +7,7 @@ import {
 } from "@/lib/forecast-queries";
 import { cachedJson } from "@/lib/http";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { DISNEYLAND_PARK_ID, isParkId, type ParkId } from "@/lib/parks";
 
 /** Hourly forecast points for the selected ride and park date. */
 const CACHE_SECONDS = 1800;
@@ -21,6 +22,7 @@ const QuerySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .refine((value) => isValid(parseISO(value)), { message: "Invalid date" }),
+  park: z.coerce.number().int().refine(isParkId, { message: "Invalid park" }),
 });
 
 export async function GET(
@@ -37,6 +39,7 @@ export async function GET(
 
   const parsedQuery = QuerySchema.safeParse({
     date: req.nextUrl.searchParams.get("date"),
+    park: req.nextUrl.searchParams.get("park") ?? String(DISNEYLAND_PARK_ID),
   });
   if (!parsedQuery.success) {
     return NextResponse.json(
@@ -47,16 +50,18 @@ export async function GET(
 
   const { rideId } = parsedParams.data;
   const { date } = parsedQuery.data;
-  const mlRows = await getRideForecastHoursForDate(date, rideId);
+  const parkId = parsedQuery.data.park as ParkId;
+  const mlRows = await getRideForecastHoursForDate(date, rideId, parkId);
   if (mlRows.length > 0) {
-    return cachedJson({ rideId, date, source: "ml", rows: mlRows }, CACHE_SECONDS);
+    return cachedJson({ rideId, date, parkId, source: "ml", rows: mlRows }, CACHE_SECONDS);
   }
 
-  const historicalRows = await getHistoricalRideForecastHoursForDate(date, rideId);
+  const historicalRows = await getHistoricalRideForecastHoursForDate(date, rideId, parkId);
   return cachedJson(
     {
       rideId,
       date,
+      parkId,
       source: historicalRows.length > 0 ? "historical" : "unavailable",
       rows: historicalRows,
     },

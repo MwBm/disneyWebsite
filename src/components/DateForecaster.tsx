@@ -5,7 +5,9 @@ import { format, parseISO } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import CrowdMeter from "./CrowdMeter";
 import DisneyDatePicker from "./DisneyDatePicker";
+import ParkPicker from "./ParkPicker";
 import { parkDateKey } from "@/lib/park-time";
+import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
 import type { RideDayForecast } from "@/lib/forecast-queries";
 
 type Forecast = {
@@ -16,6 +18,7 @@ type Forecast = {
   source: string;
   dataQualityOk: boolean;
   lastCollectedAt: string | null;
+  parkId: ParkId;
 };
 
 function timeAgo(iso: string): string {
@@ -28,17 +31,21 @@ function timeAgo(iso: string): string {
 
 export default function DateForecaster() {
   const [date, setDate] = useState(() => parkDateKey(new Date()));
+  const [parkId, setParkId] = useState<ParkId>(DISNEYLAND_PARK_ID);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Forecast | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [narration, setNarration] = useState<string | null>(null);
+  const [narrationLoading, setNarrationLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setResult(null);
+    setNarration(null);
     try {
-      const res = await fetch(`/api/forecast?date=${date}`);
+      const res = await fetch(`/api/forecast?date=${date}&park=${parkId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Request failed");
       setResult(data);
@@ -49,9 +56,25 @@ export default function DateForecaster() {
     }
   }
 
+  async function loadNarration() {
+    setNarrationLoading(true);
+    try {
+      const res = await fetch(`/api/forecast/narration?date=${date}&park=${parkId}`);
+      const data = await res.json();
+      if (res.ok) setNarration(typeof data.narration === "string" ? data.narration : null);
+    } finally {
+      setNarrationLoading(false);
+    }
+  }
+
   return (
     <div className="flex flex-col items-center gap-8">
-      <form onSubmit={handleSubmit} className="flex gap-3 items-end">
+      <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 items-end justify-center">
+        <ParkPicker value={parkId} onChange={(nextParkId) => {
+          setParkId(nextParkId);
+          setResult(null);
+          setNarration(null);
+        }} />
         <DisneyDatePicker value={date} onChange={setDate} label="Select a date" />
         <button
           type="submit"
@@ -100,23 +123,27 @@ export default function DateForecaster() {
               </p>
             )}
 
-            {result.source === "groq" && (
-              <p className="text-xs text-warm-500 bg-space-card border border-space-700 rounded-lg px-3 py-1.5">
-                ✦ AI estimate — no historical data for this date yet.
-              </p>
-            )}
-
             {result.crowdScore !== null ? (
               <>
                 <CrowdMeter score={result.crowdScore} />
-                {result.crowdNarration && (
+                {narration && (
                   <div className="max-w-lg bg-space-card border border-space-700 rounded-2xl px-6 py-4 neon neon-purple text-sm text-warm-900 leading-relaxed">
-                    {result.crowdNarration}
+                    {narration}
                   </div>
+                )}
+                {!narration && result.source !== "unavailable" && (
+                  <button
+                    type="button"
+                    onClick={loadNarration}
+                    disabled={narrationLoading}
+                    className="text-xs text-warm-500 hover:text-orange-400 transition-colors disabled:opacity-50"
+                  >
+                    {narrationLoading ? "Writing planning tip…" : "Add a planning tip"}
+                  </button>
                 )}
                 {result.source !== "groq" && (
                   <a
-                    href={`/wait-times?date=${date}`}
+                    href={`/wait-times?date=${date}&park=${parkId}`}
                     className="text-sm text-orange-400 hover:text-orange-500 font-medium flex items-center gap-1"
                   >
                     See per-ride predictions

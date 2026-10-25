@@ -54,10 +54,20 @@ describe("WaitTimesView", () => {
     global.fetch = originalFetch;
   });
 
-  it("shows an hourly chart for the highest-peak ride and ride-selection cards", async () => {
+  it("defers the hourly chart until the visitor asks for it", async () => {
     await act(async () => {
       root = createRoot(container);
       root.render(<WaitTimesView initialDate="2026-07-04" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='hourly-chart']")).toBeNull();
+    const loadChart = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Load hourly chart")
+    )!;
+    await act(async () => {
+      loadChart.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -81,6 +91,15 @@ describe("WaitTimesView", () => {
       (button) => button.textContent?.includes("Haunted Mansion")
     )!;
     act(() => hauntedCard.click());
+
+    const loadChart = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Load hourly chart")
+    )!;
+    await act(async () => {
+      loadChart.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
     const chart = container.querySelector("[data-testid='hourly-chart']")!;
     expect(chart.textContent).toContain("Haunted Mansion");

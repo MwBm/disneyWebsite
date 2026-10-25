@@ -1,23 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { getCrowdScoresForMonth } from "@/lib/forecast";
-import { estimateDowCrowdScores } from "@/lib/groq";
-import { prisma } from "@/lib/db";
-import { addParkDays, dateContextDate, parkDateDow, parkDateKey } from "@/lib/park-time";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { cachedJson } from "@/lib/http";
-import { DISNEYLAND_PARK_ID } from "@/lib/parks";
+import { DISNEYLAND_PARK_ID, isParkId, type ParkId } from "@/lib/parks";
 
 /** Seconds the CDN may serve a cached month. */
 const CACHE_SECONDS = 3600;
 
-/** Backstop for the Groq day-of-week estimate on the missing-days path. */
+/** Backstop against caller-selected cache-key enumeration. */
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 
 const QuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2030),
   month: z.coerce.number().int().min(1).max(12),
+  park: z.coerce.number().int().refine(isParkId, { message: "Invalid park" }),
 });
 
 export async function GET(req: NextRequest) {
@@ -28,6 +25,7 @@ export async function GET(req: NextRequest) {
   const parsed = QuerySchema.safeParse({
     year: searchParams.get("year"),
     month: searchParams.get("month"),
+    park: searchParams.get("park") ?? String(DISNEYLAND_PARK_ID),
   });
 
   if (!parsed.success) {
@@ -35,50 +33,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { year, month } = parsed.data;
-  const days = await getCrowdScoresForMonth(year, month);
-
-  const hasMissingDays = days.some((d) => d.source === null);
-  if (hasMissingDays) {
-    let groqDow: Map<number, number> = new Map();
-
-    const todayKey = parkDateKey(new Date());
-    const sevenDaysAgo = dateContextDate(addParkDays(todayKey, -7));
-    const cached = await prisma.dateContext.findFirst({
-      where: { groqDowEstimate: { not: Prisma.JsonNull }, date: { gte: sevenDaysAgo } },
-      orderBy: { date: "desc" },
-      select: { groqDowEstimate: true },
-    });
-
-    if (cached?.groqDowEstimate) {
-      const raw = cached.groqDowEstimate as Record<string, number>;
-      for (const [k, v] of Object.entries(raw)) {
-        if (typeof v === "number") groqDow.set(Number(k), v);
-      }
-    } else {
-      try {
-        groqDow = await estimateDowCrowdScores();
-        if (groqDow.size > 0) {
-          const today = dateContextDate(todayKey);
-          await prisma.dateContext.upsert({
-            where: { parkId_date: { parkId: DISNEYLAND_PARK_ID, date: today } },
-            update: { groqDowEstimate: Object.fromEntries(groqDow) },
-            create: { parkId: DISNEYLAND_PARK_ID, date: today, groqDowEstimate: Object.fromEntries(groqDow) },
-          });
-        }
-      } catch (err) {
-        // Non-fatal: the missing days stay null.
-        console.error("estimateDowCrowdScores failed", err);
-      }
-    }
-
-    const filledDays = days.map((day) => {
-      if (day.source !== null || groqDow.size === 0) return day;
-      const dow = parkDateDow(day.date);
-      const score = groqDow.get(dow);
-      return score !== undefined ? { ...day, crowdScore: score, source: "groq" as const } : day;
-    });
-    return cachedJson({ year, month, days: filledDays }, CACHE_SECONDS);
-  }
-
-  return cachedJson({ year, month, days }, CACHE_SECONDS);
+  const parkId = parsed.data.park as ParkId;
+  const days = await getCrowdScoresForMonth(year, month, parkId);
+  return cachedJson({ year, month, parkId, days }, CACHE_SECONDS);
 }

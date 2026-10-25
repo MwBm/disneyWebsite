@@ -135,17 +135,32 @@ export async function syncGroqAdjustments(days = 90): Promise<{ adjusted: number
 
   if (pending.length === 0) return { adjusted: 0 };
 
-  // DateContext.date is midnight UTC standing for a park-local date, while
-  // DailyForecast.forecastFor is a 30-minute slot inside that day, so match on
-  // the park-day span rather than on timestamps.
+  // Fetch one compact projection range per park, rather than doing a database
+  // read for every pending calendar day.
+  const pendingByPark = new Map<number, typeof pending>();
+  for (const context of pending) {
+    const parkId = context.parkId ?? 16;
+    pendingByPark.set(parkId, [...(pendingByPark.get(parkId) ?? []), context]);
+  }
+  const scoresByPark = new Map<number, Map<string, number>>();
+  await Promise.all([...pendingByPark.entries()].map(async ([parkId, contexts]) => {
+    const dates = contexts.map((context) => context.date.toISOString().slice(0, 10)).sort();
+    const start = dates[0];
+    const endExclusive = addParkDays(dates[dates.length - 1], 1);
+    scoresByPark.set(
+      parkId,
+      await getDailyMlCrowdScores(
+        parkDateRangeUtc(start).start,
+        parkDateRangeUtc(endExclusive).start,
+        parkId as 16 | 17
+      )
+    );
+  }));
+
   const outcomes = await mapWithConcurrency(pending, SYNC_CONCURRENCY, async (ctx) => {
       const dateKey = ctx.date.toISOString().slice(0, 10);
-      // The serving projections are introduced independently. Until then this
-      // remains the legacy Disneyland score; DCA gets the conservative neutral
-      // value rather than silently borrowing Disneyland's wait index.
-      const crowdByDate = ctx.parkId === 16
-        ? await getDailyMlCrowdScores(parkDateRangeUtc(dateKey).start, parkDateRangeUtc(dateKey).endExclusive)
-        : new Map<string, number>();
+      const parkId = ctx.parkId ?? 16;
+      const crowdByDate = scoresByPark.get(parkId) ?? new Map<string, number>();
       const mlCrowdScore = crowdByDate.get(dateKey) ?? 50;
 
       const result = await adjustCrowdScore({

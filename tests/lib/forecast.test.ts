@@ -38,8 +38,8 @@ describe("getCrowdScoresForMonth", () => {
     await getCrowdScoresForMonth(2026, 6);
 
     // Jun 1 00:00 PDT = 07:00 UTC; Jul 1 00:00 PDT = 07:00 UTC.
-    expect(mockDailyScores).toHaveBeenCalledWith(new Date("2026-06-01T07:00:00Z"), new Date("2026-07-01T07:00:00Z"));
-    expect(mockDowMeans).toHaveBeenCalledWith(6);
+    expect(mockDailyScores).toHaveBeenCalledWith(new Date("2026-06-01T07:00:00Z"), new Date("2026-07-01T07:00:00Z"), 16);
+    expect(mockDowMeans).toHaveBeenCalledWith(6, 16);
   });
 
   it("uses historical DOW means for past dates within the forecast window", async () => {
@@ -68,7 +68,7 @@ describe("getCrowdScoresForMonth", () => {
     expect(june2!.crowdScore).toBe(60);
   });
 
-  it("applies and clamps the stored Groq adjustment to ML scores", async () => {
+  it("uses the materialized ML score without a post-hoc LLM adjustment", async () => {
     mockDailyScores.mockResolvedValue(new Map([["2025-06-02", 60], ["2025-06-03", 95], ["2025-06-04", 5]]));
     mockDateContextFindMany.mockResolvedValue([
       { date: new Date("2025-06-02T00:00:00Z"), tier: null, specialEvent: null, isHoliday: false, groqAdjustment: 7.4 },
@@ -79,9 +79,9 @@ describe("getCrowdScoresForMonth", () => {
     const days = await getCrowdScoresForMonth(2025, 6);
     const score = (date: string) => days.find((d) => d.date === date)!.crowdScore;
 
-    expect(score("2025-06-02")).toBe(67);
-    expect(score("2025-06-03")).toBe(100);
-    expect(score("2025-06-04")).toBe(0);
+    expect(score("2025-06-02")).toBe(60);
+    expect(score("2025-06-03")).toBe(95);
+    expect(score("2025-06-04")).toBe(5);
   });
 
   it("applies tier from DateContext to historical crowd score", async () => {
@@ -123,7 +123,7 @@ describe("getCrowdScoreForDate", () => {
     mockDailyScores.mockResolvedValue(new Map([["2026-06-01", 42]]));
 
     expect(await getCrowdScoreForDate("2026-06-01")).toBe(42);
-    expect(mockDailyScores).toHaveBeenCalledWith(new Date("2026-06-01T07:00:00Z"), new Date("2026-06-02T07:00:00Z"));
+    expect(mockDailyScores).toHaveBeenCalledWith(new Date("2026-06-01T07:00:00Z"), new Date("2026-06-02T07:00:00Z"), 16);
   });
 
   it("returns null when no forecast covers the date", async () => {
