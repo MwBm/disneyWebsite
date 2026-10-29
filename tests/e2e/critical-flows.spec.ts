@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Home — Crowd Forecast", () => {
   test("date picker and forecast button render", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Crowd forecasts for your park day." })).toBeVisible();
     // DisneyDatePicker is a button-based picker, not a native date input.
     await expect(page.getByRole("button", { name: /change date/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /forecast/i })).toBeVisible();
@@ -72,9 +73,9 @@ test.describe("Calendar page", () => {
     await expect(page.getByText(/Light \(0–25\)/)).toBeVisible();
   });
 
-  test("legend thresholds match the shared crowd scale", async ({ page }) => {
+  test("legend exposes the calendar's 10-point crowd scale", async ({ page }) => {
     await page.goto("/calendar");
-    for (const range of ["Light (0–25)", "Moderate (26–50)", "Busy (51–75)", "Very Busy (76+)"]) {
+    for (const range of ["0–9", "10–19", "20–29", "30–39", "40–49", "50–59", "60–69", "70–79", "80–89", "90+"]) {
       await expect(page.getByText(range)).toBeVisible();
     }
   });

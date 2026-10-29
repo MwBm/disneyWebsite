@@ -44,6 +44,7 @@ describe("LoadingScreen", () => {
     const overlay = container.firstElementChild as HTMLElement;
     expect(overlay).not.toBeNull();
     expect(overlay.style.visibility).toBe("visible");
+    expect(container.querySelectorAll(".hyperdrive-ray")).toHaveLength(72);
     unmount(container, root);
   });
 
@@ -96,12 +97,12 @@ describe("LoadingScreen", () => {
     unmount(container, root);
   });
 
-  it("is fully gone well within one second", () => {
+  it("is fully gone after the short arrival animation", () => {
     const { container, root } = mountLoadingScreen();
     const overlay = container.firstElementChild as HTMLElement;
 
     act(() => {
-      jest.advanceTimersByTime(1000);
+      jest.advanceTimersByTime(MIN_VISIBLE_MS + FADE_MS);
     });
 
     expect(overlay.style.visibility).toBe("hidden");

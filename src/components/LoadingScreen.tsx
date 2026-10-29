@@ -1,426 +1,190 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Abril_Fatface } from "next/font/google";
 
-const abrilFatface = Abril_Fatface({ weight: "400", subsets: ["latin"], display: "swap" });
+type Streak = {
+  angle: number;
+  length: number;
+  thickness: number;
+  delay: number;
+  duration: number;
+  opacity: number;
+};
 
-const FACTS = [
-  "Disneyland opened July 17, 1955 — Walt called opening day 'Black Sunday' due to the chaos.",
-  "The Matterhorn was the world's first steel tubular roller coaster when it opened in 1959.",
-  "Sleeping Beauty Castle stands just 77 feet tall — forced perspective makes it look much taller!",
-  "There are about 200 feral cats that roam Disneyland at night to control the rodent population.",
-  "The smell of fresh popcorn is pumped through vents near Main Street — it's called 'scent marketing.'",
-  "Walt Disney insisted the park stay spotless; cast members pick up trash every 30 feet on average.",
-  "Pirates of the Caribbean used to contain real human skulls — eventually replaced with replicas.",
-  "Indiana Jones Adventure has over 160,000 different ride variations programmed into its sequence.",
-  "Club 33, Disneyland's secret members-only club, originally had a waiting list of over 14 years.",
-  "The Haunted Mansion's stretching room actually descends — it's an elevator to the underground path.",
-  "Walt Disney was afraid of mice — which makes Mickey's creation all the more legendary.",
-  "Space Mountain's interior is so dark, riders can't see the track more than a foot ahead.",
-  "The Turkey Legs at Disneyland are actually smoked ham — not turkey. 🦃",
-  "Buzz Lightyear Astro Blasters has a secret max score that triggers a special Easter egg.",
-  "There's a private apartment above the fire station on Main Street that Walt used to stay in.",
-  "Every single trash can in Disneyland is within 30 steps of any spot in the park.",
-  "The voice of the Haunted Mansion's Ghost Host is Paul Frees, who also voiced Boris Badenov.",
-  "Splash Mountain drops you at 40 mph — faster than most people expect for a log flume.",
-  "Finding Nemo Submarine Voyage reused subs from the original 1959 attraction.",
-  "The Blue Bayou restaurant is technically inside the Pirates of the Caribbean ride.",
-  "Walt Disney wanted Disneyland to be a place parents could enjoy just as much as kids.",
-  "On hot days, the Mark Twain Riverboat can carry up to 300 guests — the largest capacity ride.",
-  "The gift shops are always at the exits of rides — never an accident, always by design.",
-  "Star Wars: Galaxy's Edge is built so no modern buildings are ever visible from inside.",
-  "Matterhorn has a basketball court inside it — cast members play between shifts.",
-  "'It's a Small World' was created for the 1964 World's Fair before moving to Disneyland.",
-  "Tomorrowland was redesigned in 1998 because the original 1967 future looked… too accurate.",
-  "The flowers on Main Street are replaced every single night after closing.",
-  "New Orleans Square was Walt Disney's personal favorite land in the park.",
-];
+/** Long enough for the arrival effect to be legible, short enough not to block the app. */
+export const MIN_VISIBLE_MS = 1_050;
+/** Must match the fade transition below. */
+export const FADE_MS = 350;
 
-const STATUS_MESSAGES = [
-  "Warming up the magic…",
-  "Checking crowd forecasts…",
-  "Consulting the crystal ball…",
-  "Loading ride wait times…",
-  "Almost ready for your adventure…",
-];
-
-type StarDef = { size: number; top: number; left: number; dur: number; delay: number; op: number };
-
-/** Shortest the overlay stays up, so it reads as intentional, not a flicker. */
-export const MIN_VISIBLE_MS = 450;
-/** Fade-out duration; must match the CSS transition below. */
-export const FADE_MS = 300;
+function createStreaks(): Streak[] {
+  return Array.from({ length: 72 }, () => ({
+    angle: Math.random() * 360,
+    length: Math.round(Math.random() * 116 + 42),
+    thickness: Math.random() < 0.88 ? 1 : 2,
+    delay: +(Math.random() * 1.05).toFixed(2),
+    duration: +(Math.random() * 0.54 + 0.56).toFixed(2),
+    opacity: +(Math.random() * 0.47 + 0.4).toFixed(2),
+  }));
+}
 
 export default function LoadingScreen() {
   const [visible, setVisible] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [statusIndex, setStatusIndex] = useState(0);
-  // Seeded in the initialiser, not an effect. Safe because this component is
-  // mounted client-only (see LoadingScreenMount) — there is no server render
-  // for these random values to disagree with.
-  const [factIndex, setFactIndex] = useState(() =>
-    Math.floor(Math.random() * FACTS.length)
-  );
-  const [stars] = useState<StarDef[]>(() =>
-    Array.from({ length: 80 }, () => ({
-      size: Math.random() * 2.5 + 1,
-      top: Math.random() * 100,
-      left: Math.random() * 100,
-      dur: +(Math.random() * 3 + 2).toFixed(1),
-      delay: +(Math.random() * 4).toFixed(1),
-      op: +(Math.random() * 0.5 + 0.3).toFixed(2),
-    }))
-  );
-  const [doneText, setDoneText] = useState(false);
-
-  const progressRef = useRef(0);
-  const statusRef = useRef(0);
-  const dismissedRef = useRef(false);
-  const progressInterval = useRef<ReturnType<typeof setInterval>>();
-  const factInterval = useRef<ReturnType<typeof setInterval>>();
-
-  useEffect(() => {
-    factInterval.current = setInterval(() => setFactIndex((i) => i + 1), 4000);
-    return () => clearInterval(factInterval.current);
-  }, []);
-
-  useEffect(() => {
-    progressInterval.current = setInterval(() => {
-      const p = progressRef.current;
-      if (p >= 99) return;
-      const inc =
-        p < 30 ? Math.random() * 4 + 1
-        : p < 70 ? Math.random() * 6 + 2
-        : p < 90 ? Math.random() * 2 + 0.5
-        : Math.random() * 0.8 + 0.2;
-      progressRef.current = Math.min(p + inc, 99);
-      setProgress(progressRef.current);
-      const si = Math.floor(progressRef.current / 20);
-      if (si !== statusRef.current && si < STATUS_MESSAGES.length) {
-        statusRef.current = si;
-        setStatusIndex(si);
-      }
-    }, 180);
-    return () => clearInterval(progressInterval.current);
-  }, []);
+  // This component is mounted client-only, so the visual randomness does not
+  // create a server/client hydration mismatch.
+  const [streaks] = useState(createStreaks);
+  const dismissed = useRef(false);
+  const progressTimer = useRef<ReturnType<typeof setInterval>>();
+  const fadeTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const dismiss = useCallback(() => {
-    if (dismissedRef.current) return;
-    dismissedRef.current = true;
-    clearInterval(progressInterval.current);
-    clearInterval(factInterval.current);
+    if (dismissed.current) return;
+    dismissed.current = true;
+    clearInterval(progressTimer.current);
     setProgress(100);
-    setDoneText(true);
-    setTimeout(() => setVisible(false), FADE_MS);
+    fadeTimer.current = setTimeout(() => setVisible(false), FADE_MS);
   }, []);
 
-  // Dismiss as soon as the browser has actually painted, with a short floor so
-  // the overlay does not flash on a fast load.
   useEffect(() => {
     (window as Window & { finishLoading?: () => void }).finishLoading = dismiss;
 
-    // A plain timeout, deliberately: requestAnimationFrame does not fire in a
-    // background tab, so a visitor who switches away during load would come
-    // back to an overlay still sitting there.
-    const timer = setTimeout(dismiss, MIN_VISIBLE_MS);
+    progressTimer.current = setInterval(() => {
+      setProgress((value) => Math.min(value + Math.max(2, (90 - value) * 0.09), 92));
+    }, 90);
+    const arrivalTimer = setTimeout(dismiss, MIN_VISIBLE_MS);
 
     return () => {
-      clearTimeout(timer);
+      clearInterval(progressTimer.current);
+      clearTimeout(arrivalTimer);
+      clearTimeout(fadeTimer.current);
       delete (window as Window & { finishLoading?: () => void }).finishLoading;
     };
   }, [dismiss]);
 
-  const GOLD = "#c49018";
-  const AMBER = "#d4701a";
-  const BG = "#faf4e8";
-  const DIM = "rgba(196,144,24,0.18)";
-
   return (
     <div
-      className="ls-root"
+      className="hyperdrive-loader"
+      aria-label="Loading Disneyland Planner"
       style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        background: BG,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
         opacity: visible ? 1 : 0,
         visibility: visible ? "visible" : "hidden",
         pointerEvents: visible ? "auto" : "none",
-        transition: `opacity ${FADE_MS}ms ease, visibility ${FADE_MS}ms ease`,
+        transition: `opacity ${FADE_MS}ms ease-out, visibility ${FADE_MS}ms ease-out`,
       }}
     >
-      <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
-        {stars.map((s, i) => (
-          <div
-            key={i}
-            style={{
-              position: "absolute",
-              borderRadius: "50%",
-              background: AMBER,
-              width: s.size,
-              height: s.size,
-              top: `${s.top}%`,
-              left: `${s.left}%`,
-              animation: `ls-twinkle ${s.dur}s ease-in-out ${s.delay}s infinite`,
-              opacity: 0,
-              ["--op" as string]: s.op,
-            }}
-          />
-        ))}
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          inset: 20,
-          border: `2px solid ${DIM}`,
-          pointerEvents: "none",
-        }}
-      >
-        <div style={{ position: "absolute", inset: 6, border: `1px solid ${DIM}` }} />
-        {(["tl", "tr", "bl", "br"] as const).map((c) => (
-          <div
-            key={c}
-            style={{
-              position: "absolute",
-              width: 18,
-              height: 18,
-              borderColor: GOLD,
-              borderStyle: "solid",
-              opacity: 0.6,
-              ...(c === "tl" ? { top: -2, left: -2, borderWidth: "2px 0 0 2px" } : {}),
-              ...(c === "tr" ? { top: -2, right: -2, borderWidth: "2px 2px 0 0" } : {}),
-              ...(c === "bl" ? { bottom: -2, left: -2, borderWidth: "0 0 2px 2px" } : {}),
-              ...(c === "br" ? { bottom: -2, right: -2, borderWidth: "0 2px 2px 0" } : {}),
-            }}
-          />
-        ))}
-      </div>
-
-      <div
-        style={{
-          position: "relative",
-          zIndex: 2,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-        }}
-      >
-        <h1
-          className={abrilFatface.className}
-          style={{
-            fontSize: "clamp(2rem, 5vw, 3.2rem)",
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-            color: GOLD,
-            textShadow: `0 2px 20px rgba(196,144,24,0.25)`,
-            marginBottom: 6,
-            textAlign: "center",
-            lineHeight: 1.1,
-          }}
-        >
-          Disneyland
-        </h1>
-        <p
-          style={{
-            fontFamily: "monospace",
-            fontSize: "clamp(0.6rem, 1.5vw, 0.72rem)",
-            color: AMBER,
-            letterSpacing: "0.25em",
-            textTransform: "uppercase",
-            marginBottom: 36,
-            opacity: 0.9,
-          }}
-        >
-          Planner
-        </p>
-
-        {/* Ferris wheel */}
-        <div
-          style={{
-            position: "relative",
-            width: 240,
-            height: 240,
-            marginBottom: 36,
-          }}
-        >
-          <svg
-            viewBox="0 0 240 230"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            style={{ width: "100%", height: "100%", overflow: "visible" }}
-          >
-            <defs>
-              <radialGradient id="ls-glow" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor={GOLD} stopOpacity="0.12" />
-                <stop offset="100%" stopColor={GOLD} stopOpacity="0" />
-              </radialGradient>
-              <filter id="ls-goldglow">
-                <feGaussianBlur stdDeviation="2.5" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-
-            <circle cx="120" cy="110" r="85" fill="url(#ls-glow)" />
-
-            {/* Support legs */}
-            <line x1="120" y1="190" x2="68" y2="218" stroke={GOLD} strokeWidth="3" strokeLinecap="round" opacity="0.7" />
-            <line x1="120" y1="190" x2="172" y2="218" stroke={GOLD} strokeWidth="3" strokeLinecap="round" opacity="0.7" />
-            <line x1="78" y1="208" x2="162" y2="208" stroke={GOLD} strokeWidth="1.5" opacity="0.4" />
-            <line x1="86" y1="214" x2="154" y2="214" stroke={GOLD} strokeWidth="1" opacity="0.25" />
-            <rect x="55" y="216" width="130" height="6" rx="3" fill={GOLD} opacity="0.35" />
-
-            {/* Rotating group */}
-            <g style={{ transformOrigin: "120px 110px", animation: "ls-spin 8s linear infinite" }}>
-              <circle cx="120" cy="110" r="78" stroke={GOLD} strokeWidth="1.5" opacity="0.3" fill="none" />
-              <circle cx="120" cy="110" r="55" stroke={GOLD} strokeWidth="1" opacity="0.18" fill="none" />
-
-              {/* 8 spokes */}
-              {[
-                [120, 32], [175, 55], [198, 110], [175, 165],
-                [120, 188], [65, 165], [42, 110], [65, 55],
-              ].map(([x2, y2], i) => (
-                <line key={i} x1="120" y1="110" x2={x2} y2={y2} stroke={GOLD} strokeWidth="1.5" opacity="0.5" />
-              ))}
-
-              {/* 8 gondolas */}
-              {[
-                { ox: 120, oy: 32,  rx: 110, ry: 23,  l1x: 115, l2x: 125 },
-                { ox: 175, oy: 55,  rx: 165, ry: 46,  l1x: 170, l2x: 180 },
-                { ox: 198, oy: 110, rx: 188, ry: 101, l1x: 193, l2x: 203 },
-                { ox: 175, oy: 165, rx: 165, ry: 156, l1x: 170, l2x: 180 },
-                { ox: 120, oy: 188, rx: 110, ry: 179, l1x: 115, l2x: 125 },
-                { ox: 65,  oy: 165, rx: 55,  ry: 156, l1x: 60,  l2x: 70  },
-                { ox: 42,  oy: 110, rx: 32,  ry: 101, l1x: 37,  l2x: 47  },
-                { ox: 65,  oy: 55,  rx: 55,  ry: 46,  l1x: 60,  l2x: 70  },
-              ].map((g, i) => (
-                <g key={i} style={{ transformOrigin: `${g.ox}px ${g.oy}px`, animation: "ls-counter 8s linear infinite" }}>
-                  <rect x={g.rx} y={g.ry} width="20" height="16" rx="3" fill={AMBER} stroke={GOLD} strokeWidth="1.5" />
-                  <line x1={g.l1x} y1={g.ry} x2={g.l1x} y2={g.oy} stroke={GOLD} strokeWidth="1" opacity="0.6" />
-                  <line x1={g.l2x} y1={g.ry} x2={g.l2x} y2={g.oy} stroke={GOLD} strokeWidth="1" opacity="0.6" />
-                </g>
-              ))}
-            </g>
-
-            {/* Hub */}
-            <circle cx="120" cy="110" r="10" fill={BG} stroke={GOLD} strokeWidth="2.5" />
-            <circle cx="120" cy="110" r="4" fill={GOLD} />
-
-            {/* Lights */}
-            {[
-              [120, 32], [175, 55], [198, 110], [175, 165],
-              [120, 188], [65, 165], [42, 110], [65, 55],
-            ].map(([cx, cy], i) => (
-              <circle key={i} cx={cx} cy={cy} r="3" fill={GOLD} filter="url(#ls-goldglow)" opacity="0.9" />
-            ))}
-          </svg>
-        </div>
-
-        <div
-          style={{
-            width: "min(320px, 80vw)",
-            height: 4,
-            background: "rgba(196,144,24,0.18)",
-            borderRadius: 2,
-            overflow: "hidden",
-            marginBottom: 28,
-            position: "relative",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              background: `linear-gradient(90deg, ${AMBER}, ${GOLD})`,
-              borderRadius: 2,
-              width: `${progress}%`,
-              transition: "width 0.4s ease",
-              boxShadow: "0 0 8px rgba(196,144,24,0.4)",
-            }}
-          />
-        </div>
-
-        <div
-          style={{
-            width: "min(380px, 88vw)",
-            textAlign: "center",
-            minHeight: 60,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+      <div className="hyperdrive-vignette" />
+      <div className="hyperdrive-rays" aria-hidden="true">
+        {streaks.map((streak, index) => (
           <span
-            style={{
-              fontFamily: "monospace",
-              fontSize: "0.6rem",
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              color: AMBER,
-              opacity: 0.8,
-            }}
+            className="hyperdrive-ray"
+            key={index}
+            style={{ transform: `rotate(${streak.angle}deg)` }}
           >
-            ★ Did you know? ★
+            <i
+              style={{
+                width: streak.length,
+                height: streak.thickness,
+                opacity: streak.opacity,
+                animationDelay: `${streak.delay}s`,
+                animationDuration: `${streak.duration}s`,
+              }}
+            />
           </span>
-          <p
-            key={factIndex}
-            style={{
-              fontFamily: `${abrilFatface.style.fontFamily}, Georgia, serif`,
-              fontSize: "clamp(0.85rem, 2vw, 1rem)",
-              color: "#1a152e",
-              lineHeight: 1.55,
-              animation: "ls-factfade 0.6s ease",
-            }}
-          >
-            {FACTS[factIndex % FACTS.length]}
-          </p>
-        </div>
+        ))}
+      </div>
 
-        <p
-          style={{
-            marginTop: 16,
-            fontFamily: "monospace",
-            fontSize: "0.65rem",
-            letterSpacing: "0.15em",
-            textTransform: "uppercase",
-            color: GOLD,
-            opacity: 0.8,
-          }}
-        >
-          {doneText ? "Welcome to the magic! ✨" : STATUS_MESSAGES[statusIndex]}
-        </p>
+      <div className="hyperdrive-copy">
+        <div className="hyperdrive-mark" aria-hidden="true">✦</div>
+        <p className="hyperdrive-eyebrow">Disneyland Planner</p>
+        <p className="hyperdrive-status">Entering hyperspace</p>
+        <div className="hyperdrive-progress" aria-hidden="true">
+          <span style={{ transform: `scaleX(${progress / 100})` }} />
+        </div>
       </div>
 
       <style>{`
-        @keyframes ls-spin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
+        .hyperdrive-loader {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          display: grid;
+          place-items: center;
+          overflow: hidden;
+          background: radial-gradient(circle at 50% 50%, #142a61 0%, #07112d 24%, #030712 70%);
         }
-        @keyframes ls-counter {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(-360deg); }
+        .hyperdrive-vignette {
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          background: radial-gradient(circle, transparent 24%, rgb(0 0 0 / 0.43) 100%);
+          pointer-events: none;
         }
-        @keyframes ls-twinkle {
-          0%, 100% { opacity: 0; transform: scale(0.5); }
-          50% { opacity: var(--op, 0.7); transform: scale(1); }
+        .hyperdrive-rays { position: absolute; inset: 0; overflow: hidden; }
+        .hyperdrive-ray {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 1px;
+          transform-origin: 0 50%;
         }
-        @keyframes ls-factfade {
-          from { opacity: 0; transform: translateY(6px); }
-          to   { opacity: 1; transform: translateY(0); }
+        .hyperdrive-ray i {
+          display: block;
+          transform-origin: left center;
+          background: linear-gradient(90deg, transparent, #d9ecff 26%, #fff 68%, transparent);
+          border-radius: 999px;
+          box-shadow: 0 0 8px rgb(142 195 255 / 0.7);
+          animation-name: hyperdrive-rush;
+          animation-timing-function: cubic-bezier(0.14, 0.64, 0.25, 1);
+          animation-iteration-count: infinite;
+        }
+        .hyperdrive-copy {
+          position: relative;
+          z-index: 2;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          color: #eff6ff;
+          text-align: center;
+          text-shadow: 0 2px 28px rgb(80 152 255 / 0.34);
+        }
+        .hyperdrive-mark { color: #b9dcff; font-size: 1.35rem; line-height: 1; margin-bottom: 1rem; }
+        .hyperdrive-eyebrow {
+          margin: 0;
+          font-size: clamp(0.68rem, 1.8vw, 0.8rem);
+          font-weight: 500;
+          letter-spacing: 0.32em;
+          text-transform: uppercase;
+        }
+        .hyperdrive-status {
+          margin: 0.72rem 0 1rem;
+          color: #9fbbe9;
+          font-size: 0.68rem;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+        }
+        .hyperdrive-progress {
+          width: min(190px, 46vw);
+          height: 1px;
+          overflow: hidden;
+          background: rgb(182 216 255 / 0.24);
+        }
+        .hyperdrive-progress span {
+          display: block;
+          width: 100%;
+          height: 100%;
+          transform-origin: left center;
+          background: #d5ecff;
+          box-shadow: 0 0 10px #b9dcff;
+          transition: transform 0.14s ease-out;
+        }
+        @keyframes hyperdrive-rush {
+          0% { transform: translateX(0) scaleX(0.05); opacity: 0; }
+          12% { opacity: 0.88; }
+          100% { transform: translateX(105vmax) scaleX(1.15); opacity: 0; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .ls-root, .ls-root * {
-            animation-duration: 0.01ms !important;
-            animation-iteration-count: 1 !important;
-          }
+          .hyperdrive-ray i { animation: none; opacity: 0.25 !important; transform: translateX(25vmax) scaleX(0.15); }
+          .hyperdrive-progress span { transition: none; }
         }
       `}</style>
     </div>

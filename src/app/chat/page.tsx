@@ -21,16 +21,19 @@ export default function ChatPage() {
         subtitle="Ask anything about Disneyland — live wait times, ride tips, and planning advice."
       />
 
-      <div className="flex flex-wrap gap-2">
+      <div>
+        <p className="eyebrow mb-3">Try a question</p>
+        <div className="flex flex-wrap gap-2">
         {SUGGESTIONS.map((s) => (
           <button
             key={s}
             onClick={() => chatRef.current?.send(s)}
-            className="text-xs bg-space-card border border-space-700 text-warm-700 rounded-full px-3.5 py-2 hover:border-orange-500/50 hover:text-orange-400 transition-colors"
+            className="rounded-md border border-space-700 bg-space-card px-3 py-2 text-left text-xs text-warm-700 transition-colors hover:border-warm-500 hover:text-warm-900"
           >
             {s}
           </button>
         ))}
+        </div>
       </div>
 
       <ChatAssistant ref={chatRef} />

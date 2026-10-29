@@ -68,20 +68,38 @@ export default function DateForecaster() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-8">
-      <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 items-end justify-center">
-        <ParkPicker value={parkId} onChange={(nextParkId) => {
-          setParkId(nextParkId);
-          setResult(null);
-          setNarration(null);
-        }} />
-        <DisneyDatePicker value={date} onChange={setDate} label="Select a date" />
+    <section className="panel p-5 sm:p-7" aria-labelledby="forecast-heading">
+      <div className="flex flex-col gap-3 border-b border-space-700 pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="eyebrow mb-3">Crowd forecast</p>
+          <h2 id="forecast-heading" className="text-xl font-medium tracking-[-0.025em] text-warm-900">Choose a park day</h2>
+        </div>
+        <p className="max-w-xs text-sm leading-6 text-warm-700">
+          Pick a date to see its predicted crowd level and plan from there.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-6 grid gap-4 md:grid-cols-[auto_minmax(16rem,1fr)_auto] md:items-end">
+        <div className="space-y-2">
+          <p className="control-label">Park</p>
+          <ParkPicker value={parkId} onChange={(nextParkId) => {
+            setParkId(nextParkId);
+            setResult(null);
+            setNarration(null);
+          }} />
+        </div>
+        <DisneyDatePicker value={date} onChange={setDate} label="Visit date" />
         <button
           type="submit"
           disabled={loading}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+          className="primary-action w-full md:w-auto"
         >
-          {loading ? "Loading…" : "Forecast"}
+          {loading ? "Checking…" : "Check forecast"}
+          {!loading && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          )}
         </button>
       </form>
 
@@ -92,7 +110,7 @@ export default function DateForecaster() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="text-red-400 text-sm"
+            className="mt-6 border-t border-space-700 pt-5 text-sm text-red-300"
           >
             {error}
           </motion.p>
@@ -104,21 +122,21 @@ export default function DateForecaster() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center gap-6 w-full"
+            className="mt-6 flex w-full flex-col items-center gap-6 border-t border-space-700 pt-6"
           >
             {result.lastCollectedAt && (
-              <p className="text-xs text-warm-500">
+              <p className="self-start text-xs text-warm-500">
                 Data updated {timeAgo(result.lastCollectedAt)}
               </p>
             )}
             {!result.dataQualityOk && (
-              <div className="text-xs text-warm-700 bg-space-card border border-space-700 rounded-lg px-3 py-2">
+              <div className="self-start border border-space-700 bg-space-800 px-3 py-2 text-xs text-warm-700">
                 Data collection has had recent issues — forecasts may be stale.
               </div>
             )}
 
             {result.source === "historical" && (
-              <p className="text-xs text-warm-500 bg-space-card border border-space-700 rounded-lg px-3 py-1.5">
+              <p className="self-start border border-space-700 bg-space-800 px-3 py-2 text-xs text-warm-500">
                 Based on typical {format(parseISO(result.date), "EEEE")} patterns — no ML data for this date yet.
               </p>
             )}
@@ -127,7 +145,7 @@ export default function DateForecaster() {
               <>
                 <CrowdMeter score={result.crowdScore} />
                 {narration && (
-                  <div className="max-w-lg bg-space-card border border-space-700 rounded-2xl px-6 py-4 neon neon-purple text-sm text-warm-900 leading-relaxed">
+                  <div className="w-full max-w-lg border-l border-warm-500 pl-4 text-sm leading-7 text-warm-900">
                     {narration}
                   </div>
                 )}
@@ -136,15 +154,15 @@ export default function DateForecaster() {
                     type="button"
                     onClick={loadNarration}
                     disabled={narrationLoading}
-                    className="text-xs text-warm-500 hover:text-orange-400 transition-colors disabled:opacity-50"
+                    className="text-xs text-warm-500 underline decoration-space-700 underline-offset-4 transition-colors hover:text-warm-900 disabled:opacity-50"
                   >
-                    {narrationLoading ? "Writing planning tip…" : "Add a planning tip"}
+                    {narrationLoading ? "Writing a planning tip…" : "Add a planning tip"}
                   </button>
                 )}
                 {result.source !== "groq" && (
                   <a
                     href={`/wait-times?date=${date}&park=${parkId}`}
-                    className="text-sm text-orange-400 hover:text-orange-500 font-medium flex items-center gap-1"
+                    className="inline-flex items-center gap-1 text-sm font-medium text-warm-900 underline decoration-warm-500 underline-offset-4 hover:text-white"
                   >
                     See per-ride predictions
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -154,7 +172,7 @@ export default function DateForecaster() {
                 )}
               </>
             ) : (
-              <p className="text-warm-700 text-sm">
+              <p className="self-start text-sm text-warm-700">
                 No forecast data yet for {format(parseISO(date), "MMMM d, yyyy")}. Check back
                 after the first data collection runs.
               </p>
@@ -162,6 +180,6 @@ export default function DateForecaster() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </section>
   );
 }

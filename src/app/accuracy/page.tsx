@@ -23,9 +23,9 @@ type AccuracyData = {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-space-card border border-space-700 rounded-2xl px-6 py-5 shadow-sm neon">
-      <p className="text-xs text-warm-700 uppercase tracking-wide font-medium">{label}</p>
-      <p className="text-2xl font-semibold text-warm-900 mt-1">{value}</p>
+    <div className="panel px-5 py-4">
+      <p className="eyebrow">{label}</p>
+      <p className="mt-2 text-2xl font-medium tracking-[-0.03em] text-warm-900">{value}</p>
     </div>
   );
 }
@@ -50,7 +50,7 @@ function Within10Bar({ value }: { value: number }) {
     <div className="flex items-center gap-2">
       <div className="flex-1 bg-cream-200 rounded-full h-1.5">
         <div
-          className="h-1.5 rounded-full bg-orange-500 transition-all"
+          className="h-1.5 rounded-full bg-warm-900 transition-all"
           style={{ width: `${Math.round(value * 100)}%` }}
         />
       </div>
@@ -78,10 +78,10 @@ function RideCard({
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left rounded-2xl border p-4 transition-all shadow-sm cursor-pointer ${
+      className={`w-full cursor-pointer rounded-xl border p-4 text-left transition-colors ${
         selected
-          ? "border-orange-400 bg-orange-500/10 ring-2 ring-orange-400/20"
-          : "border-space-700 bg-space-card neon hover:shadow-md"
+          ? "border-warm-500 bg-space-800"
+          : "border-space-700 bg-space-card hover:border-warm-500"
       }`}
     >
       <div className="flex items-start justify-between gap-2 mb-3">
@@ -156,7 +156,7 @@ export default function AccuracyPage() {
       />
 
       {loading && (
-        <div className="bg-space-card border border-space-700 rounded-2xl p-8 text-center shadow-sm">
+        <div className="panel p-8 text-center">
           <p className="text-warm-700 text-sm">Loading accuracy data…</p>
         </div>
       )}
@@ -168,7 +168,7 @@ export default function AccuracyPage() {
       )}
 
       {!data?.summary && !loading && (
-        <div className="bg-space-card border border-space-700 rounded-2xl p-8 text-center shadow-sm">
+        <div className="panel p-8 text-center">
           <p className="text-warm-700 text-sm">
             No accuracy data yet. Once the model has made predictions and actual data has been
             collected for those times, comparisons will appear here.
@@ -185,7 +185,7 @@ export default function AccuracyPage() {
             <StatCard label="Total Predictions" value={data.summary.totalPredictions.toLocaleString()} />
           </div>
 
-          <div className="bg-space-card border border-space-700 rounded-2xl p-6 shadow-sm neon">
+          <div className="panel p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div>
                 <h2 className="font-medium text-warm-900">Predicted vs. Actual</h2>
@@ -193,7 +193,7 @@ export default function AccuracyPage() {
                   <p className="text-xs text-warm-700 mt-0.5">{selectedRideName}</p>
                 )}
               </div>
-              <span className="text-xs text-warm-700 border border-space-700 rounded-lg px-2.5 py-1 bg-cream-100">
+              <span className="border border-space-700 bg-cream-100 px-2.5 py-1 text-xs text-warm-700">
                 Click a card below to switch rides
               </span>
             </div>
@@ -203,7 +203,7 @@ export default function AccuracyPage() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <div className="flex gap-1 p-1 bg-cream-200 rounded-xl border border-space-700">
+            <div className="flex gap-1 rounded-lg border border-space-700 bg-cream-200 p-1">
               {(
                 [
                   ["all", `All (${parkCounts.all})`],
@@ -214,7 +214,7 @@ export default function AccuracyPage() {
                 <button
                   key={val}
                   onClick={() => setParkFilter(val)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                     parkFilter === val
                       ? "bg-space-card text-warm-900 shadow-sm border border-space-700"
                       : "text-warm-700 hover:text-warm-900"
@@ -244,14 +244,14 @@ export default function AccuracyPage() {
                   placeholder="Search rides..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-7 pr-3 py-1.5 text-sm border border-space-700 rounded-xl bg-cream-100 text-warm-900 placeholder:text-warm-700 focus:outline-none focus:ring-2 focus:ring-orange-500 w-44"
+                  className="w-44 rounded-lg border border-space-700 bg-cream-100 py-1.5 pl-7 pr-3 text-sm text-warm-900 placeholder:text-warm-700 focus:outline-none focus:ring-2 focus:ring-warm-500"
                 />
               </div>
 
               <select
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as SortKey)}
-                className="border border-space-700 rounded-xl px-3 py-1.5 text-sm text-warm-900 bg-cream-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="rounded-lg border border-space-700 bg-cream-100 px-3 py-1.5 text-sm text-warm-900 focus:outline-none focus:ring-2 focus:ring-warm-500"
               >
                 <option value="mae-asc">Best accuracy first</option>
                 <option value="mae-desc">Worst accuracy first</option>
@@ -273,7 +273,7 @@ export default function AccuracyPage() {
               ))}
             </div>
           ) : (
-            <div className="bg-space-card border border-space-700 rounded-2xl p-8 text-center shadow-sm neon">
+            <div className="panel p-8 text-center">
               <p className="text-warm-700 text-sm">No rides match your filters.</p>
             </div>
           )}
