@@ -95,20 +95,15 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
     }
 
     return (
-      <div className="flex flex-col flex-1 min-h-[400px] bg-space-card border border-space-700 rounded-2xl shadow-sm overflow-hidden neon">
-        <div className="border-b border-space-700 px-4 py-3 bg-cream-100">
+      <div className="panel flex min-h-[400px] flex-1 flex-col overflow-hidden">
+        <div className="border-b border-space-700 bg-cream-100 px-4 py-3">
           <DisneyDatePicker value={visitDate} onChange={setVisitDate} label="Plan for date" />
         </div>
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center gap-4 h-full min-h-[200px]">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center text-orange-400"
-                style={{ background: "rgba(240,192,96,0.07)", border: "1px solid rgba(240,192,96,0.18)" }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-              </div>
-              <p className="text-warm-700 text-sm text-center">
+            <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3">
+              <p className="eyebrow">Planning help</p>
+              <p className="max-w-sm text-center text-sm leading-6 text-warm-700">
                 Ask anything — try one of the suggestions above, or type your own question.
               </p>
             </div>
@@ -116,10 +111,10 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                className={`max-w-[80%] rounded-lg px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
                   msg.role === "user"
-                    ? "bg-orange-500 text-white rounded-br-sm"
-                    : "bg-cream-200 text-warm-900 rounded-bl-sm"
+                    ? "bg-warm-900 text-space-900"
+                    : "border border-space-700 bg-space-800 text-warm-900"
                 }`}
               >
                 {msg.content}
@@ -132,18 +127,18 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
           <div ref={bottomRef} />
         </div>
 
-        <form onSubmit={send} className="border-t border-space-700 p-4 flex gap-3 bg-cream-100">
+        <form onSubmit={send} className="flex gap-3 border-t border-space-700 bg-cream-100 p-4">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about wait times, best times to visit, rides…"
             disabled={streaming}
-            className="flex-1 bg-space-card border border-space-700 rounded-xl px-4 py-2.5 text-sm text-warm-900 placeholder-warm-500 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+            className="flex-1 rounded-lg border border-space-700 bg-space-card px-4 py-2.5 text-sm text-warm-900 placeholder-warm-500 focus:outline-none focus:ring-2 focus:ring-warm-500 disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={streaming || !input.trim()}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-40"
+            className="primary-action px-4 disabled:opacity-40"
           >
             Send
           </button>

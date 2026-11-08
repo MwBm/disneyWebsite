@@ -125,6 +125,54 @@ export function crowdLegend(): { label: string; range: string; color: string }[]
 }
 
 /**
+ * The calendar needs more resolution than the four semantic labels above. A
+ * 38 and a 48 are both "Moderate" days, but a month view should still make
+ * their difference visible at a glance. This visual-only scale is deliberately
+ * separate so copy elsewhere can stay on the useful Light/Moderate/Busy labels.
+ */
+export type CalendarCrowdBand = {
+  max: number;
+  color: string;
+  bgOpacity: number;
+};
+
+export const CALENDAR_CROWD_BANDS: readonly CalendarCrowdBand[] = [
+  { max: 9,        color: "#3fc47b", bgOpacity: 0.10 },
+  { max: 19,       color: "#6bce78", bgOpacity: 0.11 },
+  { max: 29,       color: "#9bd378", bgOpacity: 0.12 },
+  { max: 39,       color: "#c4d475", bgOpacity: 0.13 },
+  { max: 49,       color: "#dfbe6e", bgOpacity: 0.14 },
+  { max: 59,       color: "#e6a563", bgOpacity: 0.15 },
+  { max: 69,       color: "#e78a5d", bgOpacity: 0.16 },
+  { max: 79,       color: "#e56d5d", bgOpacity: 0.18 },
+  { max: 89,       color: "#db5965", bgOpacity: 0.20 },
+  { max: Infinity, color: "#c94d6b", bgOpacity: 0.22 },
+] as const;
+
+export function calendarCrowdBand(score: number): CalendarCrowdBand {
+  if (!Number.isFinite(score)) return CALENDAR_CROWD_BANDS[CALENDAR_CROWD_BANDS.length - 1];
+  return CALENDAR_CROWD_BANDS.find((band) => score <= band.max) ?? CALENDAR_CROWD_BANDS[CALENDAR_CROWD_BANDS.length - 1];
+}
+
+export function calendarCrowdColor(score: number | null): string {
+  return score === null ? NO_DATA_COLOR : calendarCrowdBand(score).color;
+}
+
+export function calendarCrowdBgOpacity(score: number | null): number {
+  return score === null ? 0 : calendarCrowdBand(score).bgOpacity;
+}
+
+export function calendarCrowdLegend(): { range: string; color: string }[] {
+  return CALENDAR_CROWD_BANDS.map((band, index) => {
+    const lower = index === 0 ? 0 : CALENDAR_CROWD_BANDS[index - 1].max + 1;
+    return {
+      range: band.max === Infinity ? `${lower}+` : `${lower}–${band.max}`,
+      color: band.color,
+    };
+  });
+}
+
+/**
  * Predicted wait in minutes — a different axis from the crowd score, sharing
  * the same palette. Kept separate and separately named so neither set of
  * thresholds can be edited in the belief it governs the other.

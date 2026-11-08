@@ -2,10 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
-import { crowdBgOpacity, crowdColor, crowdLabelText, crowdLegend } from "@/lib/crowd";
+import {
+  calendarCrowdBgOpacity,
+  calendarCrowdColor,
+  calendarCrowdLegend,
+  crowdLabelText,
+  crowdLegend,
+} from "@/lib/crowd";
 import { weatherEmoji, weatherLabel, type WeatherDay } from "@/lib/weather";
 import { parkDateKey } from "@/lib/park-time";
 import ParkPicker from "@/components/ParkPicker";
+import PageHeader from "@/components/PageHeader";
 import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
 
 type DayScore = {
@@ -81,7 +88,7 @@ function TierBadge({ tier }: { tier: number | null }) {
 }
 
 function ScoreBar({ score }: { score: number }) {
-  const color = crowdColor(score);
+  const color = calendarCrowdColor(score);
   return (
     <div className="w-full">
       <div className="flex justify-between items-center mb-1.5">
@@ -199,34 +206,28 @@ export default function CalendarPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start gap-4">
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center text-orange-400 shrink-0"
-          style={{ background: "rgba(240,192,96,0.07)", border: "1px solid rgba(240,192,96,0.14)" }}
-        >
-          <CalendarIcon />
-        </div>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <PageHeader
+          icon={<CalendarIcon />}
+          title="Crowd Calendar"
+          subtitle="Monthly view of predicted park busyness. Select a day for more detail."
+        />
         <div>
-          <h1 className="text-2xl font-semibold text-warm-900 tracking-tight">Crowd Calendar</h1>
-          <p className="text-warm-700 text-sm mt-0.5">
-            Monthly view of predicted park busyness — click any day for details.
-          </p>
-          <div className="mt-3">
-            <ParkPicker value={parkId} onChange={handleParkChange} />
-          </div>
+          <p className="control-label mb-2">Park</p>
+          <ParkPicker value={parkId} onChange={handleParkChange} />
         </div>
       </div>
 
       {!loading && avgScore !== null && (
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Monthly Average", value: `${avgScore}/100`, sub: crowdLabelText(avgScore), color: crowdColor(avgScore) },
-            { label: "Best Day", value: bestDay ? format(parseISO(bestDay.date), "EEE, MMM d") : "—", sub: bestDay ? `${bestDay.crowdScore}/100 · ${crowdLabelText(bestDay.crowdScore)}` : "", color: crowdColor(bestDay?.crowdScore ?? null) },
-            { label: "Busiest Day", value: worstDay ? format(parseISO(worstDay.date), "EEE, MMM d") : "—", sub: worstDay ? `${worstDay.crowdScore}/100 · ${crowdLabelText(worstDay.crowdScore)}` : "", color: crowdColor(worstDay?.crowdScore ?? null) },
+            { label: "Monthly Average", value: `${avgScore}/100`, sub: crowdLabelText(avgScore), color: calendarCrowdColor(avgScore) },
+            { label: "Best Day", value: bestDay ? format(parseISO(bestDay.date), "EEE, MMM d") : "—", sub: bestDay ? `${bestDay.crowdScore}/100 · ${crowdLabelText(bestDay.crowdScore)}` : "", color: calendarCrowdColor(bestDay?.crowdScore ?? null) },
+            { label: "Busiest Day", value: worstDay ? format(parseISO(worstDay.date), "EEE, MMM d") : "—", sub: worstDay ? `${worstDay.crowdScore}/100 · ${crowdLabelText(worstDay.crowdScore)}` : "", color: calendarCrowdColor(worstDay?.crowdScore ?? null) },
           ].map(({ label, value, sub, color }) => (
             <div
               key={label}
-              className="bg-space-card border border-space-700 rounded-xl p-4 neon"
+              className="panel p-4"
               style={{ borderColor: `${color}22` }}
             >
               <p className="text-warm-500 text-xs uppercase tracking-widest mb-1">{label}</p>
@@ -237,17 +238,17 @@ export default function CalendarPage() {
         </div>
       )}
 
-      <div className="bg-space-card border border-space-700 rounded-2xl overflow-hidden neon neon-gold">
+      <div className="panel overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-space-700">
           <button
             onClick={prevMonth}
             aria-label="Previous month"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-warm-700 hover:text-orange-400 hover:bg-space-800 transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-warm-500 transition-colors hover:bg-space-800 hover:text-warm-900"
           >
             <ChevronLeft />
           </button>
           <div className="text-center">
-            <p className="font-display italic text-orange-400 text-xl leading-none tracking-tight">
+            <p className="text-lg font-medium leading-none tracking-[-0.02em] text-warm-900">
               {format(new Date(year, month - 1), "MMMM")}
             </p>
             <p className="text-warm-500 text-xs tracking-widest mt-0.5">{year}</p>
@@ -255,7 +256,7 @@ export default function CalendarPage() {
           <button
             onClick={nextMonth}
             aria-label="Next month"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-warm-700 hover:text-orange-400 hover:bg-space-800 transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-warm-500 transition-colors hover:bg-space-800 hover:text-warm-900"
           >
             <ChevronRight />
           </button>
@@ -284,8 +285,8 @@ export default function CalendarPage() {
               const isToday = cell?.date === todayStr;
               const isSelected = !isUnavailable && cell?.date === selected?.date;
               const score = cell?.crowdScore ?? null;
-              const color = crowdColor(score);
-              const bgOpacity = crowdBgOpacity(score);
+              const color = calendarCrowdColor(score);
+              const bgOpacity = calendarCrowdBgOpacity(score);
               const col = i % 7;
               const isLastCol = col === 6;
               const row = Math.floor(i / 7);
@@ -412,7 +413,7 @@ export default function CalendarPage() {
                   {isToday && (
                     <div
                       className="absolute inset-1 rounded-lg pointer-events-none"
-                      style={{ border: "1.5px solid rgba(240,192,96,0.5)" }}
+                      style={{ border: "1.5px solid rgb(var(--color-gold) / 0.56)" }}
                     />
                   )}
                 </div>
@@ -425,14 +426,14 @@ export default function CalendarPage() {
       {selected && (
         <div
           className="bg-space-card border rounded-2xl p-5 transition-all duration-200"
-          style={{ borderColor: `${crowdColor(selected.crowdScore)}40` }}
+          style={{ borderColor: `${calendarCrowdColor(selected.crowdScore)}40` }}
         >
           <div className="flex items-start justify-between gap-6">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2.5 mb-4">
                 <div
                   className="w-1.5 h-8 rounded-full shrink-0"
-                  style={{ background: crowdColor(selected.crowdScore), boxShadow: `0 0 8px ${crowdColor(selected.crowdScore)}80` }}
+                  style={{ background: calendarCrowdColor(selected.crowdScore), boxShadow: `0 0 8px ${calendarCrowdColor(selected.crowdScore)}80` }}
                 />
                 <div>
                   <p className="text-warm-900 font-semibold leading-tight">
@@ -511,7 +512,7 @@ export default function CalendarPage() {
             <a
               href={`/?date=${selected.date}`}
               className="shrink-0 flex flex-col items-center gap-1.5 px-4 py-3 rounded-xl text-orange-400 hover:text-orange-300 transition-all group"
-              style={{ background: "rgba(240,192,96,0.06)", border: "1px solid rgba(240,192,96,0.15)" }}
+              style={{ background: "rgb(var(--color-gold) / 0.08)", border: "1px solid rgb(var(--color-gold) / 0.17)" }}
             >
               <span className="text-xs font-medium">Full Forecast</span>
               <span className="group-hover:translate-x-0.5 transition-transform">
@@ -523,8 +524,8 @@ export default function CalendarPage() {
       )}
 
       <div className="flex flex-wrap gap-x-5 gap-y-2 justify-center pb-2">
-        {crowdLegend().map(({ label, range, color }) => ({
-          label: `${label} (${range})`,
+        {calendarCrowdLegend().map(({ range, color }) => ({
+          label: range,
           color,
         })).map(({ label, color }) => (
           <div key={label} className="flex items-center gap-1.5">

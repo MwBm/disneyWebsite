@@ -17,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SpaceBackground />
         <div className="relative z-10 flex flex-col flex-1">
           <Nav />
-          <main className="flex-1 flex flex-col max-w-5xl w-full mx-auto px-4 py-10">{children}</main>
+          <main className="flex-1 flex flex-col max-w-6xl w-full mx-auto px-5 py-10 sm:px-8 sm:py-14">{children}</main>
         </div>
       </body>
     </html>

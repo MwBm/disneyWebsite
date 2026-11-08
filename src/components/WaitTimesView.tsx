@@ -55,10 +55,10 @@ function RideCard({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`w-full text-left rounded-2xl border p-4 transition-all cursor-pointer ${
+      className={`w-full cursor-pointer rounded-xl border p-4 text-left transition-colors ${
         selected
-          ? "border-orange-400 bg-orange-500/10 ring-2 ring-orange-400/20"
-          : "border-space-700 bg-space-card neon hover:shadow-md"
+          ? "border-warm-500 bg-space-800"
+          : "border-space-700 bg-space-card hover:border-warm-500"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -159,7 +159,7 @@ export default function WaitTimesView({
         <DisneyDatePicker value={date} onChange={handleDateChange} label="Select a date" />
         {data?.crowdScore !== null && data?.crowdScore !== undefined && (
           <div
-            className="rounded-xl px-4 py-2.5 text-sm"
+            className="rounded-lg px-4 py-2.5 text-sm"
             style={{
               background: `${crowdLabel(data.crowdScore).color}14`,
               border: `1px solid ${crowdLabel(data.crowdScore).color}33`,
@@ -175,14 +175,14 @@ export default function WaitTimesView({
       {loading && <p className="text-warm-700 text-sm">Loading predictions…</p>}
 
       {!loading && error && (
-        <div className="bg-space-card border border-space-700 rounded-2xl px-6 py-5">
+        <div className="panel px-6 py-5">
           <p className="text-sm text-warm-900">Couldn&apos;t load predictions.</p>
           <p className="text-xs text-warm-700 mt-1">{error}</p>
         </div>
       )}
 
       {!loading && !error && rides.length === 0 && (
-        <div className="bg-space-card border border-space-700 rounded-2xl px-6 py-5">
+        <div className="panel px-6 py-5">
           <p className="text-sm text-warm-900">
             No per-ride predictions for {format(parseISO(date), "MMMM d, yyyy")} yet.
           </p>
@@ -201,7 +201,7 @@ export default function WaitTimesView({
           </p>
 
           {selectedRide && (
-            <div className="bg-space-card border border-space-700 rounded-2xl p-6 shadow-sm neon">
+            <div className="panel p-5 sm:p-6">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <div>
                   <h2 className="font-medium text-warm-900">Hourly Wait Forecast</h2>
@@ -209,7 +209,7 @@ export default function WaitTimesView({
                     {selectedRide.rideName} · Park time (Pacific)
                   </p>
                 </div>
-                <span className="text-xs text-warm-700 border border-space-700 rounded-lg px-2.5 py-1 bg-cream-100">
+                <span className="border border-space-700 bg-cream-100 px-2.5 py-1 text-xs text-warm-700">
                   Select a ride below to switch
                 </span>
               </div>
@@ -225,7 +225,7 @@ export default function WaitTimesView({
                   <button
                     type="button"
                     onClick={() => setShowChart(true)}
-                    className="text-sm text-orange-400 hover:text-orange-500 font-medium"
+                    className="text-sm font-medium text-warm-900 underline decoration-warm-500 underline-offset-4 hover:text-white"
                   >
                     Load hourly chart
                   </button>

@@ -17,10 +17,13 @@ const config: Config = {
         },
         warm: {
           900: "rgb(var(--color-text-primary)   / <alpha-value>)",
+          800: "rgb(var(--color-text-primary)   / <alpha-value>)",
           700: "rgb(var(--color-text-secondary) / <alpha-value>)",
+          600: "rgb(var(--color-text-secondary) / <alpha-value>)",
           500: "rgb(var(--color-text-muted)     / <alpha-value>)",
         },
         orange: {
+          300: "rgb(var(--color-amber) / <alpha-value>)",
           400: "rgb(var(--color-gold)  / <alpha-value>)",
           500: "rgb(var(--color-gold)  / <alpha-value>)",
           600: "rgb(var(--color-amber) / <alpha-value>)",

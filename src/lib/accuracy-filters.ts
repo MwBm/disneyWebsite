@@ -1,4 +1,7 @@
+import { DCA, DISNEYLAND, type ParkName } from "@/lib/parks";
+
 export type PerRide = {
+  parkId: number;
   rideId: number;
   rideName: string;
   landName: string;
@@ -8,8 +11,13 @@ export type PerRide = {
   sampleCount: number;
 };
 
-export type ParkFilter = "all" | "Disneyland" | "Disney California Adventure";
+export type ParkFilter = "all" | ParkName;
 export type SortKey = "mae-asc" | "mae-desc" | "alpha" | "samples-desc";
+
+export type RideGroup = {
+  parkName: ParkName;
+  rides: PerRide[];
+};
 
 export function filterAndSortRides(
   rides: PerRide[],
@@ -30,4 +38,16 @@ export function filterAndSortRides(
     case "alpha":        return [...result].sort((a, b) => a.rideName.localeCompare(b.rideName));
     case "samples-desc": return [...result].sort((a, b) => b.sampleCount - a.sampleCount);
   }
+}
+
+/** Keeps the combined accuracy view organised by park while preserving its sort. */
+export function groupRidesByPark(
+  rides: PerRide[],
+  search: string,
+  sortKey: SortKey
+): RideGroup[] {
+  return [DISNEYLAND, DCA].map((parkName) => ({
+    parkName,
+    rides: filterAndSortRides(rides, parkName, search, sortKey),
+  })).filter((group) => group.rides.length > 0);
 }

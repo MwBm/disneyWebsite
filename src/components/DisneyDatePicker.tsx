@@ -68,29 +68,20 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
   const startPad = getDay(monthStart);
 
   return (
-    <div ref={containerRef} className="relative select-none">
+    <div ref={containerRef} className="relative min-w-[15rem] select-none">
       {label && (
-        <p className="text-xs text-warm-700 font-medium uppercase tracking-wide mb-2">{label}</p>
+        <p className="control-label mb-2">{label}</p>
       )}
 
-      <div className="flex rounded-xl overflow-hidden shadow-lg" style={{ border: "1px solid rgba(240,192,96,0.25)" }}>
-        <div
-          className="w-9 bg-orange-500 flex items-center justify-center shrink-0"
-          style={{ borderRight: "2px dashed rgba(255,255,255,0.35)" }}
-        >
-          <span
-            className="text-white text-[8px] font-black tracking-widest"
-            style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
-          >
-            ADMIT ONE
-          </span>
-        </div>
-
-        <div className="bg-space-card flex-1 flex items-center gap-1 px-2 py-2.5">
+      <div className="flex items-center gap-1 rounded-lg border border-space-700 bg-space-card px-2 py-2 shadow-sm">
+        <svg className="ml-1 shrink-0 text-warm-500" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="17" rx="2" />
+          <path d="M8 2v4M16 2v4M3 10h18" />
+        </svg>
           <button
             type="button"
             onClick={prevDay}
-            className="text-orange-400 hover:text-orange-300 transition-colors p-1.5 rounded-lg hover:bg-white/5 shrink-0"
+            className="shrink-0 rounded-md p-1.5 text-warm-500 transition-colors hover:bg-space-800 hover:text-warm-900"
             aria-label="Previous day"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -104,30 +95,26 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
             aria-label={`Change date, currently ${format(date, "MMMM d, yyyy")}`}
             aria-expanded={calendarOpen}
             aria-haspopup="dialog"
-            className="flex-1 flex flex-col items-center gap-0 py-0.5 rounded-lg hover:bg-white/5 transition-colors px-1"
+            className="flex flex-1 flex-col items-start gap-0 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-space-800"
           >
-            <span className="text-[9px] text-warm-600 tracking-[0.18em] uppercase font-semibold">
-              Disneyland Resort
-            </span>
-            <span className="text-base font-bold text-warm-900 leading-snug">
-              {format(date, "MMM d, yyyy")}
-            </span>
-            <span className="text-[10px] text-warm-600">
+            <span className="text-[0.62rem] font-medium uppercase tracking-[0.12em] text-warm-500">
               {format(date, "EEEE")}
+            </span>
+            <span className="text-sm font-medium leading-snug text-warm-900">
+              {format(date, "MMM d, yyyy")}
             </span>
           </button>
 
           <button
             type="button"
             onClick={nextDay}
-            className="text-orange-400 hover:text-orange-300 transition-colors p-1.5 rounded-lg hover:bg-white/5 shrink-0"
+            className="shrink-0 rounded-md p-1.5 text-warm-500 transition-colors hover:bg-space-800 hover:text-warm-900"
             aria-label="Next day"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 18l6-6-6-6" />
             </svg>
           </button>
-        </div>
       </div>
 
       <AnimatePresence>
@@ -137,14 +124,13 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: 0.14, ease: "easeOut" }}
-            className="absolute z-50 mt-2 bg-space-card rounded-2xl shadow-2xl p-4 w-64"
-            style={{ border: "1px solid rgba(240,192,96,0.2)" }}
+            className="absolute z-50 mt-2 w-64 rounded-xl border border-space-700 bg-space-card p-4 shadow-md"
           >
             <div className="flex items-center justify-between mb-3">
               <button
                 type="button"
                 onClick={() => setViewMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-                className="text-orange-400 hover:text-orange-300 p-1 rounded-lg hover:bg-white/5 transition-colors"
+                className="rounded-md p-1 text-warm-500 transition-colors hover:bg-space-800 hover:text-warm-900"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M15 18l-6-6 6-6" />
@@ -156,7 +142,7 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
               <button
                 type="button"
                 onClick={() => setViewMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-                className="text-orange-400 hover:text-orange-300 p-1 rounded-lg hover:bg-white/5 transition-colors"
+                className="rounded-md p-1 text-warm-500 transition-colors hover:bg-space-800 hover:text-warm-900"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 18l6-6-6-6" />
@@ -188,10 +174,10 @@ export default function DisneyDatePicker({ value, onChange, label }: Props) {
                     className={[
                       "aspect-square rounded-lg text-xs font-medium transition-colors flex items-center justify-center",
                       isSelected
-                        ? "bg-orange-500 text-white"
+                        ? "bg-warm-900 text-space-900"
                         : isToday
-                          ? "text-orange-400 ring-1 ring-orange-400 hover:bg-orange-500/10"
-                          : "text-warm-800 hover:bg-white/8",
+                          ? "text-warm-900 ring-1 ring-warm-500 hover:bg-space-800"
+                          : "text-warm-800 hover:bg-space-800",
                     ].join(" ")}
                   >
                     {d.getDate()}

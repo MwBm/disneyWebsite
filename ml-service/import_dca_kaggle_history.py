@@ -63,8 +63,6 @@ class ImportStats:
 # Excluded IDs are still mapped so reports can distinguish intentional skips
 # from names that need new mapping work.
 RIDE_MAPPINGS: dict[str, RideMapping] = {
-    "Animation Academy": RideMapping(321, "Animation Academy", "Hollywood Land"),
-    "Games of Pixar Pier": RideMapping(13960, "Games of Pixar Pier", "Pixar Pier"),
     "Golden Zephyr": RideMapping(298, "Golden Zephyr", "Paradise Gardens Park"),
     "Goofy's Sky School": RideMapping(319, "Goofy's Sky School", "Paradise Gardens Park"),
     "Grizzly River Run": RideMapping(302, "Grizzly River Run", "Grizzly Peak"),
@@ -73,23 +71,12 @@ RIDE_MAPPINGS: dict[str, RideMapping] = {
         "Guardians of the Galaxy - Mission: BREAKOUT!",
         "Avengers Campus",
     ),
-    "Guardians of the Galaxy - Monsters After Dark": RideMapping(
-        329,
-        "Guardians of the Galaxy - Mission: BREAKOUT!",
-        "Avengers Campus",
-    ),
     "Incredicoaster": RideMapping(322, "Incredicoaster", "Pixar Pier"),
-    "Incredicoaster Single Rider": RideMapping(10906, "Incredicoaster Single Rider", "Pixar Pier"),
     "Inside Out Emotional Whirlwind": RideMapping(6643, "Inside Out Emotional Whirlwind", "Pixar Pier"),
     "Jessie's Critter Carousel": RideMapping(310, "Jessie's Critter Carousel", "Pixar Pier"),
     "Jumpin' Jellyfish": RideMapping(300, "Jumpin' Jellyfish", "Pixar Pier"),
-    "Luigi's Honkin' Haul-O-Ween": RideMapping(13961, "Luigi's Rollickin' Roadsters", "Cars Land"),
-    "Luigi's Joy to the Whirl": RideMapping(13961, "Luigi's Rollickin' Roadsters", "Cars Land"),
     "Luigi's Rollickin' Roadsters": RideMapping(13961, "Luigi's Rollickin' Roadsters", "Cars Land"),
-    "Mater's Graveyard JamBOOree": RideMapping(315, "Mater's Junkyard Jamboree", "Cars Land"),
-    "Mater's Jingle Jamboree": RideMapping(315, "Mater's Junkyard Jamboree", "Cars Land"),
     "Mater's Junkyard Jamboree": RideMapping(315, "Mater's Junkyard Jamboree", "Cars Land"),
-    "Mickey's PhilharMagic": RideMapping(6440, "Mickey's PhilharMagic", "Hollywood Land"),
     "Monsters, Inc. Mike & Sulley to the Rescue!": RideMapping(
         291,
         "Monsters, Inc. Mike & Sulley to the Rescue!",
@@ -98,41 +85,20 @@ RIDE_MAPPINGS: dict[str, RideMapping] = {
     "Pixar Pal-A-Round - Swinging": RideMapping(311, "Pixar Pal-A-Round - Swinging", "Pixar Pier"),
     "Pixar Pal-A-Round – Non-Swinging": RideMapping(5557, "Pixar Pal-A-Round – Non-Swinging", "Pixar Pier"),
     "Radiator Springs Racers": RideMapping(295, "Radiator Springs Racers", "Cars Land"),
-    "Radiator Springs Racers Single Rider": RideMapping(10904, "Radiator Springs Racers Single Rider", "Cars Land"),
-    "Redwood Creek Challenge Trail": RideMapping(293, "Redwood Creek Challenge Trail", "Grizzly Peak"),
     "Silly Symphony Swings": RideMapping(301, "Silly Symphony Swings", "Paradise Gardens Park"),
-    "Silly Symphony Swings Single Rider": RideMapping(
-        10905,
-        "Silly Symphony Swings Single Rider",
-        "Paradise Gardens Park",
-    ),
     "Soarin' Around the World": RideMapping(312, "Soarin' Over California", "Grizzly Peak"),
     "Soarin' Over California": RideMapping(312, "Soarin' Over California", "Grizzly Peak"),
-    "Sorcerer's Workshop": RideMapping(868, "Sorcerer's Workshop", "Hollywood Land"),
-    "The Bakery Tour": RideMapping(13959, "The Bakery Tour", "San Fransokyo Square"),
     "The Little Mermaid - Ariel's Undersea Adventure": RideMapping(
         316,
         "The Little Mermaid - Ariel's Undersea Adventure",
         "Paradise Gardens Park",
     ),
     "Toy Story Midway Mania!": RideMapping(313, "Toy Story Midway Mania!", "Pixar Pier"),
-    "Turtle Talk with Crush": RideMapping(294, "Turtle Talk with Crush", "Hollywood Land"),
     "WEB SLINGERS: A Spider-Man Adventure": RideMapping(
         8843,
         "WEB SLINGERS: A Spider-Man Adventure",
         "Avengers Campus",
     ),
-    "WEB SLINGERS: A Spider-Man Adventure Single Rider": RideMapping(
-        10907,
-        "WEB SLINGERS: A Spider-Man Adventure Single Rider",
-        "Avengers Campus",
-    ),
-    "World of Color - Season of Light": RideMapping(
-        14742,
-        "World of Color Happiness!",
-        "Paradise Gardens Park",
-    ),
-    "World of Color – ONE": RideMapping(14742, "World of Color Happiness!", "Paradise Gardens Park"),
 }
 
 
