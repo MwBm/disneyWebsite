@@ -53,11 +53,12 @@ async function fetchParkRides(parkConfig: typeof rideConfig.parks[number]): Prom
   }
 
   const excluded = new Set(parkConfig.excludedRideIds);
+  const excludedNames = new Set(parkConfig.excludedRideNames);
   const rides: RideData[] = [];
 
   for (const land of parsed.data.lands) {
     for (const ride of land.rides) {
-      if (excluded.has(ride.id)) continue;
+      if (excluded.has(ride.id) || excludedNames.has(ride.name)) continue;
       rides.push({
         id: ride.id,
         name: ride.name,
@@ -70,7 +71,7 @@ async function fetchParkRides(parkConfig: typeof rideConfig.parks[number]): Prom
   }
 
   for (const ride of parsed.data.rides) {
-    if (excluded.has(ride.id)) continue;
+    if (excluded.has(ride.id) || excludedNames.has(ride.name)) continue;
     rides.push({
       id: ride.id,
       name: ride.name,

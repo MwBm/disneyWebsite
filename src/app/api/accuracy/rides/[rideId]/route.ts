@@ -66,6 +66,10 @@ export async function GET(
       AND w."parkId"     = df."parkId"
       AND w."windowedAt" = df."forecastFor"
       AND w."isOpen"     = true
+    JOIN "RideCatalog" catalog
+      ON  catalog."parkId" = df."parkId"
+      AND catalog."rideId" = df."rideId"
+      AND catalog."isActive" = true
     WHERE df."parkId" = ${parkId}
       AND df."rideId" = ${rideId}
       AND df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')

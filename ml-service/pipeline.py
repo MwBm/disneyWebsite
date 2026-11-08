@@ -8,6 +8,7 @@ import json
 import uuid
 from collections import defaultdict
 from datetime import datetime, time, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 
@@ -39,6 +40,30 @@ EVALUATION_HORIZONS = {
 
 # Midnight–7:59 AM Pacific has little useful training signal.
 PARK_CLOSED_LOCAL_HOURS = frozenset(range(0, 8))
+_CONFIG_PATH = Path(__file__).resolve().parent / "../src/lib/ride-config.json"
+
+
+def load_excluded_rides(
+    config_path: Path = _CONFIG_PATH,
+) -> tuple[frozenset[tuple[int, int]], frozenset[tuple[int, str]]]:
+    """Read the shared collection exclusions as park-scoped IDs and names."""
+    with config_path.open() as f:
+        config = json.load(f)
+    return (
+        frozenset(
+            (int(park["id"]), int(ride_id))
+            for park in config["parks"]
+            for ride_id in park["excludedRideIds"]
+        ),
+        frozenset(
+            (int(park["id"]), str(ride_name))
+            for park in config["parks"]
+            for ride_name in park.get("excludedRideNames", [])
+        ),
+    )
+
+
+EXCLUDED_RIDE_KEYS, EXCLUDED_RIDE_NAMES = load_excluded_rides()
 
 
 def build_forecast_slots(now: datetime, days: int = 1) -> list[datetime]:
@@ -639,8 +664,12 @@ def generate_forecasts(conn, now: datetime, days: int) -> int:
     with conn.cursor() as cur:
         cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 
-    history = fetch_training_history(conn)
-    logger.info("Loaded %d training records", len(history))
+    history = [
+        record for record in fetch_training_history(conn)
+        if (record.park_id, record.ride_id) not in EXCLUDED_RIDE_KEYS
+        and (record.park_id, record.ride_name) not in EXCLUDED_RIDE_NAMES
+    ]
+    logger.info("Loaded %d eligible training records", len(history))
 
     training_contexts = fetch_date_contexts(conn, [(r.park_id, r.recorded_at) for r in history])
     history = [

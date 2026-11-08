@@ -49,6 +49,10 @@ export async function GET() {
         AND w."parkId"     = df."parkId"
         AND w."windowedAt" = df."forecastFor"
         AND w."isOpen"     = true
+      JOIN "RideCatalog" catalog
+        ON  catalog."parkId" = df."parkId"
+        AND catalog."rideId" = df."rideId"
+        AND catalog."isActive" = true
       WHERE df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')
         AND df."forecastFor" < NOW()
     `,
@@ -67,6 +71,10 @@ export async function GET() {
         AND w."parkId"     = df."parkId"
         AND w."windowedAt" = df."forecastFor"
         AND w."isOpen"     = true
+      JOIN "RideCatalog" catalog
+        ON  catalog."parkId" = df."parkId"
+        AND catalog."rideId" = df."rideId"
+        AND catalog."isActive" = true
       WHERE df."forecastFor" >= NOW() - (${WINDOW_DAYS} * INTERVAL '1 day')
         AND df."forecastFor" < NOW()
       GROUP BY df."parkId", df."rideId"
@@ -91,6 +99,7 @@ export async function GET() {
         totalPredictions: total,
       },
       perRide: perRideRows.map((r) => ({
+        parkId: Number(r.parkId),
         rideId: Number(r.rideId),
         rideName: r.rideName,
         landName: r.landName,

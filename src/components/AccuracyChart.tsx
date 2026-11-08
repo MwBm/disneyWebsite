@@ -21,9 +21,11 @@ type Row = {
 
 /** Points come from /api/accuracy/rides/[rideId], already filtered, limited and ordered. */
 export default function AccuracyChart({
+  parkId,
   rideId,
   rideName,
 }: {
+  parkId: number;
   rideId: number;
   rideName: string;
 }) {
@@ -35,7 +37,7 @@ export default function AccuracyChart({
 
     (async () => {
       try {
-        const res = await fetch(`/api/accuracy/rides/${rideId}`, {
+        const res = await fetch(`/api/accuracy/rides/${rideId}?park=${parkId}`, {
           signal: controller.signal,
         });
         const body = await res.json();
@@ -51,7 +53,7 @@ export default function AccuracyChart({
     // Clicking through ride cards quickly must not let an earlier response
     // paint over the ride now selected.
     return () => controller.abort();
-  }, [rideId]);
+  }, [parkId, rideId]);
 
   const data = rows.map((r) => ({
     date: format(parseISO(r.predictedFor), "MM/dd HH:mm"),

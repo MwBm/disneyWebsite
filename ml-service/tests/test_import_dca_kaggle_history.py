@@ -53,8 +53,8 @@ def test_build_hourly_summaries_skips_excluded_zero_and_unmapped(tmp_path):
         csv_path,
         [
             {
-                "Land": "Avengers Campus",
-                "Ride": "WEB SLINGERS: A Spider-Man Adventure Single Rider",
+                "Land": "Cars Land",
+                "Ride": "Luigi's Rollickin' Roadsters",
                 "Wait Time": "15",
                 "Local Time": "2024-07-08 18:30:00-07:00",
                 "Day of Week": "Monday",
@@ -67,8 +67,8 @@ def test_build_hourly_summaries_skips_excluded_zero_and_unmapped(tmp_path):
                 "Day of Week": "Monday",
             },
             {
-                "Land": "Buena Vista Street",
-                "Ride": "Red Car Trolley",
+                "Land": "Avengers Campus",
+                "Ride": "Guardians of the Galaxy - Monsters After Dark",
                 "Wait Time": "5",
                 "Local Time": "2024-07-08 18:30:00-07:00",
                 "Day of Week": "Monday",
@@ -83,7 +83,7 @@ def test_build_hourly_summaries_skips_excluded_zero_and_unmapped(tmp_path):
         ],
     )
 
-    summaries, stats = build_hourly_summaries(csv_path, excluded_ride_ids={10907})
+    summaries, stats = build_hourly_summaries(csv_path, excluded_ride_ids={13961})
 
     assert len(summaries) == 1
     assert summaries[0].ride_id == 295

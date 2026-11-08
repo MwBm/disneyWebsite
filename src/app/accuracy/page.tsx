@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AccuracyChart from "@/components/AccuracyChart";
 import PageHeader from "@/components/PageHeader";
-import { filterAndSortRides } from "@/lib/accuracy-filters";
+import { filterAndSortRides, groupRidesByPark } from "@/lib/accuracy-filters";
 import type { PerRide, ParkFilter, SortKey } from "@/lib/accuracy-filters";
 import { DCA, DISNEYLAND } from "@/lib/parks";
 import { parkDateKey } from "@/lib/park-time";
@@ -105,7 +105,7 @@ function RideCard({
 export default function AccuracyPage() {
   const [data, setData] = useState<AccuracyData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedRideId, setSelectedRideId] = useState<number | null>(null);
+  const [selectedRide, setSelectedRide] = useState<Pick<PerRide, "parkId" | "rideId"> | null>(null);
   const [dataQualityOk, setDataQualityOk] = useState(true);
   const [parkFilter, setParkFilter] = useState<ParkFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("alpha");
@@ -117,20 +117,30 @@ export default function AccuracyPage() {
       fetch("/api/forecast?date=" + parkDateKey(new Date()), { cache: "force-cache" }).then((r) => r.json()),
     ]).then(([accuracyData, forecastData]: [AccuracyData, { dataQualityOk?: boolean }]) => {
       setData(accuracyData);
-      if (accuracyData.perRide.length > 0) setSelectedRideId(accuracyData.perRide[0].rideId);
+      if (accuracyData.perRide.length > 0) {
+        const firstRide = accuracyData.perRide[0];
+        setSelectedRide({ parkId: firstRide.parkId, rideId: firstRide.rideId });
+      }
       setDataQualityOk(forecastData.dataQualityOk ?? true);
     }).finally(() => setLoading(false));
   }, []);
 
   const selectedRideName = useMemo(
-    () => data?.perRide.find((r) => r.rideId === selectedRideId)?.rideName ?? "",
-    [data, selectedRideId]
+    () => data?.perRide.find(
+      (r) => r.rideId === selectedRide?.rideId && r.parkId === selectedRide?.parkId
+    )?.rideName ?? "",
+    [data, selectedRide]
   );
 
   const filteredRides = useMemo(
     () => filterAndSortRides(data?.perRide ?? [], parkFilter, search, sortKey),
     [data, parkFilter, sortKey, search]
   );
+
+  const rideGroups = useMemo(() => {
+    if (parkFilter !== "all") return [{ parkName: null, rides: filteredRides }];
+    return groupRidesByPark(data?.perRide ?? [], search, sortKey);
+  }, [data, filteredRides, parkFilter, search, sortKey]);
 
   const parkCounts = useMemo(() => {
     if (!data) return { all: 0, dl: 0, dca: 0 };
@@ -197,8 +207,12 @@ export default function AccuracyPage() {
                 Click a card below to switch rides
               </span>
             </div>
-            {selectedRideId !== null && (
-              <AccuracyChart rideId={selectedRideId} rideName={selectedRideName} />
+            {selectedRide && (
+              <AccuracyChart
+                parkId={selectedRide.parkId}
+                rideId={selectedRide.rideId}
+                rideName={selectedRideName}
+              />
             )}
           </div>
 
@@ -262,14 +276,28 @@ export default function AccuracyPage() {
           </div>
 
           {filteredRides.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredRides.map((ride) => (
-                <RideCard
-                  key={ride.rideId}
-                  ride={ride}
-                  selected={selectedRideId === ride.rideId}
-                  onClick={() => setSelectedRideId(ride.rideId)}
-                />
+            <div className="flex flex-col gap-6">
+              {rideGroups.map((group) => (
+                <section key={group.parkName ?? "filtered-rides"}>
+                  {group.parkName && (
+                    <div className="mb-3 flex items-center justify-between">
+                      <h2 className="font-medium text-warm-900">{group.parkName}</h2>
+                      <span className="text-xs text-warm-700">{group.rides.length} rides</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {group.rides.map((ride) => (
+                      <RideCard
+                        key={`${ride.parkId}-${ride.rideId}`}
+                        ride={ride}
+                        selected={
+                          selectedRide?.rideId === ride.rideId && selectedRide?.parkId === ride.parkId
+                        }
+                        onClick={() => setSelectedRide({ parkId: ride.parkId, rideId: ride.rideId })}
+                      />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           ) : (
