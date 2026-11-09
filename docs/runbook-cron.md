@@ -83,15 +83,14 @@ Training reads every unarchived raw row, so a late archive loses nothing, but ea
 
 ## `sync-date-context.yml`: date-context sync
 
-**Trigger:** Sundays at 10:17 UTC, or dispatch. The weekly cadence keeps the
-stored Groq adjustments within their seven-day freshness window.
+**Trigger:** 1st of each month at 10:00 UTC, or dispatch.
 
 Calls `GET $APP_URL/api/cron/sync-date-context` with `Authorization: Bearer $CRON_SECRET`. The endpoint:
 
 1. Fetches the park schedule from ThemeParks.wiki (hours and Lightning Lane price → tier 0–5, plus ticketed events)
 2. Fetches Open-Meteo weather for the next 16 days, and uses climatological normals beyond that
 3. Upserts `DateContext` rows (tier, holiday, school break, weather) for the next 365 days
-4. Asks Groq for a crowd adjustment (±35) for each date in the 30-day ML serving window that has none, or whose adjustment is older than 7 days
+4. Asks Groq for a crowd adjustment (±35) for each date that has none, or whose adjustment is older than 7 days
 
 A Groq failure for one date doesn't stop the others. See [runbook-api.md](runbook-api.md#apicronsync-date-context-date-context-sync).
 

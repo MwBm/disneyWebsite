@@ -120,7 +120,7 @@ GitHub Actions: archive.yml (Sundays 09:00 UTC)
         ├── WaitTimeRecord older than 30 days → HourlyWaitSummary (one statement, merges buckets)
         └── Delete DailyForecast older than 35 days
 
-GitHub Actions: sync-date-context.yml (Sundays 10:17 UTC)
+GitHub Actions: sync-date-context.yml (1st of each month, 10:00 UTC)
   └── GET /api/cron/sync-date-context
         ├── ThemeParks.wiki (park hours + Lightning Lane price → tier)
         ├── Open-Meteo (16-day forecast), climatological normals beyond it

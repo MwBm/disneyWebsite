@@ -2,9 +2,8 @@ name: Sync Date Context
 
 on:
   schedule:
-    # Adjustments expire after seven days. Avoid :00, when GitHub may delay
-    # scheduled workflows during busy periods.
-    - cron: "17 10 * * 0"
+    # 1st of each month at 10:00 UTC
+    - cron: "0 10 1 * *"
   workflow_dispatch:
 
 jobs:

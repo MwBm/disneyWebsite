@@ -169,14 +169,14 @@ Takes no parameters, so one cache entry serves every visitor. **Returns:** `{ da
 
 **Auth:** `Authorization: Bearer $CRON_SECRET`. The route returns 500 when the secret is unset.
 
-Called weekly by `sync-date-context.yml`, or on demand.
+Called monthly by `sync-date-context.yml`, or on demand.
 
 1. `syncDateContext(365)`:
    - fetches ThemeParks.wiki park hours, Lightning Lane prices and ticketed events, and turns them into a tier (0–5);
    - fetches Open-Meteo weather for the first 16 days, with climatological normals beyond;
    - computes holiday and school-break flags;
    - upserts `DateContext`, skipping dates whose tier was fetched in the last 24 h.
-2. `syncGroqAdjustments(30)`: for dates in the ML serving window with no `groqAdjustment` or one older than 7 days, it asks Groq for an adjustment of ±35 points to that date's busy-period ML crowd score.
+2. `syncGroqAdjustments(365)`: for dates with no `groqAdjustment` or one older than 7 days, it asks Groq for an adjustment of ±35 points to that date's busy-period ML crowd score (or 50 when there are no forecasts).
 
 **Returns:**
 ```json
