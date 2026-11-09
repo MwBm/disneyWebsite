@@ -15,15 +15,7 @@ import ParkPicker from "@/components/ParkPicker";
 import PageHeader from "@/components/PageHeader";
 import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
 import { getStartupData, waitForStartupData } from "@/lib/startup-data";
-
-type DayScore = {
-  date: string;
-  crowdScore: number | null;
-  source: "ml" | "historical" | "groq" | "unavailable" | null;
-  tier: number | null;
-  specialEvent: string | null;
-  isHoliday: boolean;
-};
+import type { DayCrowdScore as DayScore } from "@/lib/forecast";
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -60,7 +52,6 @@ function SourceBadge({ source }: { source: DayScore["source"] }) {
   const cfg = {
     ml: { label: "ML", color: "#818cf8" },
     historical: { label: "Hist", color: "#94a3b8" },
-    groq: { label: "AI", color: "#f0c060" },
   }[source];
   if (!cfg) return null;
   return (
@@ -361,17 +352,13 @@ export default function CalendarPage() {
                         <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
                           <span
                             className="text-lg font-bold leading-none tabular-nums"
-                            style={{
-                              color,
-                              opacity: cell.source === "groq" ? 0.7 : 1,
-                              textShadow: cell.source !== "groq" ? `0 0 12px ${color}60` : undefined,
-                            }}
+                            style={{ color, textShadow: `0 0 12px ${color}60` }}
                           >
                             {score}
                           </span>
                           <span
                             className="text-[0.6rem] font-medium uppercase tracking-wide leading-none"
-                            style={{ color, opacity: cell.source === "groq" ? 0.55 : 0.75 }}
+                            style={{ color, opacity: 0.75 }}
                           >
                             {crowdLabelText(score)}
                           </span>
@@ -451,7 +438,6 @@ export default function CalendarPage() {
                     <SourceBadge source={selected.source} />
                     {selected.source === "ml" && "ML model prediction"}
                     {selected.source === "historical" && `Based on typical ${format(parseISO(selected.date), "EEEE")} patterns`}
-                    {selected.source === "groq" && "AI estimate — limited historical data"}
                     {selected.source === "unavailable" && "Outside the 30-day forecast window"}
                     {!selected.source && "No data available"}
                     {selected.tier !== null && <TierBadge tier={selected.tier} />}

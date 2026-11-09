@@ -8,9 +8,9 @@
 |---|---|---|---|
 | `collect.yml` | Dispatch every 30 min (cron-job.org) | 10 min | Record live waits; keep scheduled workflows enabled |
 | `freshness.yml` | Daily 13:47 UTC + dispatch | 10 min | Alert when the forecast window, training, or archive is stale |
-| `train.yml` | Daily 06:17 UTC + dispatch | 20 min | Retrain on all history, write the 30-day forecast window |
-| `archive.yml` | Sundays 09:00 UTC + dispatch | 10 min | Raw rows older than 30 days → `HourlyWaitSummary`; delete old forecasts |
-| `sync-date-context.yml` | 1st of month 10:00 UTC + dispatch | 10 min | Tier, holiday, weather and Groq adjustments via the Vercel endpoint |
+| `train.yml` | Daily 06:17 UTC + dispatch | 20 min | Retrain on all history, write the 30-day forecast window and its daily projections |
+| `archive.yml` | Sundays 09:00 UTC + dispatch | 10 min | Raw rows older than 30 days → `HourlyWaitSummary`; apply every table's retention |
+| `sync-date-context.yml` | 1st of month 10:00 UTC + dispatch | 10 min | Tier, holiday and weather via the Vercel endpoint |
 | `import-dca-history.yml` | Dispatch only | 15 min | One-time DCA Kaggle backfill |
 | `ci.yml` | Every push and pull request | 5–15 min per job | Types, lint, tests, build, integration suites, actionlint ([runbook-tests.md](runbook-tests.md)) |
 
@@ -30,7 +30,7 @@ Two jobs:
 
 1. Checkout, set up Python 3.11 with pip cache, `pip install -r ml-service/requirements.txt`
 2. `python collect.py`:
-   1. `GET` queue-times.com for each park in `src/lib/ride-config.json`, dropping excluded rides
+   1. `GET` queue-times.com for each park in `src/lib/ride-config.json`, retrying transient failures, and drop excluded rides
    2. Upsert `WaitTimeRecord` (`ON CONFLICT ("rideId", "windowedAt")`) and a `CollectRun` success row in one transaction
    3. On any error (queue-times down, zero rides, database failure): roll back, log `CollectRun` with `success = false`, exit 1
 
@@ -42,11 +42,13 @@ Runs `gh workflow enable` for every workflow in `SCHEDULED_WORKFLOWS`, using the
 
 ## `freshness.yml`: forecast freshness
 
-Runs `ml-service/check_freshness.py --force`, which writes nothing and reads a single aggregate row. It runs separately from collection, so a stale-data alert cannot make a successful collection look failed. It fails only the freshness workflow when any of these hold:
+Runs `ml-service/check_freshness.py --force`, which writes nothing and reads a single aggregate row. Without `--force` the script only checks inside a 12:00–12:30 UTC window, a guard kept for manual callers. It runs separately from collection, so a stale-data alert cannot make a successful collection look failed. It fails only the freshness workflow when any of these hold:
 
 - the latest successful `CollectRun` with `job = 'train'` is older than 30 h (one missed nightly run plus routine GitHub schedule delay);
 - `DailyForecast` ends less than 27 days ahead (a healthy run writes 29);
 - the oldest `WaitTimeRecord` row is more than 38 days old (archive has stopped).
+
+It does not check collection. If cron-job.org stops dispatching, no collect run starts, so none fails and GitHub sends no email; the only signal is `dataQualityOk: false` on the site (see Monitoring).
 
 To check immediately: `gh workflow run freshness.yml`.
 
@@ -61,8 +63,8 @@ Runs `python train.py`, logged as `CollectRun.job = 'train'`:
 1. Build 30 Pacific days of forecast slots
 2. In one `REPEATABLE READ` snapshot, read every unarchived `WaitTimeRecord` row plus 3 years of `HourlyWaitSummary` (ride IDs only, ~14 MB)
 3. Attach `DateContext`, lag and cross-ride features
-4. Train one XGBoost model per ride with walk-forward CV
-5. Upsert `DailyForecast`
+4. Train one XGBoost model per (park, ride) with walk-forward CV and record a `ModelRun`
+5. Upsert `DailyForecast`, `RideCatalog`, `RideDayForecast`, `ParkDayForecast` and `ForecastEvaluation`
 
 Details: [runbook-ml-service.md](runbook-ml-service.md#forecasting-trainpy--pipelinegenerate_forecasts).
 
@@ -75,7 +77,7 @@ Details: [runbook-ml-service.md](runbook-ml-service.md#forecasting-trainpy--pipe
 Runs `python archive.py`, logged as `CollectRun.job = 'archive'`. One transaction, entirely in Postgres; only two counts are read back.
 
 1. `DELETE … RETURNING` raw `WaitTimeRecord` rows older than `now − 30 days` (truncated to the hour). In the same statement they are aggregated into `HourlyWaitSummary` buckets keyed on (ride, park date, park hour), merging into any bucket that already exists
-2. Delete `DailyForecast` rows older than 35 days
+2. Delete expired rows: `DailyForecast` after 35 days, `ParkDayForecast`/`RideDayForecast` after 60 days, `HourlyWaitSummary` after 3 years, `ForecastEvaluation`/`ModelRun` after 2 years, `CollectRun` after 90 days
 
 Training reads every unarchived raw row, so a late archive loses nothing, but each week it is late grows train's daily read.
 
@@ -89,10 +91,9 @@ Calls `GET $APP_URL/api/cron/sync-date-context` with `Authorization: Bearer $CRO
 
 1. Fetches the park schedule from ThemeParks.wiki (hours and Lightning Lane price → tier 0–5, plus ticketed events)
 2. Fetches Open-Meteo weather for the next 16 days, and uses climatological normals beyond that
-3. Upserts `DateContext` rows (tier, holiday, school break, weather) for the next 365 days
-4. Asks Groq for a crowd adjustment (±35) for each date that has none, or whose adjustment is older than 7 days
+3. Upserts `DateContext` rows (tier, holiday, school break, weather) for both parks for the next 365 days, skipping dates refreshed in the last 24 h
 
-A Groq failure for one date doesn't stop the others. See [runbook-api.md](runbook-api.md#apicronsync-date-context-date-context-sync).
+A failed upsert for one date doesn't stop the others. Because the sync runs monthly, stored weather for most dates is the climatological normal, or a forecast fetched up to a month earlier. See [runbook-api.md](runbook-api.md#apicronsync-date-context-date-context-sync).
 
 ---
 
@@ -100,7 +101,7 @@ A Groq failure for one date doesn't stop the others. See [runbook-api.md](runboo
 
 **Trigger:** dispatch only, with an optional `dry_run` input.
 
-Runs `python import_dca_kaggle_history.py`. It inserts into `HourlyWaitSummary` with `ON CONFLICT DO NOTHING`, so it is safe to re-run.
+Runs `python import_dca_kaggle_history.py`. It inserts into `HourlyWaitSummary` with `ON CONFLICT DO NOTHING`, so it is safe to re-run. It does not write a `CollectRun` row.
 
 ---
 
@@ -120,10 +121,10 @@ FROM "CollectRun" ORDER BY "ranAt" DESC LIMIT 20;
 
 Archive runs are logged from 2026-09-13 onwards; earlier archive runs left no row.
 
-- **Daily:** `freshness.yml` fails and emails when forecasts or the archive are stale.
+- **Daily:** `freshness.yml` fails and emails when training, the forecast window or the archive is stale.
 - **Any failed workflow:** GitHub sends a failure email.
 - **Workflows GitHub disabled:** `gh workflow list --all` shows any in state `disabled_inactivity`.
-- **Forecasts API:** `/api/forecast` reports `dataQualityOk: false` unless a successful collect run finished within the last 90 minutes.
+- **Forecasts API:** `/api/forecast` reports `dataQualityOk: false` unless a successful collect run finished within the last 90 minutes, and the home and wait-times pages show a stale-data note. This is the only signal for collect runs that never start; nothing alerts on it.
 
 ---
 

@@ -15,6 +15,7 @@ import numpy as np
 from common import PARK_TZ, WINDOW_MINUTES, as_utc, park_date_key, park_hour
 from model import (
     CROWD_CALIBRATION_PERCENTILES,
+    CROWD_DAILY_SCORE_PERCENTILE,
     HEADLINER_RIDE_IDS,
     _compute_crowd_score,
     build_crowd_calibration,
@@ -540,7 +541,11 @@ def build_serving_projection_rows(
             values["confidences"].append(forecast.confidence)
 
     park_rows = [
-        (str(uuid.uuid4()), park_id, day, int(round(float(np.percentile(day_scores, 75)))), model_run_id, generated_at)
+        (
+            str(uuid.uuid4()), park_id, day,
+            int(round(float(np.percentile(day_scores, CROWD_DAILY_SCORE_PERCENTILE * 100)))),
+            model_run_id, generated_at,
+        )
         for (park_id, day), day_scores in scores.items()
         if day_scores
     ]

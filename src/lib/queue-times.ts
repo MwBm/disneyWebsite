@@ -91,9 +91,3 @@ export async function fetchLiveRides(): Promise<RideData[]> {
   );
   return results.flat();
 }
-
-export function roundToWindow(date: Date): Date {
-  const ms = date.getTime();
-  const windowMs = 30 * 60 * 1000;
-  return new Date(Math.round(ms / windowMs) * windowMs);
-}

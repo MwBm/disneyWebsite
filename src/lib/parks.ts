@@ -1,5 +1,3 @@
-import rideConfig from "./ride-config.json";
-
 export type ParkName = "Disneyland" | "Disney California Adventure";
 export type ParkId = 16 | 17;
 
@@ -41,11 +39,3 @@ export function isParkId(value: number): value is ParkId {
 export function getParkName(landName: string): ParkName {
   return DCA_LANDS.has(landName) ? DCA : DISNEYLAND;
 }
-
-/** Park identity for legacy rows that pre-date the explicit `parkId` column. */
-export function getParkId(landName: string): ParkId {
-  return DCA_LANDS.has(landName) ? DCA_PARK_ID : DISNEYLAND_PARK_ID;
-}
-
-/** Park display names as configured for data collection. */
-export const CONFIGURED_PARKS: readonly string[] = rideConfig.parks.map((p) => p.name);

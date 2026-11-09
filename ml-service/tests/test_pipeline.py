@@ -14,8 +14,43 @@ from pipeline import (
     fetch_date_contexts,
     park_date_key,
 )
-from schemas import DateContext, RideHistory
+from schemas import DateContext, RideForecast, RideHistory
 from model import train_ride_models, MIN_SAMPLES
+
+
+def _slot_forecasts(day: int, park_scores: list[int]) -> list:
+    """One forecasts_per_slot entry per score, every slot on 2026-06-<day> Pacific."""
+    entries = []
+    for i, score in enumerate(park_scores):
+        slot = datetime(2026, 6, day, 16 + i, 0, tzinfo=timezone.utc)  # 09:00+ Pacific
+        rides = [RideForecast(ride_id=1, park_id=16, predicted_wait=10 * (i + 1), confidence=0.5)]
+        entries.append((slot, rides, {16: score}))
+    return entries
+
+
+def test_serving_projection_daily_score_uses_the_configured_percentile(monkeypatch):
+    import pipeline
+
+    slots = _slot_forecasts(1, [10, 20, 30, 40, 50])
+
+    monkeypatch.setattr(pipeline, "CROWD_DAILY_SCORE_PERCENTILE", 0.75)
+    [park_row], _ = pipeline.build_serving_projection_rows(slots, "run-1")
+    assert park_row[3] == 40
+
+    monkeypatch.setattr(pipeline, "CROWD_DAILY_SCORE_PERCENTILE", 0.5)
+    [park_row], _ = pipeline.build_serving_projection_rows(slots, "run-1")
+    assert park_row[3] == 30
+
+
+def test_serving_projection_rolls_up_each_park_day_separately():
+    import pipeline
+
+    slots = _slot_forecasts(1, [10, 10]) + _slot_forecasts(2, [90, 90])
+    park_rows, ride_rows = pipeline.build_serving_projection_rows(slots, "run-1")
+
+    assert sorted((row[2].day, row[3]) for row in park_rows) == [(1, 10), (2, 90)]
+    # Ride rows: mean and max of that day's slot predictions (10 and 20 minutes).
+    assert sorted((row[3].day, row[4], row[5]) for row in ride_rows) == [(1, 15, 20), (2, 15, 20)]
 
 
 def test_build_forecast_slots_uses_pacific_days_and_skips_closed_hours():

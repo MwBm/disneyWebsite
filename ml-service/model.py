@@ -33,6 +33,8 @@ CROWD_HEADLINER_WEIGHT: float = _config["crowdHeadlinerWeight"]
 CROWD_DAYTIME_START_HOUR: int = _config["crowdDaytimeStartHour"]
 CROWD_DAYTIME_END_HOUR: int = _config["crowdDaytimeEndHour"]
 CROWD_MIN_CALIBRATION_SLOTS: int = _config["crowdMinCalibrationSlots"]
+# Fraction (0–1] of a day's slot crowd scores at or below its published daily score.
+CROWD_DAILY_SCORE_PERCENTILE: float = _config["crowdDailyScorePercentile"]
 HEADLINER_RIDE_IDS: frozenset = frozenset(_config.get("headlinerRideIds", []))
 
 # Canonical feature order — tests reference these names, not positional indices.
@@ -390,25 +392,3 @@ def predict_for_ride(
         RideForecast(ride_id=ride_id, park_id=park_id, predicted_wait=int(p), confidence=tm.confidence)
         for p in preds
     ]
-
-
-def predict_for_slot(
-    trained_models: Dict[Tuple[int, int], TrainedModel],
-    slot: datetime,
-    context: Optional[DateContext] = None,
-) -> Tuple[List[RideForecast], int]:
-    """Predictions for one slot across every trained ride, plus its crowd score."""
-    forecasts: List[RideForecast] = []
-    for (park_id, ride_id), tm in trained_models.items():
-        result = predict_for_ride(tm, ride_id, [slot], [context], [None], park_id)
-        forecasts.extend(result)
-    return forecasts, _compute_crowd_score(forecasts, context)
-
-
-def predict_for_date(
-    rides: List[RideHistory],
-    target_date: datetime,
-    context: Optional[DateContext] = None,
-) -> Tuple[List[RideForecast], int]:
-    """Train on `rides` and predict one slot in a single call."""
-    return predict_for_slot(train_ride_models(rides), target_date, context)

@@ -140,12 +140,13 @@ describe("getCrowdScoreForDate", () => {
 
 describe("resolveCrowdScore", () => {
   it.each([
-    [{ mlScore: 10, historicalScore: 20, groqScore: 30, isBeyondWindow: true }, { crowdScore: 10, source: "ml" }],
-    [{ mlScore: null, historicalScore: 20, groqScore: 30, isBeyondWindow: false }, { crowdScore: 20, source: "historical" }],
-    [{ mlScore: null, historicalScore: null, groqScore: 30, isBeyondWindow: false }, { crowdScore: 30, source: "groq" }],
-    [{ mlScore: null, historicalScore: 20, groqScore: 30, isBeyondWindow: true }, { crowdScore: null, source: "unavailable" }],
-    [{ mlScore: null, historicalScore: null, groqScore: null, isBeyondWindow: false }, { crowdScore: null, source: null }],
-    [{ mlScore: 0, historicalScore: 20, groqScore: null, isBeyondWindow: false }, { crowdScore: 0, source: "ml" }],
+    [{ mlScore: 10, historicalScore: 20, isBeyondWindow: true }, { crowdScore: 10, source: "ml" }],
+    [{ mlScore: null, historicalScore: 20, isBeyondWindow: false }, { crowdScore: 20, source: "historical" }],
+    [{ mlScore: null, historicalScore: 20, isBeyondWindow: true }, { crowdScore: null, source: "unavailable" }],
+    [{ mlScore: null, historicalScore: null, isBeyondWindow: true }, { crowdScore: null, source: "unavailable" }],
+    [{ mlScore: null, historicalScore: null, isBeyondWindow: false }, { crowdScore: null, source: null }],
+    [{ mlScore: 0, historicalScore: 20, isBeyondWindow: false }, { crowdScore: 0, source: "ml" }],
+    [{ mlScore: null, historicalScore: 0, isBeyondWindow: false }, { crowdScore: 0, source: "historical" }],
   ])("%j → %j", (input, expected) => {
     expect(resolveCrowdScore(input)).toEqual(expected);
   });

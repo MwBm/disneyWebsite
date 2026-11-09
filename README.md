@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/MwBm/disneyWebsite/actions/workflows/ci.yml/badge.svg)](https://github.com/MwBm/disneyWebsite/actions/workflows/ci.yml)
 
-Crowd-level predictor, per-ride wait-time forecaster and accuracy tracker for Disneyland and Disney California Adventure. Live wait times are collected from queue-times.com every 30 minutes, per-ride XGBoost models retrain nightly, and Groq writes the narration and adjusts crowd scores.
+Crowd-level predictor, per-ride wait-time forecaster and accuracy tracker for Disneyland and Disney California Adventure. Live wait times are collected from queue-times.com every 30 minutes, per-ride XGBoost models retrain nightly and precompute 30 days of forecasts, and Groq writes optional planning tips and powers the chat assistant. Groq never changes a crowd score.
 
 ## Stack
 
@@ -17,9 +17,9 @@ Crowd-level predictor, per-ride wait-time forecaster and accuracy tracker for Di
 
 | Route         | Purpose                                                  |
 | ------------- | -------------------------------------------------------- |
-| `/`           | Date picker → crowd score (0–100) + AI narration         |
-| `/wait-times` | Per-ride average and peak predicted wait for a date      |
-| `/calendar`   | Monthly crowd calendar                                   |
+| `/`           | Date and park picker → crowd score (0–100), optional AI planning tip |
+| `/wait-times` | Per-ride average and peak predicted wait, plus an hourly chart |
+| `/calendar`   | Monthly crowd calendar with a 16-day weather strip       |
 | `/accuracy`   | Predicted vs. actual waits over the last 30 days         |
 | `/chat`       | Streaming AI chat assistant with live park context       |
 
@@ -46,7 +46,7 @@ npm run test:e2e                       # browser e2e on port 3100
 
 cd ml-service
 pip install -r requirements-dev.txt
-python -m pytest -q                    # ML service unit tests
+python -m pytest -q                    # ML service unit tests (Python 3.11, as in CI)
 ```
 
 The web SQL tests (`npm run test:integration`) and the ML integration tests need a local Postgres; see [docs/runbook-tests.md](docs/runbook-tests.md). CI runs everything except e2e on every push, including both integration suites against Postgres 17 and `actionlint` on the workflow files.
@@ -88,43 +88,50 @@ The app talks to Postgres directly and never uses Supabase's Data API. Keep it t
 
 ## Architecture
 
+The website and the Python jobs never call each other; Postgres is the only place they meet. Forecasts are precomputed nightly, so a page view is a lookup, never a model run.
+
 ```
 Browser
-  └── Next.js (Vercel)
-        ├── /api/forecast          ← per-ride avg/peak + crowd score for a date (30 req/min)
-        ├── /api/calendar          ← monthly crowd scores: ML → historical → Groq estimate (30 req/min)
-        ├── /api/accuracy          ← DailyForecast × WaitTimeRecord, aggregated in SQL
-        ├── /api/accuracy/rides/:id← chart points for one ride
-        ├── /api/chat              ← Groq streaming + live context (10 req/min)
-        ├── /api/live              ← live wait times (CDN-cached 5 min)
-        ├── /api/weather           ← 16-day Anaheim forecast (CDN-cached 1 h)
-        ├── /api/cron/sync-date-context ← DateContext + Groq adjustments (Bearer CRON_SECRET)
+  └── Next.js (Vercel). Every forecast route takes ?park=16|17
+        ├── /api/forecast               ← per-ride avg/peak + crowd score from the daily projections (30 req/min)
+        ├── /api/forecast/narration     ← optional Groq planning tip, loaded after the numbers (10 req/min)
+        ├── /api/forecast/rides/:id     ← hourly points for one ride's chart (30 req/min)
+        ├── /api/calendar               ← monthly crowd scores: ML → same-weekday historical (30 req/min)
+        ├── /api/accuracy               ← DailyForecast × WaitTimeRecord, aggregated in SQL
+        ├── /api/accuracy/rides/:id     ← predicted vs actual points for one ride
+        ├── /api/chat                   ← Groq streaming + live and selected-date context (10 req/min)
+        ├── /api/live                   ← live wait times straight from queue-times.com (CDN-cached 5 min)
+        ├── /api/weather                ← 16-day Anaheim forecast (CDN-cached 1 h)
+        ├── /api/cron/sync-date-context ← DateContext: tier, holidays, weather (Bearer CRON_SECRET)
         └── /api/admin/date-context     ← DateContext inspection (Bearer CRON_SECRET)
 
 GitHub Actions: collect.yml (dispatched every 30 min by cron-job.org)
   ├── ml-service/collect.py         ← queue-times.com → WaitTimeRecord; writes only, never reads
-  ├── keep-schedules-enabled        ← re-enables scheduled workflows GitHub disables for inactivity
+  └── keep-schedules-enabled        ← re-enables scheduled workflows GitHub disables for inactivity
 
 GitHub Actions: freshness.yml (daily 13:47 UTC)
-  └── ml-service/check_freshness.py ← alerts when forecasts or the archive are stale
+  └── ml-service/check_freshness.py ← fails when training, the forecast window or the archive is stale
 
 GitHub Actions: train.yml (daily 06:17 UTC)
   └── ml-service/train.py
         ├── Every unarchived WaitTimeRecord row + 3 years of HourlyWaitSummary, one snapshot
         ├── DateContext + lag + cross-ride features (23 total)
-        ├── XGBoost per ride, expanding-window walk-forward CV
-        └── Upsert 30 days of DailyForecast
+        ├── XGBoost per (park, ride), expanding-window walk-forward CV
+        └── Upsert 30 days of DailyForecast slots, RideDayForecast + ParkDayForecast
+            projections, RideCatalog, ModelRun and ForecastEvaluation
 
 GitHub Actions: archive.yml (Sundays 09:00 UTC)
   └── ml-service/archive.py
         ├── WaitTimeRecord older than 30 days → HourlyWaitSummary (one statement, merges buckets)
-        └── Delete DailyForecast older than 35 days
+        └── Retention: forecasts 35 days, projections 60 days, hourly 3 years, job log 90 days
 
 GitHub Actions: sync-date-context.yml (1st of each month, 10:00 UTC)
   └── GET /api/cron/sync-date-context
-        ├── ThemeParks.wiki (park hours + Lightning Lane price → tier)
-        ├── Open-Meteo (16-day forecast), climatological normals beyond it
-        └── Groq adjuster (bounded ±35 points on the ML crowd score)
+        ├── ThemeParks.wiki (park hours + Lightning Lane price → tier, both parks)
+        └── Open-Meteo (16-day forecast), climatological normals beyond it
 
-Every job logs to CollectRun (job = collect | train | archive).
+GitHub Actions: import-dca-history.yml (manual)
+  └── ml-service/import_dca_kaggle_history.py ← one-time DCA Kaggle backfill → HourlyWaitSummary
+
+collect, train and archive log every run to CollectRun (job = collect | train | archive).
 ```

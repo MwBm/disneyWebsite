@@ -162,17 +162,15 @@ export default function DateForecaster() {
                     {narrationLoading ? "Writing a planning tip…" : "Add a planning tip"}
                   </button>
                 )}
-                {result.source !== "groq" && (
-                  <a
-                    href={`/wait-times?date=${date}&park=${parkId}`}
-                    className="inline-flex items-center gap-1 text-sm font-medium text-warm-900 underline decoration-warm-500 underline-offset-4 hover:text-white"
-                  >
-                    See per-ride predictions
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
-                  </a>
-                )}
+                <a
+                  href={`/wait-times?date=${date}&park=${parkId}`}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-warm-900 underline decoration-warm-500 underline-offset-4 hover:text-white"
+                >
+                  See per-ride predictions
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
+                </a>
               </>
             ) : (
               <p className="self-start text-sm text-warm-700">

@@ -21,7 +21,6 @@ from model import (
     _extract_features,
     _train_ride_model,
     build_crowd_calibration,
-    predict_for_date,
     predict_for_ride,
     train_ride_models,
 )
@@ -30,6 +29,22 @@ from model import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def predict_for_date(
+    rides: list[RideHistory],
+    target_date: datetime,
+    context: DateContext | None = None,
+) -> tuple[list[RideForecast], int]:
+    """Train on `rides`, predict one slot for every trained ride, and score it.
+
+    Test-only harness for the train -> predict -> crowd-score path. Production
+    batches every slot per ride through pipeline.generate_forecasts instead.
+    """
+    forecasts: list[RideForecast] = []
+    for (park_id, ride_id), tm in train_ride_models(rides).items():
+        forecasts.extend(predict_for_ride(tm, ride_id, [target_date], [context], [None], park_id))
+    return forecasts, _compute_crowd_score(forecasts, context)
+
 
 def _make_records(
     ride_id: int,
@@ -549,6 +564,9 @@ def test_crowd_score_calibration_constants_match_ride_config():
     assert DEFAULT_CROWD_CALIBRATION_ANCHORS == tuple(config["crowdFallbackWaitAnchors"])
     assert CROWD_DAYTIME_START_HOUR == config["crowdDaytimeStartHour"]
     assert CROWD_DAYTIME_END_HOUR == config["crowdDaytimeEndHour"]
+    from model import CROWD_DAILY_SCORE_PERCENTILE
+    assert CROWD_DAILY_SCORE_PERCENTILE == config["crowdDailyScorePercentile"]
+    assert 0 < CROWD_DAILY_SCORE_PERCENTILE <= 1, "a fraction, not a 0–100 percentile"
 
 
 def test_no_cv_folds_does_not_yield_maximum_confidence():

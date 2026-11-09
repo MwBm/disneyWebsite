@@ -3,16 +3,18 @@
 Single-shot Python jobs run from GitHub Actions; there is no HTTP server.
 
 - `collect.py` runs every 30 minutes and only records live waits.
-- `train.py` runs daily, trains per-ride XGBoost models and writes every `DailyForecast` row.
-- `archive.py` runs weekly and rolls old raw rows up into hourly buckets.
+- `train.py` runs daily, trains per-ride XGBoost models and writes every forecast row: `DailyForecast` slots plus the `RideDayForecast` and `ParkDayForecast` projections the website reads.
+- `archive.py` runs weekly, rolls old raw rows up into hourly buckets and applies every table's retention.
 
 ---
 
 ## Local Setup
 
+CI and the workflows use Python 3.11; the pinned `numpy`/`xgboost` versions may not install on newer Pythons.
+
 ```bash
 cd ml-service
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 export DATABASE_URL="<Supabase session pooler URL, port 5432>"
@@ -31,11 +33,11 @@ Jobs use `DATABASE_URL`, falling back to `DIRECT_URL`. `common.normalize_db_url`
 | File | Purpose |
 |---|---|
 | `collect.py` | 30-min job: queue-times.com → `WaitTimeRecord`. Writes only; never reads |
-| `train.py` | Daily job: `pipeline.generate_forecasts` → 30 days of `DailyForecast` (the only writer of forecasts) |
-| `archive.py` | Weekly job, entirely in SQL. Folds raw rows older than 30 days (hour-aligned) into `HourlyWaitSummary`, merging existing buckets, and deletes forecasts older than 35 days |
-| `check_freshness.py` | Daily monitor run from freshness.yml; see [runbook-cron.md](runbook-cron.md#freshnessyml-forecast-freshness) |
-| `pipeline.py` | Training-data reads, lag and cross-ride features, forecast slots and upsert |
-| `model.py` | `train_ride_models`, `predict_for_ride`, crowd score: XGBoost per ride |
+| `train.py` | Daily job: `pipeline.generate_forecasts` → 30 days of forecasts (the only writer of forecast, catalog, model-run and evaluation rows) |
+| `archive.py` | Weekly job, entirely in SQL. Folds raw rows older than 30 days (hour-aligned) into `HourlyWaitSummary`, merging existing buckets, then deletes rows past each table's retention |
+| `check_freshness.py` | Daily monitor run from freshness.yml; writes nothing. See [runbook-cron.md](runbook-cron.md#freshnessyml-forecast-freshness) |
+| `pipeline.py` | Training-data reads, lag and cross-ride features, forecast slots, and every forecast-side write |
+| `model.py` | `train_ride_models`, `predict_for_ride`, crowd-score calibration: XGBoost per ride |
 | `common.py` | Shared settings (`PARK_TZ`, `WINDOW_MINUTES`, retention days, `JOBS`), DB URL handling, `connect()`, `run_logged_job()` |
 | `schemas.py` | Pydantic models (`RideHistory`, `RideForecast`, `DateContext`, `LagFeatures`) |
 | `import_dca_kaggle_history.py` | One-time importer for the DCA Kaggle dataset → `HourlyWaitSummary` |
@@ -46,9 +48,9 @@ Jobs use `DATABASE_URL`, falling back to `DIRECT_URL`. `common.normalize_db_url`
 
 ## Collection (`collect.py`)
 
-1. Load park configs from `src/lib/ride-config.json` (queue-times URLs, excluded ride IDs)
-2. `GET` queue-times.com for each park. Zero rides across all parks is a failure, because the API lists rides even while the parks are closed
-3. `INSERT … ON CONFLICT ("rideId", "windowedAt") DO UPDATE` → `WaitTimeRecord`
+1. Load park configs from `src/lib/ride-config.json` (queue-times URLs, excluded ride IDs and names)
+2. `GET` queue-times.com for each park, validated with pydantic and retried up to 3 times (1 s, then 2 s) on timeouts, transport errors, 408, 425, 429 and 5xx. Zero rides across all parks is a failure, because the API lists rides even while the parks are closed
+3. Round the time to the nearest 30-minute window, then `INSERT … ON CONFLICT ("rideId", "windowedAt") DO UPDATE` → `WaitTimeRecord`
 4. Insert a `CollectRun` success row in the same transaction
 
 It never reads from the database: at 48 runs a day, any read is multiplied against the 5 GB/month egress quota. `tests/test_collect.py::test_main_runs_only_its_two_writes_and_never_reads` fails if a read creeps in.
@@ -59,23 +61,36 @@ It never reads from the database: at 48 runs a day, any read is multiplied again
 2. `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`, so every read sees one snapshot even if archive commits mid-run. It must be the transaction's first statement
 3. `fetch_training_history`:
    - **every** unarchived `WaitTimeRecord` row, plus 3 years of `HourlyWaitSummary`;
-   - rows carry ride IDs only, and names come from one `DISTINCT ON` lookup;
+   - rows carry ride IDs only, and names come from one `DISTINCT ON` lookup (newest sighting across both tables);
    - archive moves rows between the two tables atomically, so there is no gap or overlap however late it runs;
    - about 14 MB per run.
-4. Attach `DateContext`, lag features and cross-ride features to each record
-5. `train_ride_models(history)`: one model per ride. If no model trains at all, raise, so an empty forecast is never reported as a success
-6. Fetch `DateContext` and lag features for the slots; `predict_for_ride(...)`, one XGBoost call per ride
-7. `upsert_forecasts()`: `ON CONFLICT ("rideId", "forecastFor") DO UPDATE`
+4. Drop excluded rides; attach `DateContext`, lag features and cross-ride features to each record; resolve headliners; build one crowd calibration per park
+5. `train_ride_models(history)`: one model per (park, ride). If no model trains at all, raise, so an empty forecast is never reported as a success
+6. `create_model_run()`: one `ModelRun` row with the model and feature versions and aggregate CV metrics
+7. Fetch `DateContext` and lag features for the slots; `predict_for_ride(...)`, one XGBoost call per ride; one crowd score per slot per park
+8. Writes, all upserts:
+   - `DailyForecast` slots, `ON CONFLICT ("rideId", "forecastFor")`;
+   - `RideCatalog`: every ride in the parks being trained is marked inactive, then each ride in this run's history is upserted as active with its latest name;
+   - `ParkDayForecast` (the 75th percentile of the day's slot crowd scores) and `RideDayForecast` (mean and max slot wait, mean confidence), one row per park/ride per day;
+   - `ForecastEvaluation` rows for horizons of 0, 1, 3, 7, 14 and 28 days, then actual daily averages backfilled from the last 31 days of `WaitTimeRecord` for past target dates.
 
 train.yml runs at 06:17 UTC (23:17 Pacific in summer), so each run writes tonight's last slots plus the next 29 days. Today's daytime slots come from the previous night's run.
 
 ## Archive (`archive.py`)
 
-One transaction, one data statement, two counts read back:
+One transaction; the archive itself is one statement that reads back two counts:
 
-1. `DELETE FROM "WaitTimeRecord" … RETURNING` feeds an aggregate `INSERT INTO "HourlyWaitSummary"`, bucketed by (ride, park date, park hour) with the latest ride name. The cutoff is `now − 30 days` truncated to the hour, so no hour is ever split
-2. On conflict, the existing bucket is merged: `avgWait` weighted by `sampleCount`, max `peakWait`, summed `sampleCount`, OR'd `isOpen`, latest names
-3. `DELETE FROM "DailyForecast"` for slots older than `FORECAST_RETENTION_DAYS` (35)
+1. `DELETE FROM "WaitTimeRecord" … RETURNING` feeds an aggregate `INSERT INTO "HourlyWaitSummary"`, bucketed by (park, ride, park date, park hour) with the latest ride name. `avgWait` and `peakWait` count open samples only. The cutoff is `now − 30 days` truncated to the hour, so no hour is ever split
+2. On conflict, the existing bucket is merged: `avgWait` weighted by `openSampleCount`, max `peakWait`, summed sample counts, OR'd `isOpen`, latest names
+3. Retention deletes (constants in `common.py`):
+
+| Table | Kept for |
+|---|---|
+| `DailyForecast` | 35 days (`FORECAST_RETENTION_DAYS`) |
+| `ParkDayForecast`, `RideDayForecast` | 60 days |
+| `HourlyWaitSummary` | 3 years |
+| `ForecastEvaluation`, `ModelRun` | 2 years |
+| `CollectRun` | 90 days |
 
 ## Run logging (`common.run_logged_job`)
 
@@ -94,11 +109,11 @@ One transaction, one data statement, two counts read back:
 
 `train_ride_models(records)`:
 
-- Uses open records only, grouped by `ride_id`
+- Uses open records only, grouped by `(park_id, ride_id)`
 - A ride with fewer than `MIN_SAMPLES` (200) records falls back to per-hour mean waits, with confidence `FALLBACK_CONFIDENCE` (0.3)
 - Otherwise it runs expanding-window walk-forward CV (`TimeSeriesSplit`, 4 folds, every validation fold strictly after its training data) to get `cv_mae_minutes`, then fits on all of the ride's data
 - `XGBRegressor(n_estimators=100, max_depth=5, learning_rate=0.1, subsample=0.8, colsample_bytree=0.8, random_state=42, n_jobs=1)`
-- Returns `Dict[ride_id, TrainedModel]` (`model`, `confidence`, `cv_mae_minutes`, `hour_means`, `global_mean`)
+- Returns `Dict[(park_id, ride_id), TrainedModel]` (`model`, `confidence`, `cv_mae_minutes`, `hour_means`, `global_mean`)
 
 **Confidence** = `clip(1 − cv_mae / max(global_mean, 1), 0, 1)`. If no CV fold was possible, it is 0.3, never 1.0.
 
@@ -131,11 +146,13 @@ Imputing the two cross-ride features from the training profile, instead of a con
 
 ### Prediction
 
-- `predict_for_ride(tm, ride_id, slots, contexts, lag_features_list)` predicts every slot for one ride in one call.
-  - Predictions are clipped to 0–300 minutes.
-  - Empty `slots` returns `[]`.
-  - Mismatched list lengths raise `ValueError`.
-- `predict_for_date(records, target_date, ctx)` trains and predicts one slot; the tests use it.
+`predict_for_ride(tm, ride_id, slots, contexts, lag_features_list, park_id)` predicts every slot for one ride in one call.
+- A fallback ride (no XGBoost model) gets its per-hour mean wait, or its overall mean for an hour it has never seen.
+- Predictions are clipped to 0–300 minutes.
+- Empty `slots` returns `[]`.
+- Mismatched list lengths raise `ValueError`.
+
+`tests/test_model.py` has a test-only `predict_for_date` helper that trains and predicts a single slot.
 
 ### Crowd score
 
@@ -154,10 +171,12 @@ is 75, and a peak slot is 90–100. The score is never reduced merely because
 fewer rides trained successfully. `ride-config.json` supplies conservative
 fallback anchors for small datasets and the shared historical-only API path.
 
-The API reports the 75th percentile of a day's slot scores, rather than a
-mean that dilutes its busy period with opening and late-evening waits. Date
-context is already a per-ride ML feature, so it is not multiplied into the
-score a second time.
+`ParkDayForecast` stores the 75th percentile of a day's slot scores
+(`crowdDailyScorePercentile: 0.75` in `ride-config.json`, read as
+`CROWD_DAILY_SCORE_PERCENTILE`), rather than a mean that dilutes its busy
+period with opening and late-evening waits; that is the score the website
+shows. Date context is already a per-ride ML feature, so it is not multiplied
+into the score a second time.
 
 ---
 
@@ -169,7 +188,10 @@ One-time backfill of DCA history into `HourlyWaitSummary`:
 cd ml-service
 python import_dca_kaggle_history.py                        # needs DATABASE_URL
 python import_dca_kaggle_history.py --dry-run --limit 1000 # parse only
+python import_dca_kaggle_history.py --dataset-path ./dca   # use an already-downloaded copy
 ```
+
+It can also be run from GitHub with the manual `import-dca-history.yml` workflow, which has a `dry_run` input. It does not log to `CollectRun`.
 
 It downloads `tivory27/disney-california-adventure-wait-times`, maps DCA ride names (including seasonal aliases) to queue-times ride IDs, drops zero waits and excluded rides, and inserts hourly buckets with `ON CONFLICT DO NOTHING`, so reruns are safe. Kaggle rows have no `DateContext`, so their tier, holiday and weather features take the defaults.
 

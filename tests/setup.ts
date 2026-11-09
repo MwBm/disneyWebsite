@@ -1,12 +1,9 @@
-// Mock Prisma globally so route tests don't need a real DB
+// Mock Prisma globally so unit and route tests never need a real DB. List only
+// the methods src/ calls; a new call fails loudly until it is added here.
 jest.mock("@/lib/db", () => ({
   prisma: {
-    waitTimeRecord: { upsert: jest.fn(), findMany: jest.fn() },
-    dailyForecast: { createMany: jest.fn(), findMany: jest.fn() },
-    collectRun: { create: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
-    prediction: { findMany: jest.fn() },
-    dateContext: { upsert: jest.fn(), update: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
-    $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+    collectRun: { findMany: jest.fn() },
+    dateContext: { findMany: jest.fn(), upsert: jest.fn() },
     $queryRaw: jest.fn(),
   },
 }));

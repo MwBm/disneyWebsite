@@ -3,8 +3,6 @@ import { prisma } from "@/lib/db";
 import { requireBearer } from "@/lib/auth";
 import { addParkDays, dateContextDate, parkDateKey } from "@/lib/park-time";
 
-export const revalidate = 0;
-
 export async function GET(req: NextRequest) {
   const denied = requireBearer(req);
   if (denied) return denied;

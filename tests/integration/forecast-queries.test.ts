@@ -165,6 +165,7 @@ describeWithDatabase("forecast queries on Postgres", () => {
       const tuesday = recentWeekday(2, 1);
       const earlierTuesday = recentWeekday(2, 2);
       const wednesday = recentWeekday(3, 1);
+      await seedCatalog(1);
       await prisma.hourlyWaitSummary.createMany({
         data: [
           hourlyRow(1, tuesday, 8, 20),
@@ -185,6 +186,7 @@ describeWithDatabase("forecast queries on Postgres", () => {
     it("returns one row per ride and the ride's latest name", async () => {
       const tuesday = recentWeekday(2, 1);
       const earlierTuesday = recentWeekday(2, 3);
+      await seedCatalog(5, 6);
       await prisma.hourlyWaitSummary.createMany({
         data: [
           hourlyRow(5, earlierTuesday, 10, 10, { rideName: "Old Name" }),
@@ -200,6 +202,7 @@ describeWithDatabase("forecast queries on Postgres", () => {
 
     it("names a ride from its newest archive row even when that row is left out of the averages", async () => {
       const tuesday = recentWeekday(2, 1);
+      await seedCatalog(7, 8);
       await prisma.hourlyWaitSummary.createMany({
         data: [
           hourlyRow(7, tuesday, 12, 40, { rideName: "Old Name", landName: "Old Land" }),
@@ -211,6 +214,26 @@ describeWithDatabase("forecast queries on Postgres", () => {
       expect(await getHistoricalRideWaitsForDate(tuesday)).toEqual([
         { rideId: 7, rideName: "Renamed", landName: "New Land", avgWait: 40, peakWait: 40 },
       ]);
+    });
+
+    it("leaves out rides that are inactive or missing from RideCatalog", async () => {
+      const tuesday = recentWeekday(2, 1);
+      await seedCatalog(1, 2);
+      await prisma.rideCatalog.update({
+        where: { parkId_rideId: { parkId: 16, rideId: 2 } },
+        data: { isActive: false },
+      });
+      await prisma.hourlyWaitSummary.createMany({
+        data: [
+          hourlyRow(1, tuesday, 12, 30),
+          hourlyRow(2, tuesday, 12, 40), // inactive in the catalog
+          hourlyRow(3, tuesday, 12, 50), // never catalogued
+        ],
+      });
+
+      expect((await getHistoricalRideWaitsForDate(tuesday)).map((r) => r.rideId)).toEqual([1]);
+      expect(await getHistoricalRideForecastHoursForDate(tuesday, 2)).toEqual([]);
+      expect(await getHistoricalRideForecastHoursForDate(tuesday, 3)).toEqual([]);
     });
 
     it("ignores raw WaitTimeRecord rows entirely", async () => {
@@ -231,6 +254,7 @@ describeWithDatabase("forecast queries on Postgres", () => {
       const tuesday = recentWeekday(2, 1);
       const earlierTuesday = recentWeekday(2, 2);
       const wednesday = recentWeekday(3, 1);
+      await seedCatalog(1, 2);
       await prisma.hourlyWaitSummary.createMany({
         data: [
           hourlyRow(1, tuesday, 9, 20),

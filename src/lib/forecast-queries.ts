@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { PARK_TIME_ZONE, dateContextDate, normalizeParkDateKey, parkDateDow, parkDateRangeUtc } from "./park-time";
-import rideConfig from "./ride-config.json";
 import { DISNEYLAND_PARK_ID, type ParkId } from "./parks";
 
 /**
@@ -23,9 +22,6 @@ export const HISTORICAL_LOOKBACK_YEARS = 2;
 
 /** A Prisma.raw fragment: PARK_TIME_ZONE is a trusted constant, not input. */
 const PARK_TZ_SQL = Prisma.raw(`'${PARK_TIME_ZONE}'`);
-
-/** Surface a day's busy period instead of averaging quiet opening/closing slots in. */
-export const DAILY_CROWD_SCORE_PERCENTILE = rideConfig.crowdDailyScorePercentile;
 
 /** One ride's predictions for one park day. */
 export type RideDayForecast = {

@@ -50,7 +50,6 @@ const config: Config = {
       },
       fontFamily: {
         sans:    ["Outfit", "system-ui", "sans-serif"],
-        display: ["Fraunces", "Georgia", "serif"],
       },
     },
   },

@@ -32,7 +32,7 @@ export async function getCrowdScoreForDate(
 export type DayCrowdScore = {
   date: string;
   crowdScore: number | null;
-  source: "ml" | "historical" | "groq" | "unavailable" | null;
+  source: "ml" | "historical" | "unavailable" | null;
   tier: number | null;
   specialEvent: string | null;
   isHoliday: boolean;
@@ -41,17 +41,14 @@ export type DayCrowdScore = {
 export function resolveCrowdScore({
   mlScore,
   historicalScore,
-  groqScore,
   isBeyondWindow,
 }: {
   mlScore: number | null;
   historicalScore: number | null;
-  groqScore: number | null;
   isBeyondWindow: boolean;
 }): { crowdScore: number | null; source: DayCrowdScore["source"] } {
   if (mlScore !== null) return { crowdScore: mlScore, source: "ml" };
   if (!isBeyondWindow && historicalScore !== null) return { crowdScore: historicalScore, source: "historical" };
-  if (!isBeyondWindow && groqScore !== null) return { crowdScore: groqScore, source: "groq" };
   if (isBeyondWindow) return { crowdScore: null, source: "unavailable" };
   return { crowdScore: null, source: null };
 }
@@ -90,15 +87,13 @@ export async function getCrowdScoresForMonth(
     const context = contextByDate.get(key);
     const tier = context?.tier ?? null;
 
-    const rawMlScore = mlScoreByDate.get(key) ?? null;
-    const mlScore = rawMlScore;
+    const mlScore = mlScoreByDate.get(key) ?? null;
     const dowMeanWait = meanWaitByDow.get(parkDateDow(key)) ?? null;
     const historicalScore = dowMeanWait !== null ? deriveCrowdScore(dowMeanWait, tier ?? undefined) : null;
 
     const { crowdScore, source } = resolveCrowdScore({
       mlScore,
       historicalScore,
-      groqScore: null,
       isBeyondWindow: key > windowCutoffKey,
     });
 

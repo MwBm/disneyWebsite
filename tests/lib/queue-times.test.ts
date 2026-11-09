@@ -1,4 +1,4 @@
-import { QueueTimesError, fetchLiveRides, roundToWindow } from "@/lib/queue-times";
+import { QueueTimesError, fetchLiveRides } from "@/lib/queue-times";
 import rideConfig from "@/lib/ride-config.json";
 
 const originalFetch = global.fetch;
@@ -177,50 +177,5 @@ describe("fetchLiveRides — failure modes", () => {
     }) as unknown as typeof fetch;
 
     await expect(fetchLiveRides()).rejects.toThrow(QueueTimesError);
-  });
-});
-
-describe("roundToWindow", () => {
-  it("rounds down within the first half of a 30-minute window", () => {
-    expect(roundToWindow(new Date("2026-06-01T10:07:00Z")).toISOString())
-      .toBe("2026-06-01T10:00:00.000Z");
-  });
-
-  it("rounds up within the second half", () => {
-    expect(roundToWindow(new Date("2026-06-01T10:23:00Z")).toISOString())
-      .toBe("2026-06-01T10:30:00.000Z");
-  });
-
-  it("rounds up at the exact midpoint", () => {
-    expect(roundToWindow(new Date("2026-06-01T10:15:00Z")).toISOString())
-      .toBe("2026-06-01T10:30:00.000Z");
-  });
-
-  it("leaves an already-aligned time untouched", () => {
-    expect(roundToWindow(new Date("2026-06-01T10:30:00Z")).toISOString())
-      .toBe("2026-06-01T10:30:00.000Z");
-  });
-
-  it("rolls across an hour boundary", () => {
-    expect(roundToWindow(new Date("2026-06-01T10:52:00Z")).toISOString())
-      .toBe("2026-06-01T11:00:00.000Z");
-  });
-
-  it("rolls across a day boundary", () => {
-    expect(roundToWindow(new Date("2026-06-01T23:50:00Z")).toISOString())
-      .toBe("2026-06-02T00:00:00.000Z");
-  });
-
-  it("discards sub-minute precision", () => {
-    expect(roundToWindow(new Date("2026-06-01T10:07:33.456Z")).toISOString())
-      .toBe("2026-06-01T10:00:00.000Z");
-  });
-
-  it("always lands on :00 or :30 with zero seconds", () => {
-    for (let m = 0; m < 60; m++) {
-      const out = roundToWindow(new Date(Date.UTC(2026, 5, 1, 10, m)));
-      expect([0, 30]).toContain(out.getUTCMinutes());
-      expect(out.getUTCSeconds()).toBe(0);
-    }
   });
 });

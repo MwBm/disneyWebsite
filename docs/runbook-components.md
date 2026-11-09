@@ -1,86 +1,98 @@
 # Runbook: UI Components (`src/components/`)
 
-**Theme:** the "Sunlit Kingdom" palette is defined as CSS variables in `src/app/globals.css` (warm parchment background, deep navy text, gold/amber accents) and mapped onto Tailwind color names in `tailwind.config.ts`. **Fonts:** Outfit (body) and Fraunces (`.font-display`), both from Google Fonts. Crowd and wait-time colors come from `src/lib/crowd.ts`.
+**Theme:** a dark "night sky" palette defined as RGB CSS variables in `src/app/globals.css` (near-black navy background, pale text, cool blue and lavender accents) and mapped onto Tailwind color names (`cream`, `warm`, `space`, `gold`, …) in `tailwind.config.ts`. The names are historical; the values are what count. **Fonts:** Outfit everywhere, loaded by an `@import` in `globals.css` and set as Tailwind's `sans` family. Crowd and wait-time colors come from `src/lib/crowd.ts`.
 
 | Component | Used by |
 |---|---|
-| `Nav`, `SpaceBackground`, `LoadingScreenMount` → `LoadingScreen` | `src/app/layout.tsx` (every page) |
-| `DateForecaster` → `DisneyDatePicker`, `CrowdMeter` | `/` |
-| `WaitTimesView` → `DisneyDatePicker`, `RidePredictionTable` | `/wait-times` |
+| `LoadingScreen`, `SpaceBackground`, `Nav` | `src/app/layout.tsx` (every page) |
+| `DateForecaster` → `DisneyDatePicker`, `ParkPicker`, `CrowdMeter` | `/` |
+| `WaitTimesView` → `DisneyDatePicker`, `ParkPicker`, `RideForecastChart` | `/wait-times` |
+| `ParkPicker` | `/calendar` |
 | `AccuracyChart` | `/accuracy` |
-| `ChatAssistant` | `/chat` |
-| `PageHeader` | `/wait-times`, `/accuracy`, `/chat` |
+| `ChatAssistant` → `DisneyDatePicker`, `ChatMarkdown` | `/chat` |
+| `PageHeader` | `/wait-times`, `/calendar`, `/accuracy`, `/chat` |
+
+Pages that fetch on load first check `getStartupData(url)` (`src/lib/startup-data.ts`), which the loading screen warms.
 
 ---
 
 ## `Nav.tsx`
 
-A client component: sticky top nav with backdrop blur, and a gold glow on the active route.
+A client component: sticky top nav with a blurred translucent background and the active route highlighted.
 - **Links:** Forecast, Wait Times, Calendar, Accuracy, Chat.
-- **Mobile:** a hamburger menu that closes on Escape and on route change.
+- **Mobile:** a menu button (`aria-expanded`) whose menu closes on Escape and on route change.
 
 ## `DateForecaster.tsx`
 
 The home page widget:
-1. Pick a date with `DisneyDatePicker` (defaults to today)
-2. Fetch `/api/forecast?date=YYYY-MM-DD`
-3. Render `CrowdMeter` with `crowdScore`, the AI narration when present, and a link to `/wait-times?date=…`
+1. Pick a date with `DisneyDatePicker` (defaults to today in park time) and a park with `ParkPicker`
+2. Fetch `/api/forecast?date=YYYY-MM-DD&park=N`, or use the warmed startup response for today
+3. Render `CrowdMeter` with `crowdScore`, a stale-data note when `dataQualityOk` is false, an **Add a planning tip** button that fetches `/api/forecast/narration` on demand, and a link to `/wait-times?date=…&park=…`
 
-Shows a loading state while fetching and the API's error message on failure.
+Shows a loading state while fetching, the API's error message on failure, and a "no forecast data yet" message when the response has no forecasts.
 
 ## `CrowdMeter.tsx`
 
-An SVG ring gauge. A Framer Motion spring counts up from 0 to `score` on mount, and the label and color come from `crowdLabel(score)`.
+An SVG ring gauge. A Framer Motion spring counts up from 0 to `score`, and the label, color and description come from `crowdLabel(score)`.
 
 **Props:** `{ score: number }` (0–100).
+
+## `ParkPicker.tsx`
+
+A two-button toggle between Disneyland (16) and Disney California Adventure (17), labelled from `PARK_LABELS`; the selected park has `aria-pressed`.
+
+**Props:** `{ value: ParkId, onChange: (parkId: ParkId) => void }`.
 
 ## `WaitTimesView.tsx`
 
 The `/wait-times` client view.
-- **Props:** `{ initialDate: string }`, resolved by the page from `?date=`, falling back to today in park time.
-- **Fetching:** it fetches `/api/forecast` for the chosen date and aborts any in-flight request when the date changes, so a slow earlier response can't overwrite the current one.
+- **Props:** `{ initialDate, initialParkId }`, resolved by the page from `?date=` and `?park=`, falling back to today in park time and Disneyland.
+- **Fetching:** it fetches `/api/forecast` for the chosen date and park and aborts any in-flight request when either changes, so a slow earlier response can't overwrite the current one.
 - **URL:** kept in sync with `history.replaceState`.
-- **Display:** a one-line note says how the numbers were produced (`ml`, `historical` or `groq`), then `RidePredictionTable`. There are also empty and error states.
+- **Display:** a one-line note says how the numbers were produced (`ml`, `historical` or `unavailable`), a stale-data note when `dataQualityOk` is false, a `RideForecastChart` for the selected ride (the highest peak wait by default), and one card per ride sorted by peak wait, each with average and peak waits colored by `waitColor` and its confidence. There are also empty and error states.
 
-## `RidePredictionTable.tsx`
+## `RideForecastChart.tsx`
 
-A sortable table with one row per ride.
-- **Columns:** Ride, Land, Avg Wait, Peak Wait, Confidence. The wait headers have tooltips explaining the averaging; Confidence isn't sortable.
-- **Sorting:** peak wait descending by default; clicking a header sorts by it, and clicking again reverses. Rows are keyed by `rideId`.
-- **Wait pills:** colored with `waitColor` (≤20, ≤45, ≤75, above).
+Loaded with `next/dynamic` (`ssr: false`). A Recharts `LineChart` of one ride's hourly forecast. It fetches `/api/forecast/rides/[rideId]?date=…&park=…` itself and aborts a stale request when the ride, date or park changes.
 
-**Props:** `{ rides: RideDayForecast[] }`.
+**Props:** `{ rideId: number, rideName: string, date: string, parkId: ParkId }`.
 
 ## `AccuracyChart.tsx`
 
-A Recharts `LineChart` of predicted (dashed) vs. actual wait for one ride. It fetches `/api/accuracy/rides/[rideId]` itself, 48 points by default, and aborts a stale request when the selected ride changes.
+A Recharts `LineChart` of predicted (dashed) vs. actual wait for one ride. It fetches `/api/accuracy/rides/[rideId]?park=…` itself (48 points by default), uses the warmed startup response when there is one, and aborts a stale request when the selected ride changes.
 
-**Props:** `{ rideId: number, rideName: string }`.
+**Props:** `{ parkId: number, rideId: number, rideName: string }`.
 
 ## `ChatAssistant.tsx`
 
 A client component: the streaming chat UI.
-- POSTs the message history to `/api/chat` and appends stream chunks to the assistant bubble as they arrive, with a blinking cursor while streaming
-- The send button is disabled when the input is empty or a reply is streaming
-- Shows an error message on failure
-- Exports `SUGGESTIONS` and a `ChatAssistantHandle` ref, so the chat page can send a suggested prompt
+- A `DisneyDatePicker` sets the visit date sent with each message
+- POSTs the message history and date to `/api/chat` and replaces the assistant bubble with the accumulated stream text as chunks arrive, rendered through `ChatMarkdown`
+- The input is disabled while a reply streams; the send button is also disabled when the input is empty
+- Shows an error message on failure; an aborted request is ignored
+- Exports `SUGGESTIONS` and a `ChatAssistantHandle` ref (`{ send(text) }`), so the chat page can send a suggested prompt
+
+## `ChatMarkdown.tsx`
+
+Renders the small Markdown subset the chat prompt asks for: `#`–`###` headings (all drawn as one small heading size), paragraphs, ordered and unordered lists, horizontal rules, `**bold**`, `*italic*`, `` `code` `` and links. Links are kept only for `http:` and `https:` URLs. It builds React nodes directly and never sets raw HTML.
+
+**Props:** `{ content: string }`.
 
 ## `DisneyDatePicker.tsx`
 
-A client component: a date picker styled as a park ticket stub ("ADMIT ONE").
+A client component: a date control with an optional label.
 - Previous- and next-day arrows on either side of the date
-- Clicking the date opens an animated calendar popup (Framer Motion `AnimatePresence`) with month navigation, today ringed and the selected day filled
+- Clicking the date (`aria-label` "Change date, currently …") opens an animated calendar popup (Framer Motion `AnimatePresence`) with month navigation
 - Closes on an outside click
 
 **Props:** `{ value: string /* yyyy-MM-dd */, onChange: (value: string) => void, label?: string }`.
 
-## `LoadingScreenMount.tsx` / `LoadingScreen.tsx`
+## `LoadingScreen.tsx`
 
-`LoadingScreenMount` loads the overlay with `dynamic(..., { ssr: false })`. `LoadingScreen` seeds random values, so a server render would never match the client's.
-
-`LoadingScreen` is the full-page overlay on first load:
-- **Visuals:** an animated SVG Ferris wheel (gondolas counter-rotate to stay level), an 80-star twinkling field, a progress bar, Disneyland facts rotating every 4 s, and status messages keyed to progress.
-- **Timing:** it dismisses `MIN_VISIBLE_MS` (450 ms) after mount, then fades over `FADE_MS` (300 ms). `window.finishLoading()` dismisses it early.
+The full-page overlay on first load, rendered directly by the root layout.
+- **Visuals:** 72 light streaks radiating from the center ("Entering hyperspace") over a radial gradient, with a progress bar. Streak values are deterministic, so the overlay renders on the server and covers the page before it paints.
+- **Data:** on mount it calls `preloadStartupData()` to warm the client cache.
+- **Timing:** it waits at least `MIN_VISIBLE_MS` (1,050 ms) and for the warmup to finish, then fades over `FADE_MS` (350 ms). `window.finishLoading()` dismisses it early.
 - **Reduced motion:** respects `prefers-reduced-motion`.
 
 ## `PageHeader.tsx`
@@ -92,7 +104,5 @@ A presentational component: an icon, title and subtitle.
 ## `SpaceBackground.tsx`
 
 A client component: a fixed, full-viewport canvas behind everything (`pointer-events: none`).
-- **Particles:** 160 in gold, amber, rose and indigo drift sinusoidally and link with faint lines within 130 px.
-- **Interaction:** particles are attracted to the mouse within 120 px, and clicks send out ripples that scatter nearby particles.
-- **Glows:** three ambient radial glows.
+- **Stars:** a still field (at least 80, scaled to the viewport) in white and pale blues. Stars never move; only their brightness pulses, and larger stars get a soft halo.
 - **Reduced motion:** with `prefers-reduced-motion`, it draws one static frame.

@@ -17,15 +17,15 @@ def test_build_hourly_summaries_maps_aliases_and_aggregates(tmp_path):
         csv_path,
         [
             {
-                "Land": "Cars Land",
-                "Ride": "Luigi's Honkin' Haul-O-Ween",
+                "Land": "Grizzly Peak",
+                "Ride": "Soarin' Around the World",
                 "Wait Time": "10",
                 "Local Time": "2024-10-12 18:15:00-07:00",
                 "Day of Week": "Saturday",
             },
             {
-                "Land": "Cars Land",
-                "Ride": "Luigi's Rollickin' Roadsters",
+                "Land": "Grizzly Peak",
+                "Ride": "Soarin' Over California",
                 "Wait Time": "20",
                 "Local Time": "2024-10-12 18:45:00-07:00",
                 "Day of Week": "Saturday",
@@ -38,13 +38,38 @@ def test_build_hourly_summaries_maps_aliases_and_aggregates(tmp_path):
     assert stats.rows_read == 2
     assert stats.rows_importable == 2
     assert len(summaries) == 1
-    assert summaries[0].ride_id == 13961
-    assert summaries[0].ride_name == "Luigi's Rollickin' Roadsters"
+    assert summaries[0].ride_id == 312
+    assert summaries[0].ride_name == "Soarin' Over California"
+    assert summaries[0].land_name == "Grizzly Peak"
     assert summaries[0].date == datetime(2024, 10, 12)
     assert summaries[0].hour == 18
     assert summaries[0].avg_wait == 15
     assert summaries[0].peak_wait == 20
     assert summaries[0].sample_count == 2
+
+
+def test_build_hourly_summaries_never_imports_seasonal_overlays(tmp_path):
+    # Seasonal overlays share a ride ID with the normal ride, so mapping one
+    # would mix its waits into the normal ride's history.
+    csv_path = tmp_path / "dca.csv"
+    write_rows(
+        csv_path,
+        [
+            {
+                "Land": "Cars Land",
+                "Ride": "Luigi's Honkin' Haul-O-Ween",
+                "Wait Time": "10",
+                "Local Time": "2024-10-12 18:15:00-07:00",
+                "Day of Week": "Saturday",
+            },
+        ],
+    )
+
+    summaries, stats = build_hourly_summaries(csv_path, excluded_ride_ids=set())
+
+    assert summaries == []
+    assert stats.rows_importable == 0
+    assert stats.skipped_unmapped == 1
 
 
 def test_build_hourly_summaries_skips_excluded_zero_and_unmapped(tmp_path):

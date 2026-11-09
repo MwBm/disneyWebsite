@@ -90,8 +90,6 @@ import {
   calendarCrowdColor,
   calendarCrowdLegend,
   crowdBand,
-  crowdBgOpacity,
-  crowdColor,
   crowdLabelText,
   crowdLegend,
   waitColor,
@@ -133,10 +131,10 @@ describe("crowdBand — threshold boundaries", () => {
   });
 });
 
-describe("crowdColor / crowdLabelText / crowdBgOpacity — null handling", () => {
+describe("calendar cell helpers — null handling", () => {
   it("renders a distinct no-data colour rather than a severity colour", () => {
-    expect(crowdColor(null)).toBe(NO_DATA_COLOR);
-    expect(Object.values(SEVERITY_COLORS)).not.toContain(crowdColor(null));
+    expect(calendarCrowdColor(null)).toBe(NO_DATA_COLOR);
+    expect(Object.values(SEVERITY_COLORS)).not.toContain(calendarCrowdColor(null));
   });
 
   it('labels a missing score "No data"', () => {
@@ -145,13 +143,8 @@ describe("crowdColor / crowdLabelText / crowdBgOpacity — null handling", () =>
   });
 
   it("uses zero background tint for a missing score", () => {
-    expect(crowdBgOpacity(null)).toBe(0);
-    expect(crowdBgOpacity(10)).toBeGreaterThan(0);
-  });
-
-  it("tints more heavily as the score rises", () => {
-    const tints = [10, 40, 60, 90].map(crowdBgOpacity);
-    expect(tints).toEqual([...tints].sort((a, b) => a - b));
+    expect(calendarCrowdBgOpacity(null)).toBe(0);
+    expect(calendarCrowdBgOpacity(10)).toBeGreaterThan(0);
   });
 });
 

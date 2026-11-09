@@ -12,7 +12,6 @@ const config: Config = {
   ],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
-    "^next/font/google$": "<rootDir>/tests/__mocks__/next-font-google.ts",
   },
   setupFiles: ["<rootDir>/tests/setup.ts"],
 };

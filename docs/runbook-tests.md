@@ -55,17 +55,19 @@ Mocking `prisma.$queryRaw` from a route test does not work: every raw query goes
 | Crowd score, scale, bands, legend, wait colors | `tests/lib/crowd.test.ts` |
 | Open-Meteo parsing + climatological fallback | `tests/lib/weather.test.ts` |
 | queue-times.com parsing, exclusions, failure modes | `tests/lib/queue-times.test.ts` |
-| LLM response parsing, clamping, narration prompt | `tests/lib/groq.test.ts` |
+| Chat system prompt, missing-key guard, narration prompt | `tests/lib/groq.test.ts` |
 | ThemeParks.wiki tiers, holiday + school-break calendar, `syncDateContext` | `tests/lib/date-context.test.ts` |
 | Park-local date/time conversion | `tests/lib/park-time.test.ts` |
-| Monthly crowd aggregation, per-date score | `tests/lib/forecast.test.ts` |
+| Monthly crowd aggregation, per-date score, ML → historical resolution; stored Groq columns never change a score | `tests/lib/forecast.test.ts` |
 | Forecast query parameters + number coercion | `tests/lib/forecast-queries.test.ts` |
-| Groq sync: daily ML scores per pending date | `tests/lib/sync-groq-adjustments.test.ts` |
+| `DATABASE_URL` resolution and normalization | `tests/lib/database-url.test.ts` |
 | Accuracy table filter/sort | `tests/lib/accuracy-filters.test.ts` |
-| `/api/forecast`: one avg/peak row per ride on every path, Groq adjustment, validation, caching, 429 | `tests/api/forecast.test.ts` |
+| `/api/forecast`: ML, historical and unavailable paths, park scoping, staleness, validation, caching, 429 | `tests/api/forecast.test.ts` |
+| `/api/forecast/rides/[rideId]` | `tests/api/forecast-ride.test.ts` |
 | `/api/calendar` | `tests/api/calendar.test.ts` |
 | `/api/accuracy`: MAE, buckets, per-ride, BigInt coercion | `tests/api/accuracy.test.ts` |
-| Chat send and error states, loading overlay timing, ride table sorting | `tests/components/*.test.tsx` |
+| `/api/chat`: selected trip date context | `tests/api/chat.test.ts` |
+| Components: `AccuracyChart`, `ChatAssistant`, `ChatMarkdown`, `LoadingScreen`, `WaitTimesView`, and the startup-data warmup | `tests/components/*.test.tsx` |
 
 ---
 
@@ -92,6 +94,7 @@ Every test truncates the app tables, so both suites refuse any host but localhos
 `jest.integration.config.ts` runs these without the global Prisma mock. `tests/integration/forecast-queries.test.ts` runs every query in `src/lib/forecast-queries.ts`, checking:
 - Pacific-day bounds, including 23:30 slots that fall on the next UTC date and a 25-hour DST day;
 - rounding and the newest ride name, including a newest row that is excluded from the averages;
+- historical queries return only rides active in `RideCatalog`;
 - weekday, hour, lookback and closed-row filters;
 - the 2× recent-year weighting;
 - the `JobKind` filter.
@@ -127,6 +130,8 @@ E2E is not in CI: it needs a browser download and a live Groq key, and a flaky r
 
 ## pytest (ML service)
 
+Use Python 3.11, as CI does (see [runbook-ml-service.md](runbook-ml-service.md#local-setup)).
+
 ```bash
 cd ml-service
 pip install -r requirements-dev.txt    # runtime deps + pytest + PyYAML
@@ -146,6 +151,7 @@ python -m pytest tests/test_model.py -v
 - Crowd score stays within 0–100 for all inputs, including extremes
 - Weather defaults: `temp_high` 75.0, `is_rainy` 0.0
 - `predict_for_ride`: empty slots return `[]`; mismatched lengths raise
+- End-to-end train → predict → crowd score through the file's own `predict_for_date` helper
 - Historical calibration maps its P50/P75/P90 anchors to 50/75/90; sparse history uses the config fallback and partial ride coverage does not lower the score
 
 ### `tests/test_collect.py`
@@ -154,6 +160,7 @@ python -m pytest tests/test_model.py -v
 
 ### `tests/test_pipeline.py`
 - `build_forecast_slots` uses Pacific days and skips midnight–8 AM; empty after 23:30; 32 slots on both DST days
+- `build_serving_projection_rows`: the daily crowd score uses `crowdDailyScorePercentile` from config, one row per park day, ride rows are the day's mean and max
 - `generate_forecasts` reads nothing when there are no slots, raises when no model trains, and sets `REPEATABLE READ` first
 - Training reads carry no time filter on raw rows and no ride names
 - Lag features look back exactly 7 and 14 days at the same hour
@@ -186,3 +193,9 @@ python -m pytest tests/test_model.py -v
 
 ### `tests/test_import_dca_kaggle_history.py`
 - Ride-name aliases, hourly aggregation, and skipping excluded, zero-wait and unmapped rows
+- Seasonal overlays (e.g. Luigi's Honkin' Haul-O-Ween) are never imported
+
+### `tests/test_exclusion_triggers.py`
+- Each exclusion trigger function's latest definition in `prisma/migrations/` lists the same ride IDs (and, for the named trigger, the same names) as `ride-config.json`; the legacy `Prediction` trigger's names are a subset
+- The unnamed trigger never matches on `rideName`
+- The quote-aware SQL `IN (...)` parser handles `''`, commas and parentheses inside names

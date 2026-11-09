@@ -99,17 +99,9 @@ export function crowdLabel(score: number): {
   return { label, color, description };
 }
 
-/** Null-tolerant helpers for the calendar grid, where a day may have no score. */
-export function crowdColor(score: number | null): string {
-  return score === null ? NO_DATA_COLOR : crowdBand(score).color;
-}
-
+/** Null-tolerant label for the calendar grid, where a day may have no score. */
 export function crowdLabelText(score: number | null): string {
   return score === null ? "No data" : crowdBand(score).label;
-}
-
-export function crowdBgOpacity(score: number | null): number {
-  return score === null ? 0 : crowdBand(score).bgOpacity;
 }
 
 /** Legend rows, derived so a threshold change can't leave the legend stale. */
