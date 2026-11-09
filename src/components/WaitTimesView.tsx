@@ -8,6 +8,7 @@ import ParkPicker from "./ParkPicker";
 import { crowdLabel, waitColor } from "@/lib/crowd";
 import type { RideDayForecast } from "@/lib/forecast-queries";
 import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
+import { getStartupData, waitForStartupData } from "@/lib/startup-data";
 
 const RideForecastChart = dynamic(() => import("./RideForecastChart"), {
   ssr: false,
@@ -105,12 +106,23 @@ export default function WaitTimesView({
 
     (async () => {
       try {
-        const res = await fetch(`/api/forecast?date=${date}&park=${parkId}`, { signal: controller.signal });
-        const body = await res.json();
-        if (!res.ok) {
-          throw new Error(typeof body.error === "string" ? body.error : "Request failed");
+        const url = `/api/forecast?date=${date}&park=${parkId}`;
+        await waitForStartupData();
+        if (controller.signal.aborted) return;
+
+        const cached = getStartupData<ForecastResponse>(url);
+        let body: ForecastResponse;
+        if (cached) {
+          body = cached;
+        } else {
+          const res = await fetch(url, { signal: controller.signal });
+          const responseBody = await res.json();
+          if (!res.ok) {
+            throw new Error(typeof responseBody.error === "string" ? responseBody.error : "Request failed");
+          }
+          body = responseBody as ForecastResponse;
         }
-        const nextData = body as ForecastResponse;
+        const nextData = body;
         setData(nextData);
         setSelectedRideId((current) =>
           nextData.forecasts.some((ride) => ride.rideId === current)

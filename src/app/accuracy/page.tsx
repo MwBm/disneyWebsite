@@ -7,6 +7,7 @@ import { filterAndSortRides, groupRidesByPark } from "@/lib/accuracy-filters";
 import type { PerRide, ParkFilter, SortKey } from "@/lib/accuracy-filters";
 import { DCA, DISNEYLAND } from "@/lib/parks";
 import { parkDateKey } from "@/lib/park-time";
+import { getStartupData, waitForStartupData } from "@/lib/startup-data";
 
 type Summary = {
   mae: number;
@@ -112,10 +113,12 @@ export default function AccuracyPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/accuracy", { cache: "force-cache" }).then((r) => r.json()),
-      fetch("/api/forecast?date=" + parkDateKey(new Date()), { cache: "force-cache" }).then((r) => r.json()),
-    ]).then(([accuracyData, forecastData]: [AccuracyData, { dataQualityOk?: boolean }]) => {
+    const forecastUrl = "/api/forecast?date=" + parkDateKey(new Date()) + "&park=16";
+    waitForStartupData().then(async () => {
+      const accuracyData = getStartupData<AccuracyData>("/api/accuracy")
+        ?? await fetch("/api/accuracy", { cache: "force-cache" }).then((r) => r.json());
+      const forecastData = getStartupData<{ dataQualityOk?: boolean }>(forecastUrl)
+        ?? await fetch(forecastUrl, { cache: "force-cache" }).then((r) => r.json());
       setData(accuracyData);
       if (accuracyData.perRide.length > 0) {
         const firstRide = accuracyData.perRide[0];

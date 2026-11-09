@@ -8,6 +8,7 @@ import DisneyDatePicker from "./DisneyDatePicker";
 import ParkPicker from "./ParkPicker";
 import { parkDateKey } from "@/lib/park-time";
 import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
+import { getStartupData } from "@/lib/startup-data";
 import type { RideDayForecast } from "@/lib/forecast-queries";
 
 type Forecast = {
@@ -45,9 +46,11 @@ export default function DateForecaster() {
     setResult(null);
     setNarration(null);
     try {
-      const res = await fetch(`/api/forecast?date=${date}&park=${parkId}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      const url = `/api/forecast?date=${date}&park=${parkId}`;
+      const cached = getStartupData<Forecast>(url);
+      const response = cached ? null : await fetch(url);
+      const data = cached ?? await response!.json();
+      if (response && !response.ok) throw new Error(data.error ?? "Request failed");
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
