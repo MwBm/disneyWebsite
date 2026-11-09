@@ -19,13 +19,13 @@ def _ride(ride_id, name, wait=30, is_open=True):
 
 
 PARKS = [
-    {"id": 16, "queueTimesUrl": "https://queue-times.test/parks/16/queue_times.json", "excludedRideIds": [3]},
-    {"id": 17, "queueTimesUrl": "https://queue-times.test/parks/17/queue_times.json", "excludedRideIds": [12]},
+    {"id": 16, "queueTimesUrl": "https://queue-times.test/parks/16/queue_times.json", "excludedRideIds": [3], "excludedRideNames": ["Excluded by name"]},
+    {"id": 17, "queueTimesUrl": "https://queue-times.test/parks/17/queue_times.json", "excludedRideIds": [12], "excludedRideNames": []},
 ]
 
 PAYLOADS = {
     PARKS[0]["queueTimesUrl"]: {
-        "lands": [{"id": 1, "name": "Tomorrowland", "rides": [_ride(1, "Space Mountain", 45), _ride(3, "Excluded")]}],
+        "lands": [{"id": 1, "name": "Tomorrowland", "rides": [_ride(1, "Space Mountain", 45), _ride(3, "Excluded"), _ride(4, "Excluded by name")] }],
         "rides": [_ride(2, "Loose Ride", 10, is_open=False)],
     },
     PARKS[1]["queueTimesUrl"]: {

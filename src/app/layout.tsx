@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import SpaceBackground from "@/components/SpaceBackground";
-import LoadingScreenMount from "@/components/LoadingScreenMount";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export const metadata: Metadata = {
   title: "Disneyland Planner",
@@ -13,11 +13,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col bg-cream-100">
-        <LoadingScreenMount />
+        <LoadingScreen />
         <SpaceBackground />
         <div className="relative z-10 flex flex-col flex-1">
           <Nav />
-          <main className="flex-1 flex flex-col max-w-5xl w-full mx-auto px-4 py-10">{children}</main>
+          <main className="flex-1 flex flex-col max-w-6xl w-full mx-auto px-5 py-10 sm:px-8 sm:py-14">{children}</main>
         </div>
       </body>
     </html>

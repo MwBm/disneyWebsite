@@ -97,10 +97,11 @@ def fetch_live_rides() -> list[dict]:
     rides = []
     for park in park_configs:
         excluded = set(park["excludedRideIds"])
+        excluded_names = set(park.get("excludedRideNames", []))
         parsed = _fetch_park(park["queueTimesUrl"])
         for land in parsed.lands:
             for ride in land.rides:
-                if ride.id in excluded:
+                if ride.id in excluded or ride.name in excluded_names:
                     continue
                 rides.append({
                     "id": ride.id, "park_id": park["id"],
@@ -110,7 +111,7 @@ def fetch_live_rides() -> list[dict]:
                     "wait_time": ride.wait_time,
                 })
         for ride in parsed.rides:
-            if ride.id in excluded:
+            if ride.id in excluded or ride.name in excluded_names:
                 continue
             rides.append({
                 "id": ride.id, "park_id": park["id"],

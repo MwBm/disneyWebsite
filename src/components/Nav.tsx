@@ -12,31 +12,18 @@ const links = [
   { href: "/chat",       label: "Chat"       },
 ];
 
-const SparkleIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 1.5C12 1.5 13.1 8.2 15.2 10.3C17.2 12.1 23 12 23 12C23 12 17.2 11.9 15.2 13.7C13.1 15.8 12 22.5 12 22.5C12 22.5 10.9 15.8 8.8 13.7C6.8 11.9 1 12 1 12C1 12 6.8 12.1 8.8 10.3C10.9 8.2 12 1.5 12 1.5Z" />
-  </svg>
-);
-
 function NavLink({ href, label, active, onClick }: { href: string; label: string; active: boolean; onClick?: () => void }) {
   return (
     <Link
       href={href}
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`text-sm px-3.5 py-1.5 rounded-full transition-all duration-250 ${
-        active ? "text-orange-400" : "text-warm-700 hover:text-warm-900"
+      className={`relative block px-2 py-2 text-[0.8rem] transition-colors ${
+        active ? "text-warm-900" : "text-warm-500 hover:text-warm-900"
       }`}
-      style={
-        active
-          ? {
-              background: "rgb(var(--color-gold) / 0.08)",
-              boxShadow: "0 0 0 1px rgb(var(--color-gold) / 0.28), 0 0 14px rgb(var(--color-gold) / 0.14)",
-            }
-          : undefined
-      }
     >
       {label}
+      {active && <span aria-hidden="true" className="absolute inset-x-2 -bottom-px h-px bg-warm-900" />}
     </Link>
   );
 }
@@ -63,23 +50,18 @@ export default function Nav() {
 
   return (
     <nav
-      className="sticky top-0 z-10"
-      style={{ background: "var(--nav-bg)", backdropFilter: "blur(20px)" }}
+      className="sticky top-0 z-10 border-b border-space-700"
+      style={{ background: "var(--nav-bg)", backdropFilter: "blur(16px)" }}
     >
-      <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <span className="text-orange-400 icon-float">
-            <SparkleIcon />
-          </span>
-          <span className="font-display italic text-orange-400 text-[1.1rem] leading-none tracking-tight">
-            Disneyland
-          </span>
-          <span className="text-warm-500 text-[0.65rem] font-light tracking-[0.2em] uppercase mt-0.5">
-            Planner
+      <div className="max-w-6xl mx-auto px-5 sm:px-8 h-[3.75rem] flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2.5 group" aria-label="Disneyland Planner home">
+          <span className="grid h-5 w-5 place-items-center rounded-sm border border-space-700 text-[0.62rem] font-semibold text-warm-900">D</span>
+          <span className="text-[0.86rem] font-medium tracking-[-0.01em] text-warm-900">
+            Disneyland Planner
           </span>
         </Link>
 
-        <ul className="hidden sm:flex gap-1">
+        <ul className="hidden sm:flex h-full items-center gap-1">
           {links.map(({ href, label }) => (
             <li key={href}>
               <NavLink href={href} label={label} active={pathname === href} />
@@ -88,7 +70,7 @@ export default function Nav() {
         </ul>
 
         <button
-          className="sm:hidden flex flex-col gap-1.5 p-2 rounded-lg text-warm-700 hover:text-warm-900 hover:bg-cream-200/50 transition-colors"
+          className="sm:hidden flex flex-col gap-1.5 p-2 rounded-md text-warm-500 hover:text-warm-900 hover:bg-space-800 transition-colors"
           onClick={() => setOpen((v) => !v)}
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
@@ -106,7 +88,7 @@ export default function Nav() {
       </div>
 
       {open && (
-        <div className="sm:hidden border-t border-space-700 px-4 py-3" style={{ background: "var(--nav-bg)", backdropFilter: "blur(20px)" }}>
+        <div className="sm:hidden border-t border-space-700 px-5 py-3" style={{ background: "var(--nav-bg)", backdropFilter: "blur(16px)" }}>
           <ul className="flex flex-col gap-1">
             {links.map(({ href, label }) => (
               <li key={href}>
@@ -121,8 +103,6 @@ export default function Nav() {
           </ul>
         </div>
       )}
-
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px nav-border" />
     </nav>
   );
 }

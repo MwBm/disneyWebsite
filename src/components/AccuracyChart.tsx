@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
+import { getStartupData } from "@/lib/startup-data";
 
 type Row = {
   predictedFor: string;
@@ -21,9 +22,11 @@ type Row = {
 
 /** Points come from /api/accuracy/rides/[rideId], already filtered, limited and ordered. */
 export default function AccuracyChart({
+  parkId,
   rideId,
   rideName,
 }: {
+  parkId: number;
   rideId: number;
   rideName: string;
 }) {
@@ -35,11 +38,15 @@ export default function AccuracyChart({
 
     (async () => {
       try {
-        const res = await fetch(`/api/accuracy/rides/${rideId}`, {
-          signal: controller.signal,
-        });
-        const body = await res.json();
-        setRows(res.ok ? body.rows ?? [] : []);
+        const url = `/api/accuracy/rides/${rideId}?park=${parkId}`;
+        const cached = getStartupData<{ rows?: Row[] }>(url);
+        if (cached) {
+          setRows(cached.rows ?? []);
+        } else {
+          const res = await fetch(url, { signal: controller.signal });
+          const body = await res.json();
+          setRows(res.ok ? body.rows ?? [] : []);
+        }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setRows([]);
@@ -51,7 +58,7 @@ export default function AccuracyChart({
     // Clicking through ride cards quickly must not let an earlier response
     // paint over the ride now selected.
     return () => controller.abort();
-  }, [rideId]);
+  }, [parkId, rideId]);
 
   const data = rows.map((r) => ({
     date: format(parseISO(r.predictedFor), "MM/dd HH:mm"),

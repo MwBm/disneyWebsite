@@ -82,9 +82,13 @@ describe("deriveCrowdScore", () => {
 // ---------------------------------------------------------------------------
 
 import {
+  CALENDAR_CROWD_BANDS,
   CROWD_BANDS,
   NO_DATA_COLOR,
   SEVERITY_COLORS,
+  calendarCrowdBgOpacity,
+  calendarCrowdColor,
+  calendarCrowdLegend,
   crowdBand,
   crowdBgOpacity,
   crowdColor,
@@ -167,6 +171,32 @@ describe("crowdLegend", () => {
 
   it("uses the same colours the bands do, so the legend cannot drift", () => {
     expect(crowdLegend().map((r) => r.color)).toEqual(CROWD_BANDS.map((b) => b.color));
+  });
+});
+
+describe("calendar crowd scale", () => {
+  it("provides one visually distinct colour for every 10-point score band", () => {
+    expect(CALENDAR_CROWD_BANDS).toHaveLength(10);
+    expect(new Set(CALENDAR_CROWD_BANDS.map((band) => band.color)).size).toBe(10);
+  });
+
+  it("changes colour at each 10-point boundary", () => {
+    expect(calendarCrowdColor(9)).not.toBe(calendarCrowdColor(10));
+    expect(calendarCrowdColor(39)).not.toBe(calendarCrowdColor(40));
+    expect(calendarCrowdColor(89)).not.toBe(calendarCrowdColor(90));
+  });
+
+  it("keeps null data visually separate and derives a complete legend", () => {
+    expect(calendarCrowdColor(null)).toBe(NO_DATA_COLOR);
+    expect(calendarCrowdLegend().map((band) => band.range)).toEqual([
+      "0–9", "10–19", "20–29", "30–39", "40–49",
+      "50–59", "60–69", "70–79", "80–89", "90+",
+    ]);
+  });
+
+  it("intensifies the calendar cell tint as the crowd score rises", () => {
+    const tints = [10, 40, 60, 90].map(calendarCrowdBgOpacity);
+    expect(tints).toEqual([...tints].sort((a, b) => a - b));
   });
 });
 

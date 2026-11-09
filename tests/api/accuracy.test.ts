@@ -23,6 +23,7 @@ const summaryRow = {
 
 function perRideRow(overrides: Record<string, unknown> = {}) {
   return {
+    parkId: 16,
     rideId: 1,
     rideName: "Space Mountain",
     landName: "Tomorrowland",
@@ -80,6 +81,7 @@ describe("accuracy route — per-ride", () => {
     const { perRide } = await (await GET()).json();
     expect(perRide).toEqual([
       {
+        parkId: 16,
         rideId: 1,
         rideName: "Space Mountain",
         landName: "Tomorrowland",
@@ -113,15 +115,15 @@ describe("accuracy route — per-ride", () => {
   });
 
   it.each([
-    ["Cars Land", "Disney California Adventure"],
-    ["Avengers Campus", "Disney California Adventure"],
-    ["Pixar Pier", "Disney California Adventure"],
-    ["San Fransokyo Square", "Disney California Adventure"],
-    ["Tomorrowland", "Disneyland"],
-    ["New Orleans Square", "Disneyland"],
-    ["Brand New Land", "Disneyland"],
-  ])("attributes land %s to %s", async (landName, expected) => {
-    mockAggregates([summaryRow], [perRideRow({ landName })]);
+    ["Cars Land", 17, "Disney California Adventure"],
+    ["Avengers Campus", 17, "Disney California Adventure"],
+    ["Pixar Pier", 17, "Disney California Adventure"],
+    ["San Fransokyo Square", 17, "Disney California Adventure"],
+    ["Tomorrowland", 16, "Disneyland"],
+    ["New Orleans Square", 16, "Disneyland"],
+    ["Brand New Land", 16, "Disneyland"],
+  ])("attributes ride in %s to %s", async (landName, parkId, expected) => {
+    mockAggregates([summaryRow], [perRideRow({ landName, parkId })]);
 
     const { perRide } = await (await GET()).json();
     expect(perRide[0].parkName).toBe(expected);

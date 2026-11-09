@@ -38,7 +38,34 @@
         274,
         16254,
         10903,
-        14326
+        14326,
+        304,
+        16627
+      ],
+      "excludedRideNames": [
+        "Adventureland Treehouse inspired by Walt Disney’s Swiss Family Robinson",
+        "Walt Disney's Enchanted Tiki Room",
+        "Davy Crockett's Explorer Canoes",
+        "Meet Disney Princesses at Royal Hall",
+        "Sleeping Beauty Castle Walkthrough",
+        "Frontierland Shootin' Exposition",
+        "Mark Twain Riverboat",
+        "Pirate's Lair on Tom Sawyer Island",
+        "Sailing Ship Columbia",
+        "Disneyland Railroad",
+        "Great Moments with Mr. Lincoln",
+        "Main Street Cinema",
+        "Main Street Vehicles",
+        "Opera House - Walt Disney - A Magical Life",
+        "The Disney Gallery",
+        "Walt Disney - A Magical Life",
+        "Donald's Duck Pond",
+        "Goofy's How-to-Play Yard",
+        "Mickey's House and Meet Mickey Mouse",
+        "Minnie's House",
+        "Haunted Mansion Holiday",
+        "Disneyland Monorail",
+        "Pixar Short Film Spotlight"
       ]
     },
     {
@@ -57,7 +84,34 @@
         10907,
         10904,
         10905,
-        10906
+        10906,
+        866,
+        869,
+        4723,
+        5146,
+        7292,
+        11528
+      ],
+      "excludedRideNames": [
+        "Animation Academy",
+        "WEB SLINGERS: A Spider-Man Adventure Single Rider",
+        "Luigi's Honkin' Haul-O-Ween",
+        "Luigi's Joy to the Whirl",
+        "Redwood Creek Challenge Trail",
+        "Mickey's PhilharMagic",
+        "Sorcerer's Workshop",
+        "Turtle Talk with Crush",
+        "The Bakery Tour",
+        "Games of Pixar Pier",
+        "Silly Symphony Swings Single Rider",
+        "Radiator Springs Racers Single Rider",
+        "Incredicoaster Single Rider",
+        "World of Color - Season of Light",
+        "World of Color – ONE",
+        "Guardians of the Galaxy - Monsters After Dark",
+        "Mater's Graveyard JamBOOree",
+        "Mater's Jingle Jamboree",
+        "Villains Grove at Oogie Boogie Bash"
       ]
     }
   ]

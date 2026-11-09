@@ -93,6 +93,7 @@ describe("getHistoricalRideWaitsForDate", () => {
 
     expect(lastSql().values).toEqual([16, FORECAST_FIRST_LOCAL_HOUR, HISTORICAL_LOOKBACK_YEARS, 2, 16]);
     expect(lastSql().sql).toContain('FROM "HourlyWaitSummary"');
+    expect(lastSql().sql).toContain('JOIN "RideCatalog"');
     expect(lastSql().sql).not.toContain("WaitTimeRecord");
   });
 
@@ -114,7 +115,8 @@ describe("getHistoricalRideForecastHoursForDate", () => {
     ]);
     expect(lastSql().values).toEqual([16, 7, FORECAST_FIRST_LOCAL_HOUR, HISTORICAL_LOOKBACK_YEARS, 2]);
     expect(lastSql().sql).toContain('FROM "HourlyWaitSummary"');
-    expect(lastSql().sql).toContain('GROUP BY hour');
+    expect(lastSql().sql).toContain('GROUP BY summary.hour');
+    expect(lastSql().sql).toContain('JOIN "RideCatalog"');
   });
 });
 

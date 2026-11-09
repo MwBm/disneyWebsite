@@ -140,14 +140,18 @@ export async function getHistoricalRideWaitsForDate(
   const dow = parkDateDow(normalizeParkDateKey(date)); // 0=Sunday..6=Saturday
   const rows = await prisma.$queryRaw<HistoricalRideWaits[]>(Prisma.sql`
     WITH hourly AS (
-      SELECT "rideId", hour, AVG("avgWait") AS mean_wait
-      FROM "HourlyWaitSummary"
-      WHERE "parkId" = ${parkId}
-        AND "isOpen"
-        AND hour >= ${FORECAST_FIRST_LOCAL_HOUR}
-        AND date >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
-        AND EXTRACT(DOW FROM date) = ${dow}
-      GROUP BY "rideId", hour
+      SELECT summary."rideId", summary.hour, AVG(summary."avgWait") AS mean_wait
+      FROM "HourlyWaitSummary" summary
+      INNER JOIN "RideCatalog" catalog
+        ON catalog."parkId" = summary."parkId"
+        AND catalog."rideId" = summary."rideId"
+        AND catalog."isActive"
+      WHERE summary."parkId" = ${parkId}
+        AND summary."isOpen"
+        AND summary.hour >= ${FORECAST_FIRST_LOCAL_HOUR}
+        AND summary.date >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
+        AND EXTRACT(DOW FROM summary.date) = ${dow}
+      GROUP BY summary."rideId", summary.hour
     ),
     per_ride AS (
       SELECT
@@ -187,17 +191,21 @@ export async function getHistoricalRideForecastHoursForDate(
   const dow = parkDateDow(normalizeParkDateKey(date));
   const rows = await prisma.$queryRaw<RideForecastHour[]>(Prisma.sql`
     SELECT
-      hour,
-      ROUND(AVG("avgWait"))::int AS "predictedWait"
-    FROM "HourlyWaitSummary"
-    WHERE "parkId" = ${parkId}
-      AND "rideId" = ${rideId}
-      AND "isOpen"
-      AND hour >= ${FORECAST_FIRST_LOCAL_HOUR}
-      AND date >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
-      AND EXTRACT(DOW FROM date) = ${dow}
-    GROUP BY hour
-    ORDER BY hour
+      summary.hour,
+      ROUND(AVG(summary."avgWait"))::int AS "predictedWait"
+    FROM "HourlyWaitSummary" summary
+    INNER JOIN "RideCatalog" catalog
+      ON catalog."parkId" = summary."parkId"
+      AND catalog."rideId" = summary."rideId"
+      AND catalog."isActive"
+    WHERE summary."parkId" = ${parkId}
+      AND summary."rideId" = ${rideId}
+      AND summary."isOpen"
+      AND summary.hour >= ${FORECAST_FIRST_LOCAL_HOUR}
+      AND summary.date >= NOW() - (${HISTORICAL_LOOKBACK_YEARS} * INTERVAL '1 year')
+      AND EXTRACT(DOW FROM summary.date) = ${dow}
+    GROUP BY summary.hour
+    ORDER BY summary.hour
   `);
   return rows.map((row) => ({
     hour: Number(row.hour),

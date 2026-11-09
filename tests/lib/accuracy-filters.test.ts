@@ -1,11 +1,11 @@
-import { filterAndSortRides } from "@/lib/accuracy-filters";
+import { filterAndSortRides, groupRidesByPark } from "@/lib/accuracy-filters";
 import type { PerRide } from "@/lib/accuracy-filters";
 
 const rides: PerRide[] = [
-  { rideId: 1, rideName: "Space Mountain",    landName: "Tomorrowland",        parkName: "Disneyland",                    mae: 8.2, within10: 0.72, sampleCount: 100 },
-  { rideId: 2, rideName: "Guardians",          landName: "Avengers Campus",     parkName: "Disney California Adventure",   mae: 3.1, within10: 0.91, sampleCount: 50  },
-  { rideId: 3, rideName: "Haunted Mansion",    landName: "New Orleans Square",  parkName: "Disneyland",                    mae: 5.5, within10: 0.83, sampleCount: 80  },
-  { rideId: 4, rideName: "Radiator Springs",   landName: "Cars Land",           parkName: "Disney California Adventure",   mae: 12.0, within10: 0.60, sampleCount: 120 },
+  { parkId: 16, rideId: 1, rideName: "Space Mountain",    landName: "Tomorrowland",        parkName: "Disneyland",                    mae: 8.2, within10: 0.72, sampleCount: 100 },
+  { parkId: 17, rideId: 2, rideName: "Guardians",          landName: "Avengers Campus",     parkName: "Disney California Adventure",   mae: 3.1, within10: 0.91, sampleCount: 50  },
+  { parkId: 16, rideId: 3, rideName: "Haunted Mansion",    landName: "New Orleans Square",  parkName: "Disneyland",                    mae: 5.5, within10: 0.83, sampleCount: 80  },
+  { parkId: 17, rideId: 4, rideName: "Radiator Springs",   landName: "Cars Land",           parkName: "Disney California Adventure",   mae: 12.0, within10: 0.60, sampleCount: 120 },
 ];
 
 describe("filterAndSortRides", () => {
@@ -69,5 +69,22 @@ describe("filterAndSortRides", () => {
     const original = [...rides];
     filterAndSortRides(rides, "all", "", "mae-asc");
     expect(rides).toEqual(original);
+  });
+
+  it("keeps the all-parks view in separate, independently sorted park groups", () => {
+    const groups = groupRidesByPark(rides, "", "alpha");
+
+    expect(groups.map((group) => group.parkName)).toEqual([
+      "Disneyland",
+      "Disney California Adventure",
+    ]);
+    expect(groups[0].rides.map((ride) => ride.rideName)).toEqual([
+      "Haunted Mansion",
+      "Space Mountain",
+    ]);
+    expect(groups[1].rides.map((ride) => ride.rideName)).toEqual([
+      "Guardians",
+      "Radiator Springs",
+    ]);
   });
 });

@@ -10,16 +10,14 @@ export default function PageHeader({
   subtitle: string;
 }) {
   return (
-    <div className="flex items-start gap-4">
-      <div
-        className="w-11 h-11 rounded-xl flex items-center justify-center text-orange-400 shrink-0"
-        style={{ background: "rgba(240,192,96,0.07)", border: "1px solid rgba(240,192,96,0.14)" }}
-      >
-        {icon}
+    <div>
+      <div className="mb-4 flex items-center gap-2 text-warm-500">
+        <span aria-hidden="true" className="inline-flex">{icon}</span>
+        <span className="eyebrow">Disneyland Planner</span>
       </div>
       <div>
-        <h1 className="text-2xl font-semibold text-warm-900 tracking-tight">{title}</h1>
-        <p className="text-warm-700 text-sm mt-0.5">{subtitle}</p>
+        <h1 className="text-3xl font-medium tracking-[-0.035em] text-warm-900">{title}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-warm-700">{subtitle}</p>
       </div>
     </div>
   );

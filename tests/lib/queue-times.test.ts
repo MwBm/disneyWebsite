@@ -108,6 +108,16 @@ describe("fetchLiveRides — ride exclusions", () => {
 
     expect((await fetchLiveRides()).map((r) => r.id)).not.toContain(excludedId);
   });
+
+  it("drops excluded rides by name when Queue-Times assigns a new ID", async () => {
+    const excludedName = rideConfig.parks[0].excludedRideNames[0];
+    mockParks([
+      { lands: [{ id: 1, name: "L", rides: [ride(9901, excludedName)] }], rides: [] },
+      emptyPark,
+    ]);
+
+    expect((await fetchLiveRides()).map((r) => r.name)).not.toContain(excludedName);
+  });
 });
 
 describe("fetchLiveRides — failure modes", () => {
