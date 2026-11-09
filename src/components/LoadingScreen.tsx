@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { preloadStartupData } from "@/lib/startup-data";
 
 type Streak = {
   angle: number;
@@ -17,21 +18,21 @@ export const MIN_VISIBLE_MS = 1_050;
 export const FADE_MS = 350;
 
 function createStreaks(): Streak[] {
-  return Array.from({ length: 72 }, () => ({
-    angle: Math.random() * 360,
-    length: Math.round(Math.random() * 116 + 42),
-    thickness: Math.random() < 0.88 ? 1 : 2,
-    delay: +(Math.random() * 1.05).toFixed(2),
-    duration: +(Math.random() * 0.54 + 0.56).toFixed(2),
-    opacity: +(Math.random() * 0.47 + 0.4).toFixed(2),
+  // Deterministic values let this client component render on the server,
+  // placing the overlay on screen before the application can paint behind it.
+  return Array.from({ length: 72 }, (_, index) => ({
+    angle: (index * 137.5) % 360,
+    length: 42 + ((index * 43) % 117),
+    thickness: index % 9 === 0 ? 2 : 1,
+    delay: +(((index * 17) % 106) / 100).toFixed(2),
+    duration: +(0.56 + ((index * 29) % 55) / 100).toFixed(2),
+    opacity: +(0.4 + ((index * 31) % 48) / 100).toFixed(2),
   }));
 }
 
 export default function LoadingScreen() {
   const [visible, setVisible] = useState(true);
   const [progress, setProgress] = useState(0);
-  // This component is mounted client-only, so the visual randomness does not
-  // create a server/client hydration mismatch.
   const [streaks] = useState(createStreaks);
   const dismissed = useRef(false);
   const progressTimer = useRef<ReturnType<typeof setInterval>>();
@@ -47,11 +48,14 @@ export default function LoadingScreen() {
 
   useEffect(() => {
     (window as Window & { finishLoading?: () => void }).finishLoading = dismiss;
+    const startupData = preloadStartupData();
 
     progressTimer.current = setInterval(() => {
       setProgress((value) => Math.min(value + Math.max(2, (90 - value) * 0.09), 92));
     }, 90);
-    const arrivalTimer = setTimeout(dismiss, MIN_VISIBLE_MS);
+    const arrivalTimer = setTimeout(() => {
+      void startupData.then(dismiss);
+    }, MIN_VISIBLE_MS);
 
     return () => {
       clearInterval(progressTimer.current);

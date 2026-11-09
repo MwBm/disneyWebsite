@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
+import { getStartupData } from "@/lib/startup-data";
 
 type Row = {
   predictedFor: string;
@@ -37,11 +38,15 @@ export default function AccuracyChart({
 
     (async () => {
       try {
-        const res = await fetch(`/api/accuracy/rides/${rideId}?park=${parkId}`, {
-          signal: controller.signal,
-        });
-        const body = await res.json();
-        setRows(res.ok ? body.rows ?? [] : []);
+        const url = `/api/accuracy/rides/${rideId}?park=${parkId}`;
+        const cached = getStartupData<{ rows?: Row[] }>(url);
+        if (cached) {
+          setRows(cached.rows ?? []);
+        } else {
+          const res = await fetch(url, { signal: controller.signal });
+          const body = await res.json();
+          setRows(res.ok ? body.rows ?? [] : []);
+        }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setRows([]);

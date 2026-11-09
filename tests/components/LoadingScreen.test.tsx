@@ -6,6 +6,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 import LoadingScreen, { FADE_MS, MIN_VISIBLE_MS } from "@/components/LoadingScreen";
+import { resetStartupDataForTests } from "@/lib/startup-data";
 
 // Required for React 18 act() in jsdom
 // @ts-expect-error - global flag
@@ -16,6 +17,8 @@ type WindowWithFinish = Window & { finishLoading?: () => void };
 // CSS animations don't run in jsdom — suppress the style warnings
 beforeEach(() => {
   jest.useFakeTimers();
+  resetStartupDataForTests();
+  global.fetch = jest.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
 });
 
 afterEach(() => {
@@ -73,13 +76,15 @@ describe("LoadingScreen", () => {
     unmount(container, root);
   });
 
-  it("auto-dismisses shortly after mount, not after several seconds", () => {
+  it("dismisses after the arrival animation and startup warmup", async () => {
     const { container, root } = mountLoadingScreen();
     const overlay = container.firstElementChild as HTMLElement;
 
-    act(() => {
-      jest.advanceTimersByTime(MIN_VISIBLE_MS + FADE_MS);
+    await act(async () => {
+      jest.advanceTimersByTime(MIN_VISIBLE_MS);
+      await Promise.resolve();
     });
+    act(() => { jest.advanceTimersByTime(FADE_MS); });
 
     expect(overlay.style.visibility).toBe("hidden");
     unmount(container, root);
@@ -97,13 +102,15 @@ describe("LoadingScreen", () => {
     unmount(container, root);
   });
 
-  it("is fully gone after the short arrival animation", () => {
+  it("is fully gone after the arrival animation and fade", async () => {
     const { container, root } = mountLoadingScreen();
     const overlay = container.firstElementChild as HTMLElement;
 
-    act(() => {
-      jest.advanceTimersByTime(MIN_VISIBLE_MS + FADE_MS);
+    await act(async () => {
+      jest.advanceTimersByTime(MIN_VISIBLE_MS);
+      await Promise.resolve();
     });
+    act(() => { jest.advanceTimersByTime(FADE_MS); });
 
     expect(overlay.style.visibility).toBe("hidden");
     unmount(container, root);

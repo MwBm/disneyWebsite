@@ -14,6 +14,7 @@ import { parkDateKey } from "@/lib/park-time";
 import ParkPicker from "@/components/ParkPicker";
 import PageHeader from "@/components/PageHeader";
 import { DISNEYLAND_PARK_ID, type ParkId } from "@/lib/parks";
+import { getStartupData, waitForStartupData } from "@/lib/startup-data";
 
 type DayScore = {
   date: string;
@@ -120,8 +121,14 @@ export default function CalendarPage() {
   const [weather, setWeather] = useState<Map<string, WeatherDay>>(new Map());
 
   useEffect(() => {
-    fetch("/api/weather")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`weather ${r.status}`))))
+    waitForStartupData()
+      .then(async () => {
+        const cached = getStartupData<{ days?: WeatherDay[] }>("/api/weather");
+        if (cached) return cached;
+        const res = await fetch("/api/weather");
+        if (!res.ok) throw new Error(`weather ${res.status}`);
+        return res.json() as Promise<{ days?: WeatherDay[] }>;
+      })
       .then((data: { days?: WeatherDay[] }) => {
         setWeather(new Map((data.days ?? []).map((d) => [d.date, d])));
       })
@@ -140,10 +147,11 @@ export default function CalendarPage() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/calendar?year=${year}&month=${month}&park=${parkId}`, {
-          signal: controller.signal,
-        });
-        const data = await res.json();
+        const url = `/api/calendar?year=${year}&month=${month}&park=${parkId}`;
+        await waitForStartupData();
+        if (controller.signal.aborted) return;
+        const cached = getStartupData<{ days?: DayScore[] }>(url);
+        const data = cached ?? await fetch(url, { signal: controller.signal }).then((res) => res.json());
         setDays(data.days ?? []);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
