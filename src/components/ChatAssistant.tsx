@@ -2,15 +2,16 @@
 
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import DisneyDatePicker from "./DisneyDatePicker";
+import ChatMarkdown from "./ChatMarkdown";
 import { parkDateKey } from "@/lib/park-time";
 
 type Message = { role: "user" | "assistant"; content: string };
 
 export const SUGGESTIONS = [
-  "What are the least crowded days this week?",
-  "Which rides should we hit first thing in the morning?",
-  "Best strategy for visiting with young kids?",
-  "Is Lightning Lane worth it?",
+  "Build me a low-wait morning plan",
+  "Which three rides should I prioritize?",
+  "Where can I save the most time?",
+  "What should I leave until later?",
 ];
 
 export type ChatAssistantHandle = { send: (text: string) => void };
@@ -99,39 +100,57 @@ const ChatAssistant = forwardRef<ChatAssistantHandle, Record<never, never>>(
         <div className="border-b border-space-700 bg-cream-100 px-4 py-3">
           <DisneyDatePicker value={visitDate} onChange={setVisitDate} label="Plan for date" />
         </div>
-        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+        <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
           {messages.length === 0 && (
-            <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3">
-              <p className="eyebrow">Planning help</p>
-              <p className="max-w-sm text-center text-sm leading-6 text-warm-700">
-                Ask anything — try one of the suggestions above, or type your own question.
+            <div className="m-auto flex max-w-lg flex-col items-center rounded-xl border border-space-700/80 bg-space-800/60 px-6 py-8 text-center shadow-sm">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-sky-300/30 bg-sky-300/10 text-lg" aria-hidden="true">✦</div>
+              <p className="eyebrow">Your park-planning copilot</p>
+              <h2 className="mt-2 text-lg font-medium tracking-tight text-white">Start with the day you&apos;re visiting</h2>
+              <p className="mt-2 max-w-md text-sm leading-6 text-warm-700">
+                I&apos;ll turn that date&apos;s forecast into practical ride priorities, timing tips, and a realistic plan—not just a list of waits.
               </p>
+              <p className="mt-4 text-xs text-warm-500">Choose a prompt above or ask about your group, must-do rides, or arrival time.</p>
             </div>
           )}
           {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              {msg.role === "assistant" && (
+                <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-sky-300/30 bg-sky-300/10 text-xs text-sky-100" aria-label="Disney planner">
+                  ✦
+                </div>
+              )}
               <div
-                className={`max-w-[80%] rounded-lg px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                className={`max-w-[88%] rounded-xl px-4 py-3.5 text-sm shadow-sm sm:max-w-[80%] ${
                   msg.role === "user"
-                    ? "bg-warm-900 text-space-900"
-                    : "border border-space-700 bg-space-800 text-warm-900"
+                    ? "bg-sky-200 text-space-900"
+                    : "border border-space-700/90 bg-space-800/90 text-warm-900"
                 }`}
               >
-                {msg.content}
+                {msg.role === "assistant" ? (
+                  <>
+                    <p className="mb-2 text-[0.68rem] font-medium uppercase tracking-[0.12em] text-sky-200/80">Disney planner</p>
+                    <ChatMarkdown content={msg.content} />
+                  </>
+                ) : (
+                  <p className="whitespace-pre-wrap leading-6">{msg.content}</p>
+                )}
                 {streaming && i === messages.length - 1 && msg.role === "assistant" && (
-                  <span className="inline-block w-1 h-3.5 bg-warm-700 ml-0.5 animate-pulse" />
+                  <span className="ml-1 inline-block h-3.5 w-1 animate-pulse bg-sky-200 align-middle" />
                 )}
               </div>
+              {msg.role === "user" && (
+                <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-space-700 text-xs text-warm-700" aria-label="You">You</div>
+              )}
             </div>
           ))}
           <div ref={bottomRef} />
         </div>
 
-        <form onSubmit={send} className="flex gap-3 border-t border-space-700 bg-cream-100 p-4">
+        <form onSubmit={send} className="flex gap-3 border-t border-space-700 bg-space-800/70 p-4">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about wait times, best times to visit, rides…"
+            placeholder="Ask for a plan, best next ride, or low-wait strategy…"
             disabled={streaming}
             className="flex-1 rounded-lg border border-space-700 bg-space-card px-4 py-2.5 text-sm text-warm-900 placeholder-warm-500 focus:outline-none focus:ring-2 focus:ring-warm-500 disabled:opacity-50"
           />

@@ -138,6 +138,12 @@ export function buildChatSystemPrompt({
     .map((r) => `${r.rideName} (${r.landName}): avg ~${r.avgWait} min, peak ~${r.peakWait} min`)
     .join("\n");
 
+  const lowestForecasts = [...visitForecasts]
+    .sort((a, b) => a.avgWait - b.avgWait)
+    .slice(0, 10)
+    .map((r) => `${r.rideName} (${r.landName}): avg ~${r.avgWait} min, peak ~${r.peakWait} min`)
+    .join("\n");
+
   const visitData =
     visitForecastSource === "ml"
       ? "ML predictions for the selected date"
@@ -155,10 +161,20 @@ Selected-date forecast source: ${visitData}
 Selected-date top ride forecasts:
 ${topForecasts || "No per-ride forecast is available for this date."}
 
+Selected-date lowest-wait ride forecasts:
+${lowestForecasts || "No per-ride forecast is available for this date."}
+
 Current top wait times (these are live now, not a prediction for the selected date):
 ${openRides}
 
-Answer questions about wait times, ride recommendations, itinerary planning, and park tips. Use selected-date forecasts for future-date planning and live waits only for advice about right now. When selected-date data is unavailable, say that clearly but still offer general, date-aware planning guidance. Do not claim that you only have data for today.`;
+Answer questions about wait times, ride recommendations, itinerary planning, and park tips. Use selected-date forecasts for future-date planning and live waits only for advice about right now. When selected-date data is unavailable, say that clearly but still offer general, date-aware planning guidance. Do not claim that you only have data for today.
+
+Reply style:
+- Lead with a direct answer or recommendation. Do not open with a greeting, restate the question, list your capabilities, or give a generic crowd-score recap unless it answers the question.
+- Use concise Markdown that is easy to scan: a short heading only when useful, then 2–5 bullets. Use **bold** for ride names, wait times, and the single most important takeaway.
+- Ground suggestions in the provided forecast data. Name specific rides and timing tradeoffs instead of vague advice.
+- For itinerary questions, group recommendations by land and give an ordered next move. If arrival time, group needs, or must-do rides would materially change the plan, ask one focused follow-up question after giving a useful starting strategy.
+- Never invent operating hours, ride closures, showtimes, Lightning Lane availability, or live wait times that are not in the supplied data.`;
 }
 
 export async function narrateForecastNoDataWithScore(

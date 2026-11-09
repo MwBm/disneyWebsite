@@ -79,7 +79,9 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("Selected visit date: Saturday, July 4, 2026");
     expect(prompt).toContain("ML predictions for the selected date");
     expect(prompt).toContain("Space Mountain (Tomorrowland): avg ~45 min, peak ~75 min");
+    expect(prompt).toContain("Selected-date lowest-wait ride forecasts:");
     expect(prompt).toContain("Current top wait times (these are live now, not a prediction for the selected date)");
+    expect(prompt).toContain("Reply style:");
     // 03:30 UTC is still June 1 in Anaheim.
     expect(prompt).toContain("Current park date/time (America/Los_Angeles): Monday, June 1, 2026");
   });
